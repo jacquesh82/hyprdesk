@@ -307,7 +307,11 @@ removes the ring.
 **Full Keyboard Access.** On by default, it lets Tab reach every control in
 Settings, not only text fields. `CTRL + F1` toggles it anywhere (`hyprdesk
 keyboard-access`) and the on-screen display announces “Full Keyboard Access:
-on” or “off”; when off, Tab only goes to text fields. The setting lives in
+on” or “off”; when off, Tab only goes to text fields. In the drawer, Tab also goes through
+the page navigation and its tabs, and the content scrolls to the control it
+reaches; Ctrl + Tab jumps from the navigation to the content and back. On a
+slider, the arrow keys change the value by the setting's step, Enter opens its
+field. The setting lives in
 **Settings → Keyboard and mouse → Keyboard** (`keyboard_access`), the shortcut
 in **Settings → Shortcuts** (`keys.keyboard_access`).
 

@@ -188,6 +188,12 @@ pub struct Panel {
 /// Identifiant du volet aux opérations de focus : elles y restent bornées,
 /// sans aller aux autres surfaces (HIG ENT-02).
 pub(super) const PANEL_ID: &str = "hyprdesk-panel";
+/// La navigation des pages et le contenu du tiroir, défilés à part.
+const NAV_SCROLL_ID: &str = "hyprdesk-panel-nav";
+const CONTENT_SCROLL_ID: &str = "hyprdesk-panel-content";
+/// Les groupes du parcours au clavier du tiroir, dans l'ordre de lecture :
+/// Ctrl+Tab passe au premier contrôle du suivant (HIG ENT-01).
+const PANEL_GROUPS: [&str; 2] = ["hyprdesk-panel-group-nav", "hyprdesk-panel-group-content"];
 
 /// Curseur des Réglages dont la valeur se saisit au clavier (HIG SEL-08) :
 /// ce qu'il faut pour poser la valeur tapée comme un glissé puis son
@@ -426,6 +432,18 @@ const NAV_W: f32 = 166.0;
 /// par le texte ne le prend pas (HIG TYP-08).
 const DETAIL_MIN: f32 = 360.0;
 
+/// La navigation et le contenu du tiroir défilent jusqu'à la commande qui a
+/// le focus, si Tab l'a posé hors de vue (HIG ENT-01).
+fn panel_reveal() -> Task<Msg> {
+    super::focus::reveal(CONTENT_SCROLL_ID).chain(super::focus::reveal(NAV_SCROLL_ID))
+}
+
+/// Le nom d'un curseur du tiroir aux opérations : la saisie de sa valeur
+/// refermée, le focus lui revient (HIG ENT-01).
+fn slider_focus_id(key: &str) -> iced::widget::Id {
+    iced::widget::Id::from(format!("hyprdesk-slider-{key}"))
+}
+
 /// Largeur de la navigation d'un tiroir de `largeur` dont le texte a grandi
 /// de `croissance` : icônes seules en tiroir étroit ; sinon la largeur du
 /// repos, suivie par le texte — un libellé de paquet et son compteur
@@ -643,8 +661,28 @@ impl App {
 
     /// Le contrôle suivant (précédent) du volet prend le focus ; l'opération
     /// est bornée au volet (HIG ENT-02), elle ne va pas aux autres surfaces.
+    /// La saisie d'une valeur refermée (Entrée, Échap) : le focus revient au
+    /// curseur qui l'avait ouverte, accès clavier complet activé.
+    fn slider_refocus(&self, key: &str) -> Task<Msg> {
+        if self.cfg.general.keyboard_access {
+            iced::widget::operation::focus(slider_focus_id(key))
+        } else {
+            Task::none()
+        }
+    }
+
     pub(super) fn panel_focus_step(&self, previous: bool) -> Task<Msg> {
-        super::focus::step(iced::widget::Id::new(PANEL_ID), previous)
+        super::focus::step(iced::widget::Id::new(PANEL_ID), previous).chain(panel_reveal())
+    }
+
+    /// Ctrl+Tab (Ctrl+Maj + Tab) : le focus va au premier contrôle du groupe
+    /// suivant (précédent) du tiroir, la navigation ou le contenu (HIG ENT-01).
+    pub(super) fn panel_focus_jump(&self, previous: bool) -> Task<Msg> {
+        iced::advanced::widget::operate(iced::advanced::widget::operation::scope(
+            iced::widget::Id::new(PANEL_ID),
+            super::focus::jump(&PANEL_GROUPS, previous),
+        ))
+        .chain(panel_reveal())
     }
 
     /// Fond d'écran sous le tiroir, à sa place sur l'écran : ce que son
@@ -980,12 +1018,20 @@ impl App {
                 self.slider_close();
                 // Comme un glissé puis son relâchement : la valeur est posée,
                 // puis enregistrée.
+                let back = self.slider_refocus(&e.spec.key);
                 let save = e.spec.save;
-                self.update_inner((e.spec.pose)(v)).chain(Task::done(save))
+                self.update_inner((e.spec.pose)(v))
+                    .chain(Task::done(save))
+                    .chain(back)
             }
             PanelMsg::SliderClose => {
+                let key = self
+                    .panel
+                    .as_ref()
+                    .and_then(|p| p.slider.as_ref())
+                    .map(|e| e.spec.key.clone());
                 self.slider_close();
-                Task::none()
+                key.map_or_else(Task::none, |k| self.slider_refocus(&k))
             }
             // Un geste dans le paquet referme la valeur en cours de saisie
             // (HIG SEL-08) : la pose garde la donnée du rendu à l'ouverture
@@ -1177,32 +1223,33 @@ impl App {
             if plugins::is_advanced(pkg, Some(id)) {
                 content = content.push(plugins::adv_icon(13.0));
             }
-            button(content)
-                .padding([6, 14])
-                .on_press(Msg::Panel(PanelMsg::SubTab(pkg, id)))
-                .style(move |_, status| {
-                    let hover = matches!(status, button::Status::Hovered);
-                    button::Style {
-                        background: Some(
-                            if active {
-                                Color { a: 0.28, ..accent }
-                            } else if hover {
-                                Color { a: 0.08, ..fg }
+            self.focusable(
+                button(content)
+                    .padding([6, 14])
+                    .on_press(Msg::Panel(PanelMsg::SubTab(pkg, id)))
+                    .style(move |_, status| {
+                        let hover = matches!(status, button::Status::Hovered);
+                        button::Style {
+                            background: Some(
+                                if active {
+                                    Color { a: 0.28, ..accent }
+                                } else if hover {
+                                    Color { a: 0.08, ..fg }
+                                } else {
+                                    Color::TRANSPARENT
+                                }
+                                .into(),
+                            ),
+                            text_color: fg,
+                            border: Border::default().rounded(999).width(1).color(if active {
+                                Color { a: 0.7, ..accent }
                             } else {
-                                Color::TRANSPARENT
-                            }
-                            .into(),
-                        ),
-                        text_color: fg,
-                        border: Border::default().rounded(999).width(1).color(if active {
-                            Color { a: 0.7, ..accent }
-                        } else {
-                            Color { a: 0.14, ..fg }
-                        }),
-                        ..Default::default()
-                    }
-                })
-                .into()
+                                Color { a: 0.14, ..fg }
+                            }),
+                            ..Default::default()
+                        }
+                    }),
+            )
         }))
         .spacing(8)
         .wrap()
@@ -1290,7 +1337,7 @@ impl App {
                     );
                 }
             }
-            button(content)
+            let entry = button(content)
                 .width(Length::Fill)
                 .padding([9, 12])
                 .on_press(Msg::Panel(PanelMsg::Tab(tab)))
@@ -1307,8 +1354,9 @@ impl App {
                     text_color: if active { ink.fg } else { fg },
                     border: Border::default().rounded(11),
                     ..Default::default()
-                })
-                .into()
+                });
+            // La navigation des pages, dans le parcours au clavier (HIG ENT-01).
+            self.focusable(entry)
         };
         // Navigation par groupes ; le paquet choisi déploie ses onglets en
         // sous-entrées (tiroir large). Paquets coupés : absents (rallumables
@@ -1364,40 +1412,43 @@ impl App {
                             tab_label = tab_label.push(plugins::adv_icon(13.0));
                         }
                         nav = nav.push(
-                            button(tab_label)
-                                .width(Length::Fill)
-                                .padding(iced::Padding {
-                                    top: 5.0,
-                                    bottom: 5.0,
-                                    left: 40.0,
-                                    right: 8.0,
-                                })
-                                .on_press(Msg::Panel(PanelMsg::SubTab(i.id, t)))
-                                .style(move |_, status| button::Style {
-                                    // Onglet courant : le voile de sélection du paquet
-                                    // courant, en permanence (HIG LAY-07).
-                                    background: if active {
-                                        Some(Color { a: 0.16, ..accent }.into())
-                                    } else if matches!(
-                                        status,
-                                        button::Status::Hovered | button::Status::Pressed
-                                    ) {
-                                        Some(Color { a: 0.06, ..fg }.into())
-                                    } else {
-                                        None
-                                    },
-                                    // L'accent sur son propre fond teinté se lit mal :
-                                    // texte plein, comme le paquet choisi.
-                                    text_color: if active { ink.fg } else { ink.dim },
-                                    border: Border::default().rounded(8),
-                                    ..Default::default()
-                                }),
+                            self.focusable(
+                                button(tab_label)
+                                    .width(Length::Fill)
+                                    .padding(iced::Padding {
+                                        top: 5.0,
+                                        bottom: 5.0,
+                                        left: 40.0,
+                                        right: 8.0,
+                                    })
+                                    .on_press(Msg::Panel(PanelMsg::SubTab(i.id, t)))
+                                    .style(move |_, status| button::Style {
+                                        // Onglet courant : le voile de sélection du paquet
+                                        // courant, en permanence (HIG LAY-07).
+                                        background: if active {
+                                            Some(Color { a: 0.16, ..accent }.into())
+                                        } else if matches!(
+                                            status,
+                                            button::Status::Hovered | button::Status::Pressed
+                                        ) {
+                                            Some(Color { a: 0.06, ..fg }.into())
+                                        } else {
+                                            None
+                                        },
+                                        // L'accent sur son propre fond teinté se lit mal :
+                                        // texte plein, comme le paquet choisi.
+                                        text_color: if active { ink.fg } else { ink.dim },
+                                        border: Border::default().rounded(8),
+                                        ..Default::default()
+                                    }),
+                            ),
                         );
                     }
                 }
             }
         }
         let nav = scrollable(nav)
+            .id(NAV_SCROLL_ID)
             .height(Length::Fill)
             .width(self.nav_width())
             .direction(iced::widget::scrollable::Direction::Vertical(
@@ -1586,11 +1637,13 @@ impl App {
             // Sur sa propre ligne dans le corps des Réglages (HIG SEL-03) :
             // un interrupteur n'a pas sa place dans l'en-tête, qui est la
             // barre d'outils du tiroir.
-            toggler(adv)
-                .label(crate::i18n::tr("Configuration avancée"))
-                .text_size(12)
-                .font(self.font)
-                .on_toggle(|v| Msg::Panel(PanelMsg::Advanced(v))),
+            self.focusable(
+                toggler(adv)
+                    .label(crate::i18n::tr("Configuration avancée"))
+                    .text_size(12)
+                    .font(self.font)
+                    .on_toggle(|v| Msg::Panel(PanelMsg::Advanced(v)))
+            ),
             self.tour_card(),
             self.defaults_status(p),
             self.subtab_bar(p.tab),
@@ -1599,6 +1652,7 @@ impl App {
                 right: 14.0,
                 ..iced::Padding::ZERO
             }))
+            .id(CONTENT_SCROLL_ID)
             .direction(iced::widget::scrollable::Direction::Vertical(
                 iced::widget::scrollable::Scrollbar::new()
                     .width(4)
@@ -1613,9 +1667,14 @@ impl App {
                 header,
                 rule::horizontal(1),
                 row![
-                    nav,
+                    // Deux groupes, la navigation et le contenu : Ctrl+Tab
+                    // passe de l'un à l'autre (HIG ENT-01).
+                    super::focus::group(PANEL_GROUPS[0], nav),
                     // Réglages sur une surface de lecture stable (MLG-282).
-                    super::tokens::content(detail, &self.cfg.general.theme, 16.0)
+                    super::focus::group(
+                        PANEL_GROUPS[1],
+                        super::tokens::content(detail, &self.cfg.general.theme, 16.0)
+                    )
                 ]
                 .spacing(24)
                 .height(Length::Fill)
@@ -1725,6 +1784,30 @@ impl App {
         .step(spec.step as f32)
         .on_release(spec.save.clone())
         .width(look.width);
+        // Accès clavier complet (HIG ENT-01) : le curseur seul entre dans le
+        // parcours — les flèches le règlent au pas du réglage et
+        // l'enregistrent, Entrée ou Espace ouvrent la saisie de sa valeur. Le
+        // champ ouvert n'est jamais enveloppé : il est déjà focalisable.
+        let slider: Element<'a, Msg> = if self.cfg.general.keyboard_access {
+            let pose = Arc::clone(&spec.pose);
+            super::focus::steps(
+                slider,
+                super::focus::Steps {
+                    value: value as f32,
+                    range: (min as f32, max as f32),
+                    step: spec.step as f32,
+                    change: Box::new(move |v| pose(f64::from(v))),
+                    commit: Some(spec.save.clone()),
+                    enter: Some(Box::new(Msg::Panel(PanelMsg::SliderEdit(Box::new(
+                        SliderEdit::new(spec.clone(), value),
+                    ))))),
+                    id: Some(slider_focus_id(&spec.key)),
+                },
+                self.ink().fg,
+            )
+        } else {
+            slider.into()
+        };
         // L'échelle du curseur (HIG SEL-09) : le minimum à gauche, le maximum
         // à droite, dans le format du réglage, sous le curseur seul. Hauteur de
         // ligne fixée : la valeur, à droite, en tient compte pour rester sur la

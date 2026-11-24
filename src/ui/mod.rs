@@ -5854,7 +5854,9 @@ impl App {
                         // commandes enveloppées (HIG ENT-01) ; la conversation
                         // seule garde le parcours de ses champs.
                         let in_chat = self.chat.as_ref().is_some_and(|c| c.surface == Some(id));
-                        return if self.panel.is_some() && !in_chat {
+                        return if self.panel.is_some() && !in_chat && self.mods.control() {
+                            self.panel_focus_jump(self.mods.shift())
+                        } else if self.panel.is_some() && !in_chat {
                             self.panel_focus_step(self.mods.shift())
                         } else if self.mods.shift() {
                             iced::widget::operation::focus_previous()
