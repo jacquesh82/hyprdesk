@@ -59,6 +59,12 @@ Pas de primitive nouvelle : `App::slider` est un composé de widgets du catalogu
    - **Restent (douze curseurs)** : `bar.rs` (marges des côtés, rayon des coins ; l'helper « Convexe », trois champs), `theme.rs` (opacité par endroit), `launcher.rs` (helper de forme), `lock.rs` (quatre étapes de veille), `screens.rs` (barre et texte de l'écran, taille de zone), `animations.rs` (vitesse). Leur `poser` a besoin d'une donnée du rendu — une forme, un endroit, une étape, un écran, un nom —, qu'un pointeur de fonction ne garde pas : voir « Révision du plan » ci-dessous, à exécuter avant la fin de cette étape.
    - **Faits (B20, étape 2 achevée)** : la révision exécutée, avec trois écarts (voir « Révision du plan »). Convertis : `bar.rs` (marges des côtés, rayon des coins ; « Convexe » déroulé en trois curseurs fixes à 260 px), `theme.rs` (opacité par endroit, plus les deux options numériques de l'étape 3), `launcher.rs` (helper de forme, cinq champs), `lock.rs` (quatre étapes de veille), `screens.rs` (barre et texte de l'écran, taille de zone), `animations.rs` (vitesse). **Étape 2 faite.**
 3. **Curseurs décimaux, signés ou de domaine propre** (vingt-trois endroits) : `input.rs` (4), `lock.rs` (assombrissement), `desktop.rs` (2), `sound.rs`, `colors.rs`, `theme.rs` (2 numériques), `curves.rs`, `widgets.rs` (3), `screens.rs` (2), `panorama.rs` (2), `hue.rs` (2), `hyprset.rs` (2). Vérifiable : `+0,50`, `1,5` et `1500` se lisent ; hors domaine, la valeur est bornée. L'écart passe alors `fait`.
+   - **Faits (B20, second lot)** : quatorze de plus — `input.rs` (4), `lock.rs` (assombrissement, en pour cent), `desktop.rs` (2),
+     `widgets.rs` (3), `panorama.rs` (2), `hyprset.rs` (taille du curseur), `bar.rs` (opacité du fond) —, et deux de l'étape 3 passés
+     avec le premier lot (options numériques du thème). Restent cinq sites dont la valeur a une couleur propre ou dont le curseur
+     est plafonné, ce que le composant ne prend pas encore en charge : `sound.rs`, `colors.rs` (un par champ), `curves.rs`,
+     `hyprset.rs` (options numériques), `panorama/design.rs` (treize : helper de design et tuiles). `hue.rs` est la surface
+     Panorama, hors tiroir : hors correction, à écrire à la clôture de l'écart.
 
 ## Périmètre
 
@@ -178,3 +184,27 @@ convertis.
   pixel près dans le tiroir. Reste à dire au propriétaire : un geste lancé avant la saisie
   qui rend un message de paquet à son achèvement referme le champ (la saisie est perdue,
   pas le réglage).
+
+## Relecture du diff de l'étape 3, premier lot (itération B20, sans outil d'agent)
+
+Relu à froid. `panel.rs` n'est pas touché : le composant est celui de l'étape 2. Rendus comparés
+aux trois largeurs, du binaire du premier lot à celui-ci : les 175 scènes, puis toutes les
+scènes de l'onglet « Écran » du Verrouillage (où est l'assombrissement).
+
+- **Qu'est-ce qui casse ?** Un défaut, corrigé avant la porte : `tr("auto")`, pris pour un texte
+  nouveau à traduire — le libellé reste le littéral d'avant. Une correction du premier lot :
+  le champ « Voile derrière » s'ouvrait sur « 30.000001 » (produit flottant non arrondi) ; les
+  sites en pour cent passent au composant une valeur arrondie.
+- **Que manque-t-il ?** Deux pages ne sont pas dans les scènes d'aperçu : Barre → Couleurs
+  (opacité du fond) et l'onglet qui porte la taille du curseur. Leur conversion suit mot pour
+  mot celle des pages vérifiées (rangée souple à écart de 10 px, comme la taille de zone ;
+  curseur fixe à 240 px centré, comme les options du thème).
+- **Le diff fait-il exactement ce que l'étape demande ?** Oui : quatorze curseurs, domaine, pas
+  et messages inchangés. Deux passages en pour cent, comme la valeur affichée — l'assombrissement
+  du verrouillage (0 à 90, pas de 5, pour un réglage de 0 à 0,9), le voile du verre du Bureau
+  (0 à 100, pas de 5, pour 0 à 1) : taper « 40 » lit 40 %.
+- **Respect de `DESIGN.md` et des conventions du dépôt ?** Oui : aucun widget, jeton, style ni
+  texte nouveaux.
+- **Régression, test manquant ?** Aucune sur les pages rendues : Clavier, Curseur, Bureau,
+  Typographie, Widgets, Panorama vidéo, Environnement, Verrouillage identiques au pixel près dans
+  le tiroir. Pas de test unitaire ajouté : ces sites usent du composant déjà testé.
