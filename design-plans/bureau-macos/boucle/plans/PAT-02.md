@@ -56,6 +56,15 @@ Un fichier d'état de plus, sur l'idiome existant : aucune primitive d'interface
 4. **Paquet « Notifications »** (PAT-07, D5) : la page et ses rangées, la révocation, « Effacer l'historique » ; enregistrement, recherche, scène d'aperçu ; `docs/PLUGINS.md`.
 5. **Documentation de design** : `DESIGN.md`, guides revus, `locales/en.toml` ; au registre, PAT-02, PAT-07 et SYS-03 passent `fait` ensemble.
 
+### Notes pour l'étape 4 (relevées à `a285950`, A10 — rien d'écrit dans le code)
+
+- **Modèle** : `src/ui/plugins/datetime.rs` dans son entier (230 lignes) — `INFO`, `wrap`, `State`, `Msg`, `load`, `impl App { page, update }` ; la page s'assemble avec `self.section(…)`, `self.field(libellé, "", contrôle)`, `pick_list` et `toggler`, texte de statut en `self.ink().dim`.
+- **Un paquet touche à** (`datetime` sert de fil) : `src/ui/plugins/mod.rs` — `pub mod` (l. 25), liste des `INFO` (l. 100), `GROUPS`, groupe « Système » (l. 156), mots de recherche (l. 586), variante de `PluginMsg` (l. 623), dispatch de `update` (l. 662), de la page (l. 732), de `load` (l. 775) ; `src/ui/panel.rs` — le champ d'état du panneau (l. 85) et son initialisation (l. 161) ; `src/ui/settings_search.rs` — la paire `(id, include_str!)` du source du paquet (l. 24) ; `src/ui/preview.rs` — l'état de la scène (l. 853) et l'onglet de la scène `date-heure` (l. 1683), à imiter pour une scène `reglages-notifications`, à ajouter aussi à la liste codée dans `scripts/verify.sh` ; les tests du registre des paquets dans `mod.rs`.
+- **Rangée d'une application** : `Authorizations::load().apps` donne la clé ; le nom et l'icône viennent de l'historique (`self.toasts.history`, `desktop_entry` → `self.named_icons`) — une application refusée, sans historique, garde sa clé seule : prévoir le nom de la clé en repli. Contrôles : `pick_list` des trois `Delivery`, `toggler` « Autoriser » qui écrit `Authorization { granted, delivery }`.
+- **« Effacer l'historique »** : même chemin que le centre Continuité (`Msg::Control(Command::Notifications("clear".into()))`, `popover/continuity.rs:1107`) ; confirmation en deux temps comme `about.rs` (`confirm_reset`) et `performance.rs` (`confirm_exit`).
+- **À trancher en écrivant** : une bascule coupée révoque (`granted: false`) et sa bulle vivante, s'il y en a une, reste jusqu'à sa fermeture ; la page relit l'état à chaque ouverture (`load`), pas à chaque bulle.
+- **Tests du registre à faire vivre** (`mod.rs`, l. 958–1065 à `a285950`) : `chaque_paquet_a_son_icone`, `registre`, `registres_traduits` (libellé et résumé traduits dans `locales/en.toml`), `groupes`, `onglets`. La scène d'aperçu passe par `SCENES` (`preview.rs:27`, 169 noms : passer à 170) et la liste de `scripts/verify.sh`.
+
 ## Portée
 
 - Héritent : bulles, historique, cartes qui le listent ; la vue étendue de la pilule Island (SYS-13) ; widgets Lua qui lisent l'état publié.
