@@ -1803,6 +1803,62 @@ impl App {
             .into()
     }
 
+    /// Coin de l'ovale des non-lues sur le cadre de l'horloge (HIG SYS-02) :
+    /// celui qui touche le bord de l'écran où la barre est posée, côté fin
+    /// (bas d'une barre verticale).
+    fn badge_corner(position: BarPosition) -> (Alignment, Alignment) {
+        match position {
+            BarPosition::Top => (Alignment::End, Alignment::Start),
+            BarPosition::Bottom => (Alignment::End, Alignment::End),
+            BarPosition::Left => (Alignment::Start, Alignment::End),
+            BarPosition::Right => (Alignment::End, Alignment::End),
+        }
+    }
+
+    /// Chiffre de l'ovale des non-lues (HIG SYS-02) : « 99+ » au-delà de 99.
+    fn badge_label(unread: usize) -> String {
+        if unread > 99 {
+            "99+".to_string()
+        } else {
+            unread.to_string()
+        }
+    }
+
+    /// Ovale des non-lues, posé sur le cadre de l'horloge (HIG SYS-02) : petit
+    /// ovale plein au chiffre, au ton « attention » de la barre comme la bulle
+    /// critique (HIG FON-02) — l'accent reste à la sélection et aux actions.
+    /// `None` sans non lue.
+    fn unread_badge<'a>(&self, unread: usize, alpha: f32) -> Option<Element<'a, Msg>> {
+        if unread == 0 {
+            return None;
+        }
+        let pal = self.bar_palette();
+        // Encre du thème qui reste lisible sur ce ton, clair ou sombre.
+        let ink = design::on_accent(
+            color(pal.warning, 1.0),
+            color(pal.fg, 1.0),
+            color(pal.bg, 1.0),
+        );
+        let warning = color(pal.warning, alpha);
+        let ink = Color { a: alpha, ..ink };
+        // 18 px au moins ; grandit avec son chiffre (échelle du texte).
+        let h = 18.0_f32.max(crate::ui::tokens::ts_label(11.0) + 7.0);
+        Some(
+            container(self.label_numeric(Self::badge_label(unread), 11.0, ink))
+                .padding([0, 6])
+                .height(h)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center)
+                .style(move |_| container::Style {
+                    background: Some(Background::Color(warning)),
+                    border: Border::default().rounded(h / 2.0),
+                    text_color: Some(ink),
+                    ..Default::default()
+                })
+                .into(),
+        )
+    }
+
     /// Module de barre : capsule au survol, clics gauche/droit/milieu, molette,
     /// info-bulle.
     #[allow(clippy::too_many_arguments)]
@@ -2357,7 +2413,15 @@ impl App {
                                 fg,
                             )
                         };
-                        self.module(
+                        // Ovale des non-lues sur l'horloge (HIG SYS-02). La
+                        // pile mesure son premier enfant : le cadre, posé au
+                        // centre de l'épaisseur de la barre. L'ovale y déborde
+                        // dans la marge du cadre, à ras du bord de l'écran, sans
+                        // déplacer ni couvrir l'heure. Son nom, en
+                        // info-bulle, dit le compte.
+                        let unread = self.toasts.unread();
+                        let tip = (unread > 0).then(|| crate::tr!("Non lues : {n}", n = unread));
+                        let frame = self.module(
                             bar,
                             alpha,
                             shown,
@@ -2365,9 +2429,36 @@ impl App {
                             None,
                             None,
                             None,
-                            None,
+                            tip,
                             open,
-                        )
+                        );
+                        match self.unread_badge(unread, alpha) {
+                            Some(badge) => {
+                                let (x, y) = Self::badge_corner(bar.position);
+                                let vertical = bar.position.vertical();
+                                let base = container(frame)
+                                    .width(if vertical {
+                                        Length::Fixed(bar.height as f32)
+                                    } else {
+                                        Length::Shrink
+                                    })
+                                    .height(if vertical {
+                                        Length::Shrink
+                                    } else {
+                                        Length::Fixed(bar.height as f32)
+                                    })
+                                    .align_x(Alignment::Center)
+                                    .align_y(Alignment::Center);
+                                let over: Element<'_, Msg> = container(badge)
+                                    .width(Length::Fill)
+                                    .height(Length::Fill)
+                                    .align_x(x)
+                                    .align_y(y)
+                                    .into();
+                                iced::widget::stack![base, over].into()
+                            }
+                            None => frame,
+                        }
                     }
                     WidgetKind::Calendar => self.module(
                         bar,
@@ -2742,5 +2833,19 @@ Video
             volume_icon(Some((0.9, true))),
             "audio-volume-muted-symbolic"
         );
+    }
+
+    /// HIG SYS-02 : l'ovale des non-lues se pose au coin du cadre de l'horloge
+    /// qui touche le bord de l'écran ; « 99+ » au-delà de 99.
+    #[test]
+    fn ovale_des_non_lues_au_bord_de_l_ecran() {
+        use BarPosition::{Bottom, Left, Right, Top};
+        assert_eq!(App::badge_corner(Top), (Alignment::End, Alignment::Start));
+        assert_eq!(App::badge_corner(Bottom), (Alignment::End, Alignment::End));
+        assert_eq!(App::badge_corner(Left), (Alignment::Start, Alignment::End));
+        assert_eq!(App::badge_corner(Right), (Alignment::End, Alignment::End));
+        assert_eq!(App::badge_label(1), "1");
+        assert_eq!(App::badge_label(99), "99");
+        assert_eq!(App::badge_label(100), "99+");
     }
 }

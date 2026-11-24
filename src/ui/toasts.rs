@@ -324,6 +324,8 @@ pub enum TMsg {
     Shown(Id),
     /// La fin programmée du Silence est atteinte (HIG PAT-04).
     Expire,
+    /// Une liste de l'historique s'ouvre : tout est lu (HIG SYS-02).
+    Read,
 }
 
 /// Surface des bulles et ses bulles (les plus récentes en premier).
@@ -425,6 +427,11 @@ impl Toasts {
                 crate::notifications::render_state(self.dnd, self.dnd_until, &self.history),
             );
         }
+    }
+
+    /// Notifications non lues de l'historique (HIG SYS-02).
+    pub fn unread(&self) -> usize {
+        self.history.iter().filter(|n| n.unread).count()
     }
 
     /// Bascule le Silence et le garde d'une session à l'autre.
@@ -552,6 +559,19 @@ impl Layout {
 }
 
 impl App {
+    /// Une carte de la barre liste l'historique en ce moment — la carte
+    /// Notifications, le centre Continuité —, ouverte et non en train de se
+    /// refermer (HIG SYS-02) : ce qui y arrive est montré, donc lu.
+    pub(super) fn history_list_open(&self) -> bool {
+        self.popover.as_ref().is_some_and(|p| {
+            !p.closing()
+                && (matches!(
+                    p.kind,
+                    crate::ui::plugins::bar::popover::Kind::Notifications
+                ) || p.dashboard.is_some())
+        })
+    }
+
     pub(super) fn toasts_update(&mut self, m: TMsg) -> Task<Msg> {
         match m {
             TMsg::Shown(id) => {
@@ -577,6 +597,16 @@ impl App {
                 self.toasts.silence_expire();
                 Task::none()
             }
+            // Une liste de l'historique s'ouvre : tout est lu (HIG SYS-02).
+            TMsg::Read => {
+                if self.toasts.unread() > 0 {
+                    for n in &mut self.toasts.history {
+                        n.unread = false;
+                    }
+                    self.toasts.publish();
+                }
+                Task::none()
+            }
             TMsg::Event(Event::Shown(n)) => {
                 // Le Silence a peut-être expiré pendant une veille.
                 self.toasts.silence_expire();
@@ -586,7 +616,12 @@ impl App {
                     .retain(|e| self.toasts.list.iter().any(|t| t.n.id == e.id));
                 if !n.transient {
                     self.toasts.history.retain(|h| h.id != n.id);
-                    self.toasts.history.insert(0, n.clone());
+                    // Elle entre dans l'historique non lue ; un remplacement
+                    // (même id) change son contenu : non lue à nouveau (HIG
+                    // SYS-02). Une liste de la barre ouverte la montre : lue.
+                    let mut h = n.clone();
+                    h.unread = !self.history_list_open();
+                    self.toasts.history.insert(0, h);
                     self.toasts.history.truncate(crate::notifications::HISTORY);
                     self.toasts.publish();
                 }
@@ -1916,6 +1951,48 @@ mod tests {
             app.named_icons.contains_key(URGENT_ICON),
             "le repère de l'urgence critique est prêt dès la première image"
         );
+    }
+
+    /// HIG SYS-02 : une notification entre dans l'historique non lue, une
+    /// transitoire ne compte pas ; l'ouverture d'une liste lit tout ; un
+    /// remplacement (même id) est non lu à nouveau.
+    #[test]
+    fn les_non_lues_se_comptent_jusqu_a_l_ouverture_d_une_liste() {
+        let mut app = application();
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(1, "a"))));
+        let mut transitoire = recue(2, "a");
+        transitoire.transient = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(transitoire)));
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(3, "b"))));
+        assert_eq!(app.toasts.history.len(), 2, "une transitoire n'entre pas");
+        assert_eq!(app.toasts.unread(), 2);
+
+        let _ = app.toasts_update(TMsg::Read);
+        assert_eq!(app.toasts.unread(), 0, "une liste ouverte lit tout");
+        assert_eq!(app.toasts.history.len(), 2, "l'historique reste");
+
+        // Remplacement : même id, contenu changé.
+        let mut remplacee = recue(1, "a");
+        remplacee.summary = "changé".into();
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(remplacee)));
+        assert_eq!(app.toasts.history.len(), 2);
+        assert_eq!(app.toasts.unread(), 1, "un remplacement est non lu");
+    }
+
+    /// HIG SYS-02 : sous Silence, une critique dont l'application a perdu le
+    /// passage va à l'historique sans bulle — elle compte quand même.
+    #[test]
+    fn une_notification_sans_bulle_compte_comme_non_lue() {
+        let _verrou = verrou_passage();
+        let (mut app, refusee) = (application(), cle());
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(1, &refusee))));
+        assert!(app.toasts.refuse(1, true), "la bulle portait l'explication");
+        let _ = app.toasts_update(TMsg::Read);
+        assert_eq!(app.toasts.unread(), 0);
+        app.toasts.dnd = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(2, &refusee))));
+        assert_eq!(app.toasts.list.len(), 1, "sous Silence : pas de bulle");
+        assert_eq!(app.toasts.unread(), 1, "sans bulle, elle est non lue");
     }
 }
 

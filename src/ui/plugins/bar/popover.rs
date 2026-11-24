@@ -295,6 +295,55 @@ mod tests {
         assert_eq!(p.size.width, WIDTH + 2.0 * SHADOW);
     }
 
+    /// HIG SYS-02 : une liste de l'historique qui s'ouvre lit tout — la carte
+    /// Notifications, le centre Continuité ; un autre menu ne lit rien.
+    #[test]
+    fn une_liste_de_l_historique_qui_s_ouvre_lit_tout() {
+        let (mut app, bar) = app();
+        let non_lue = |id: u32| {
+            crate::notifications::build(id, "a", "", "s", "", &[], &Default::default(), -1)
+        };
+        app.toasts.history = vec![non_lue(1), non_lue(2)];
+        let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
+        assert_eq!(
+            app.toasts.unread(),
+            2,
+            "un menu sans historique ne lit rien"
+        );
+        let _ = app.open_popover(bar, "notifications".into(), Kind::Notifications);
+        assert_eq!(app.toasts.unread(), 0, "la carte Notifications lit tout");
+        // Une nouvelle arrive : la carte, déjà ouverte, se rouvre sur elle.
+        app.toasts.history = vec![non_lue(3)];
+        let _ = app.open_popover(bar, "notifications".into(), Kind::Notifications);
+        assert_eq!(app.toasts.unread(), 0, "la carte rouverte lit tout");
+        // Une notification arrive pendant que la carte est ouverte : la liste
+        // la montre, elle est lue ; sous un autre menu, non.
+        let arrivee = |id: u32| {
+            crate::ui::toasts::TMsg::Event(crate::notifications::Event::Shown(non_lue(id)))
+        };
+        let _ = app.toasts_update(arrivee(5));
+        assert_eq!(
+            app.toasts.unread(),
+            0,
+            "une liste ouverte montre ce qui arrive"
+        );
+        let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
+        let _ = app.toasts_update(arrivee(6));
+        assert_eq!(app.toasts.unread(), 1, "sans liste ouverte : non lue");
+        // Le centre Continuité liste l'historique.
+        let loaded = crate::config::lua::load_source(
+            "hd.widget('controls', {id='controls'}); hd.bar({style='continuity', right={'controls'}})",
+            "test.lua",
+            std::path::Path::new("/tmp"),
+        )
+        .unwrap();
+        app.cfg = Arc::new(loaded.config);
+        app.toasts.history = vec![non_lue(4)];
+        let _ = app.open_popover(bar, "controls".into(), Kind::Widget("controls".into()));
+        assert!(app.popover.as_ref().unwrap().dashboard.is_some());
+        assert_eq!(app.toasts.unread(), 0, "le centre Continuité lit tout");
+    }
+
     /// Une entrée, un trait, le sous-menu « Déplacer vers l'espace » (quatre
     /// espaces), un trait : de quoi ouvrir une colonne.
     fn submenu_menu() -> Kind {
@@ -959,6 +1008,12 @@ impl App {
                 && matches!(&kind, Kind::Widget(id) if self.cfg.widgets.iter().any(|w| w.id == *id
                     && matches!(w.kind, crate::config::WidgetKind::Controls)))
         });
+        // Une liste de l'historique qui s'ouvre lit tout (HIG SYS-02) : la
+        // carte Notifications, le centre Continuité.
+        let mut tasks = Vec::new();
+        if matches!(kind, Kind::Notifications) || wide {
+            tasks.push(self.toasts_update(crate::ui::toasts::TMsg::Read));
+        }
         let (mut left, width, origin) = if wide {
             dashboard_placement(m.width as f32, anchor)
         } else {
@@ -1030,7 +1085,6 @@ impl App {
                 BarPosition::Right => (side_top, v, 0, 0),
             }
         };
-        let mut tasks = Vec::new();
         if wide {
             tasks.extend(continuity::ICONS.iter().map(|name| self.want_icon(name)));
         }

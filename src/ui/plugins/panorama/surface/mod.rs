@@ -1820,11 +1820,17 @@ impl App {
             }
             PMsg::Notifs(mon) => {
                 self.panorama.last_press = Some(Instant::now());
-                if mon.is_some() {
+                // Le volet des notifications qui s'ouvre lit tout (HIG SYS-02).
+                let opened = mon.is_some();
+                if opened {
                     self.panorama.picker = None;
                 }
                 self.panorama.notifs = mon;
-                Task::none()
+                if opened {
+                    self.toasts_update(crate::ui::toasts::TMsg::Read)
+                } else {
+                    Task::none()
+                }
             }
             PMsg::NotifsClear => {
                 self.toasts.command("clear");
@@ -1848,7 +1854,14 @@ impl App {
             PMsg::Show(mon) => {
                 self.panorama.hidden.remove(&mon);
                 self.panorama.last_press = Some(Instant::now());
-                self.sync_panorama()
+                // La surface revient sur son volet des notifications ouvert :
+                // la liste se montre, tout est lu (HIG SYS-02).
+                let read = if self.panorama.notifs.is_some() {
+                    self.toasts_update(crate::ui::toasts::TMsg::Read)
+                } else {
+                    Task::none()
+                };
+                Task::batch([self.sync_panorama(), read])
             }
             PMsg::Toggle(mon) => {
                 let list = self.panorama_monitors();
@@ -3263,5 +3276,25 @@ mod tests {
         assert!(l.contains(r#"class = "^(hyprdesk-panorama-preview)$""#));
         assert!(l.contains(r#"float = true, center = true, size = "1280 360""#));
         assert!(l.contains("set_enabled(false)"));
+    }
+
+    /// HIG SYS-02 : le volet des notifications qui s'ouvre lit tout ; fermé,
+    /// il ne lit rien.
+    #[test]
+    fn le_volet_des_notifications_qui_s_ouvre_lit_tout() {
+        let (mut app, _) = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-panorama-tests/config.lua"),
+            true,
+        );
+        app.toasts.history = (1..=2)
+            .map(|id| {
+                crate::notifications::build(id, "a", "", "s", "", &[], &Default::default(), -1)
+            })
+            .collect();
+        let _ = app.panorama_update(PMsg::Notifs(None));
+        assert_eq!(app.toasts.unread(), 2, "le volet fermé ne lit rien");
+        let _ = app.panorama_update(PMsg::Notifs(Some("A".into())));
+        assert_eq!(app.panorama.notifs.as_deref(), Some("A"));
+        assert_eq!(app.toasts.unread(), 0, "le volet ouvert lit tout");
     }
 }

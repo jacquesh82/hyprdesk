@@ -200,6 +200,17 @@ Silence, ses critiques vont alors à l'historique seules. Fermer la bulle sans
 refuser garde le passage. `hyprdesk config reset all --yes` oublie ces
 décisions.
 
+Chaque notification gardée dans l'historique est **non lue** jusqu'à ce que
+vous ouvriez une liste : la carte Notifications de la barre, le centre de
+contrôle de Continuité ou le volet des notifications du Panorama. Leur nombre
+figure dans un petit ovale posé sur l'horloge de la barre, à son coin le plus
+proche du bord de l'écran (« 99+ » au-delà de 99) ; l'info-bulle de l'horloge
+dit le compte. Une notification de basse urgence ou reçue sous Silence, sans
+bulle, compte ; une notification transitoire, non. Sans horloge dans la barre,
+les listes restent la source. L'état publié
+(`$XDG_RUNTIME_DIR/hyprdesk-notifications.txt`) porte le compte dans sa ligne
+`unread=N` ; `count=N` reste la longueur de l'historique.
+
 **Orchestrés** : l'outil externe reste, hyprdesk le pilote. Cela vaut pour
 `hypridle` (configuration écrite et supervisée), `cliphist` + `wl-clipboard`
 (l'historique derrière `:clip`), `hyprsunset` (éclairage nocturne),

@@ -202,6 +202,16 @@ critical notifications then go to the history alone. Closing the bubble without
 blocking keeps the bypass. `hyprdesk config reset all --yes` forgets these
 decisions.
 
+Every notification kept in the history is **unread** until you open a list: the
+Notifications card of the bar, the Continuity control center or the
+notifications pane of Panorama. Their count sits in a small oval laid on the
+clock of the bar, at its corner nearest the edge of the screen ("99+" beyond
+99); the clock's tooltip gives the count. A low-urgency notification, or one
+received under Silence without a bubble, counts; a transient notification does
+not. Without a clock in the bar, the lists remain the source. The published
+state (`$XDG_RUNTIME_DIR/hyprdesk-notifications.txt`) carries the count in its
+`unread=N` line; `count=N` remains the length of the history.
+
 **Orchestrated**: the external tool stays and hyprdesk drives it. This
 covers `hypridle` (config written and supervised), `cliphist` +
 `wl-clipboard` (the clipboard history behind `:clip`), `hyprsunset` (night

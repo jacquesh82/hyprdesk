@@ -720,6 +720,7 @@ pub(crate) mod tests {
             transient: false,
             desktop_entry: None,
             category: None,
+            unread: false,
         };
         let st = parse_notifications(&crate::notifications::render_state(
             true,

@@ -68,6 +68,9 @@ pub struct Notification {
     /// Application d'origine (`desktop-entry`).
     pub desktop_entry: Option<String>,
     pub category: Option<String>,
+    /// Non lue (HIG SYS-02) : depuis son entrée dans l'historique, un
+    /// remplacement compris, jusqu'à l'ouverture d'une liste de l'historique.
+    pub unread: bool,
 }
 
 /// Ce que le serveur signale à l'interface.
@@ -86,8 +89,9 @@ pub enum Event {
 
 /// État pour le module de barre et `hyprdesk notifications` :
 /// `$XDG_RUNTIME_DIR/hyprdesk-notifications.txt` — `dnd=0|1`, `count=N`,
-/// `dnd_until=<échéance>` (Silence à fin programmée, HIG PAT-04), puis
-/// `n=<app>\t<titre>\t<texte>` (les plus récentes d'abord).
+/// `unread=N` (non lues, HIG SYS-02), `dnd_until=<échéance>` (Silence à fin
+/// programmée, HIG PAT-04), puis `n=<app>\t<titre>\t<texte>` (les plus
+/// récentes d'abord).
 pub fn state_path() -> std::path::PathBuf {
     crate::policy::private_runtime_or_unusable().join("hyprdesk-notifications.txt")
 }
@@ -277,7 +281,12 @@ impl Passage {
 /// Texte de l'état : un champ par ligne, tabulations et sauts de ligne remplacés.
 pub fn render_state(dnd: bool, until: Option<i64>, history: &[Notification]) -> String {
     let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
-    let mut out = format!("dnd={}\ncount={}\n", u8::from(dnd), history.len());
+    let unread = history.iter().filter(|n| n.unread).count();
+    let mut out = format!(
+        "dnd={}\ncount={}\nunread={unread}\n",
+        u8::from(dnd),
+        history.len()
+    );
     if dnd && let Some(t) = until {
         out.push_str(&format!("dnd_until={t}\n"));
     }
@@ -412,6 +421,7 @@ pub fn build(
         transient: hint_bool(hints, "transient"),
         desktop_entry: hint_str(hints, "desktop-entry"),
         category: hint_str(hints, "category"),
+        unread: true,
     }
 }
 
@@ -828,6 +838,7 @@ mod tests {
             transient: false,
             desktop_entry: None,
             category: None,
+            unread: false,
         };
         let out = render_state(
             true,
@@ -839,8 +850,22 @@ mod tests {
         );
         assert_eq!(
             out,
-            "dnd=1\ncount=2\nn=kitty\tFini\tcargo test ok\nn=hyprdesk\tCapture\t\n"
+            "dnd=1\ncount=2\nunread=0\nn=kitty\tFini\tcargo test ok\nn=hyprdesk\tCapture\t\n"
         );
+    }
+
+    /// HIG SYS-02 : l'état compte les non lues à part de la longueur de
+    /// l'historique ; une notification reçue est non lue.
+    #[test]
+    fn l_etat_compte_les_non_lues() {
+        let mut a = build(1, "kitty", "", "Fini", "", &[], &HashMap::new(), -1);
+        let mut b = build(2, "signal", "", "Message", "", &[], &HashMap::new(), -1);
+        let c = build(3, "hyprdesk", "", "Capture", "", &[], &HashMap::new(), -1);
+        assert!(a.unread && b.unread && c.unread);
+        a.unread = false;
+        b.unread = false;
+        let out = render_state(false, None, &[a, b, c]);
+        assert!(out.starts_with("dnd=0\ncount=3\nunread=1\n"), "{out}");
     }
 
     #[test]
@@ -900,8 +925,8 @@ mod tests {
     #[test]
     fn etat_avec_la_fin_du_silence() {
         let out = render_state(true, Some(1_000_600), &[]);
-        assert_eq!(out, "dnd=1\ncount=0\ndnd_until=1000600\n");
-        assert_eq!(render_state(false, None, &[]), "dnd=0\ncount=0\n");
+        assert_eq!(out, "dnd=1\ncount=0\nunread=0\ndnd_until=1000600\n");
+        assert_eq!(render_state(false, None, &[]), "dnd=0\ncount=0\nunread=0\n");
     }
 
     /// HIG PAT-05 : le passage du Silence se décide application par

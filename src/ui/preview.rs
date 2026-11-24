@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 163] = [
+const SCENES: [&str; 165] = [
     "desktop",
     "typography",
     "icons",
@@ -188,6 +188,8 @@ const SCENES: [&str; 163] = [
     "panorama-config-lecteur",
     "panorama-config-video",
     "bar-notifications",
+    "bar-unread",
+    "bar-island-unread",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -2052,6 +2054,8 @@ impl Preview {
                 surface.height = 36;
                 surface.margin = 8;
                 self.app.monitors[0].reserved = (0.0, 44.0, 0.0, 0.0);
+                // L'ovale des non-lues (HIG SYS-02) se pose sur l'horloge :
+                // la pilule la montre, commandes révélées.
                 if !matches!(
                     SCENES[self.scene],
                     "bar-island-idle" | "bar-island-notif" | "bar-island-bottom"
@@ -2398,6 +2402,26 @@ impl Preview {
                     popover::Kind::Notifications,
                 );
             }
+            // Ovale des non-lues sur l'horloge (HIG SYS-02) : trois non lues,
+            // aucune liste ouverte.
+            if matches!(SCENES[self.scene], "bar-unread" | "bar-island-unread") {
+                self.app.toasts.history = ["Firefox", "Signal", "Firefox"]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, app)| {
+                        crate::notifications::build(
+                            i as u32 + 1,
+                            app,
+                            "",
+                            "Nouveau message",
+                            "",
+                            &[],
+                            &Default::default(),
+                            -1,
+                        )
+                    })
+                    .collect();
+            }
             // Mise à jour en cours (MLG-161) : mode compact (« 42 % ») puis
             // mode détaillé (jauge et %), côte à côte.
             if SCENES[self.scene] == "bar-majs-progression" {
@@ -2558,6 +2582,8 @@ impl Preview {
                         transient: false,
                         desktop_entry: Some("code".into()),
                         category: None,
+                        // Entre par la liste des bulles, pas par l'historique.
+                        unread: false,
                     },
                     since: Instant::now(),
                 });
