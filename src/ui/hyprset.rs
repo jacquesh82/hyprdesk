@@ -35,8 +35,9 @@ pub enum Msg {
     /// Curseur en mouvement : appliqué à chaud, enregistré au relâchement.
     Drag(Store, String, f64),
     Commit,
-    /// Saisie en cours (couleur, dégradé, côtés, texte).
-    Draft(String, String),
+    /// Saisie en cours (couleur, dégradé, côtés, texte), validée à chaque
+    /// frappe (HIG DAT-02).
+    Draft(Store, String, String),
     /// Saisie validée (Entrée).
     Submit(Store, String),
     /// Valeurs en vigueur des options `hypr` (`hl.get_config`).
@@ -99,6 +100,16 @@ impl std::fmt::Display for Choice {
 }
 
 /// Option du registre de son magasin.
+/// Message à montrer pendant la saisie d'une option : sa valeur est analysée
+/// à chaque frappe (HIG DAT-02), avec le rendu de la validation par Entrée.
+/// Un champ vidé retire l'option et une option inconnue n'a pas d'erreur.
+fn draft_error(store: Store, path: &str, draft: &str) -> Option<String> {
+    if draft.trim().is_empty() {
+        return None;
+    }
+    registry(store, path).and_then(|o| o.parse(draft).err())
+}
+
 pub fn registry(store: Store, path: &str) -> Option<&'static Opt> {
     match store {
         Store::Fx => crate::fx::opt(path),
@@ -321,7 +332,7 @@ impl App {
                 let mut r = row![
                     container(
                         text_input(&placeholder, &shown)
-                            .on_input(move |s| wrap(Msg::Draft(p2.clone(), s)))
+                            .on_input(move |s| wrap(Msg::Draft(store, p2.clone(), s)))
                             .on_submit(wrap(Msg::Submit(store, p)))
                             .font(self.font)
                             .size(crate::ui::tokens::ts(13.0))
@@ -461,8 +472,15 @@ impl App {
                 self.apply()
             }
             Msg::Commit => self.commit(),
-            Msg::Draft(path, s) => {
-                self.opt_errors.remove(&path);
+            Msg::Draft(store, path, s) => {
+                match draft_error(store, &path, &s) {
+                    Some(e) => {
+                        self.opt_errors.insert(path.clone(), e);
+                    }
+                    None => {
+                        self.opt_errors.remove(&path);
+                    }
+                }
                 self.opt_drafts.insert(path, s);
                 Task::none()
             }
@@ -815,5 +833,41 @@ fn set_env(h: &mut crate::hyprset::Hypr, k: &str, v: &str) {
     match h.env.iter_mut().find(|(n, _)| n == k) {
         Some(e) => e.1 = v.to_string(),
         None => h.env.push((k.to_string(), v.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// La saisie est validée à chaque frappe : le message paraît dès que la
+    /// valeur est invalide (HIG DAT-02) ; une valeur valide, un champ vidé
+    /// ou une option inconnue n'en montre pas.
+    #[test]
+    fn la_saisie_est_validee_a_chaque_frappe() {
+        let (store, path) = [
+            (Store::Fx, crate::fx::OPTIONS.iter()),
+            (Store::Tiling, crate::tiling::OPTIONS.iter()),
+            (Store::Hypr, crate::hyprset::OPTIONS.iter()),
+        ]
+        .into_iter()
+        .find_map(|(store, mut opts)| {
+            opts.find(|o| matches!(o.kind, Kind::Color))
+                .map(|o| (store, o.path()))
+        })
+        .expect("une option couleur");
+        assert!(
+            draft_error(store, &path, "rouge").is_some(),
+            "valeur invalide : le message paraît sans attendre Entrée"
+        );
+        assert!(
+            draft_error(store, &path, "#ff0000").is_none(),
+            "valeur valide : pas de message"
+        );
+        assert!(draft_error(store, &path, "").is_none(), "champ vidé");
+        assert!(
+            draft_error(store, "option.inconnue", "rouge").is_none(),
+            "option inconnue"
+        );
     }
 }

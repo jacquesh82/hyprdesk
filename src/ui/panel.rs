@@ -1102,10 +1102,16 @@ impl App {
             self.tour_card(),
             self.defaults_status(p),
             self.subtab_bar(p.tab),
+            // Même barre de 4 px que la navigation (HIG PRES-04).
             scrollable(container(content).padding(iced::Padding {
                 right: 14.0,
                 ..iced::Padding::ZERO
             }))
+            .direction(iced::widget::scrollable::Direction::Vertical(
+                iced::widget::scrollable::Scrollbar::new()
+                    .width(4)
+                    .scroller_width(4),
+            ))
             .height(Length::Fill),
         ]
         .spacing(18)
