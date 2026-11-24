@@ -36,6 +36,7 @@
 | 2026-11-24 | A16 | ACC-06, ACC-08 traités ; il en reste 21 dans ce couloir |
 | 2026-11-24 | A17 | ACC-07 traité ; il en reste 20 dans ce couloir |
 | 2026-11-24 | A18 | ACC-09 traité ; il en reste 19 dans ce couloir |
+| 2026-11-24 | A19 | FON-04, FON-05, FON-06 traités ; il en reste 16 dans ce couloir |
 
 ### Couloir B
 
@@ -216,9 +217,9 @@ Référence verte : `06a2180` (code vérifié par `scripts/verify.sh --visual` l
 
 | Écart | Objet | Nature | Effort | Confiance | Statut | Commit | Remarque |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| FON-04 | Halo du verre qui suit le pointeur | ÉCART | S | moyenne (la hig range cet effet dans le mouvement sans le nommer animation) | à faire | — | — |
-| FON-05 | Accent employé comme couleur de texte | ÉCART | S | haute | à faire | — | — |
-| FON-06 | Encre d'erreur et d'avertissement | ÉCART | S | haute | à faire | — | — |
+| FON-04 | Halo du verre qui suit le pointeur | ÉCART | S | moyenne (la hig range cet effet dans le mouvement sans le nommer animation) | fait | bf34139 | `tokens::glass` coupe `pointer_response` quand `motion().reduced` (pack ou réglage de l'utilisateur), comme la qualité moyenne du lanceur ; le reflet lui-même reste ; test dans `jetons_posés_lus_par_les_surfaces` ; `transition = "none"` n'est pas consulté : hors colonne Correction, ce réglage porte sur les transitions des espaces et de la barre, pas sur le verre |
+| FON-05 | Accent employé comme couleur de texte | ÉCART | S | haute | fait | bf34139 | les textes accentués du tiroir prennent `self.ink().accent`, garanti à 4,5:1 sur son fond : « réglé ici » (`src/ui/plugins/animations.rs`), titres de section (`App::section`, `src/ui/panel.rs`), version, message de rétablissement et « généré par hyprdesk » de la page À propos ; les sept packs livrés étant au-dessus de 4,5:1, rien ne bouge avec eux, seuls les thèmes personnalisés y gagnent ; hors du tiroir, l'accent employé comme texte (barre, dock, lanceur) n'a pas été passé au crible |
+| FON-06 | Encre d'erreur et d'avertissement | ÉCART | S | haute | fait | bf34139 | `theme::states` compose `ensure_contrast` : l'encre d'erreur vient du slot `danger`, une nouvelle encre `Readable.warning` du slot `warning` (palette en place, par `ui::tone`) ; les six textes d'avertissement de la fenêtre myMFA prennent `warning`, ses deux boutons « supprimer » gardent `danger`, action destructrice ; le verrouillage et l'écran de connexion gardent leur couleur d'erreur fixe, sans palette en place |
 | ICO-05 | SmartUI design | ÉCART | S | haute | à faire | — | — |
 | ICO-08 | Variantes « indisponible » | ÉCART | S | haute | à faire | — | — |
 | SEL-04 | Pastilles Wi-Fi, Bluetooth, Silence du centre de contrôle | ÉCART | S | moyenne | à faire | — | — |
