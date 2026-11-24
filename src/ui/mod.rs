@@ -534,6 +534,8 @@ pub struct App {
     toasts: toasts::Toasts,
     /// Problème affiché (sans assistant pour le prendre).
     problem: Option<problem::Problem>,
+    /// Origines des problèmes tus jusqu'à la fin de la session (HIG PRES-13).
+    problem_muted: std::collections::HashSet<String>,
     /// Conflits de raccourcis en question (installation, remise à zéro).
     key_conflict: Option<key_conflict::KeyConflict>,
     /// « Plus tard » : la question ne revient qu'au prochain démarrage.
@@ -1109,6 +1111,7 @@ impl App {
             mfa_greet: Some(std::time::Instant::now()),
             toasts: Default::default(),
             problem: None,
+            problem_muted: Default::default(),
             key_conflict: None,
             key_conflict_later: false,
             tour_win: None,
