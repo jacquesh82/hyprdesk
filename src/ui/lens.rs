@@ -39,6 +39,11 @@ pub struct Lens {
     pub tint: Color,
     /// Flou de ce qui est derrière.
     pub blur: bool,
+    /// La lentille remplace ce qui est sous elle au lieu de s'y poser :
+    /// hors de sa forme arrondie il ne reste rien. Pour une surface dont le
+    /// fond est une tranche rectangulaire peinte dessous (barre, dock,
+    /// menus, Réglages), qui dépasserait sinon aux coins.
+    pub erase: bool,
 }
 
 impl<M> shader::Program<M> for Lens {
@@ -123,6 +128,8 @@ pub struct Pipeline {
     uniforms_layout: wgpu::BindGroupLayout,
     down: wgpu::RenderPipeline,
     lens: wgpu::RenderPipeline,
+    /// Même dessin, sans mélange : la lentille remplace la cible.
+    lens_erase: wgpu::RenderPipeline,
     instances: HashMap<u64, Instance>,
     live: HashSet<u64>,
 }
@@ -221,6 +228,12 @@ impl shader::Pipeline for Pipeline {
             "fs_lens",
             Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
         );
+        let lens_erase = make(
+            "hyprdesk.lens.erase",
+            &[&textures_layout, &uniforms_layout],
+            "fs_lens",
+            Some(wgpu::BlendState::REPLACE),
+        );
         Self {
             format,
             sampler,
@@ -228,6 +241,7 @@ impl shader::Pipeline for Pipeline {
             uniforms_layout,
             down,
             lens,
+            lens_erase,
             instances: HashMap::new(),
             live: HashSet::new(),
         }
@@ -527,7 +541,11 @@ impl shader::Primitive for Primitive {
             1.0,
         );
         pass.set_scissor_rect(clip.x, clip.y, clip.width, clip.height);
-        pass.set_pipeline(&pipeline.lens);
+        pass.set_pipeline(if self.lens.erase {
+            &pipeline.lens_erase
+        } else {
+            &pipeline.lens
+        });
         pass.set_bind_group(0, &inst.full_group, &[]);
         pass.set_bind_group(1, &inst.uniform_group, &[]);
         pass.draw(0..6, 0..1);

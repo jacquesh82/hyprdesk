@@ -917,8 +917,12 @@ impl App {
                 crate::ui::tokens::tinted(th.bg, crate::config::Place::Launcher),
                 base * 0.86 * t,
             );
+            // Coin de la surface du dock sur l'écran — pas celui de ses
+            // icônes (`roi`) : la tranche de fond serait décalée d'autant.
+            let corner =
+                lifecycle::screen_anchor(m, l.position, l.size, Rectangle::default()).position();
             let under = crate::ui::lens::available()
-                .then(|| self.wall_backdrop(&m.name, Point::new(roi.x, roi.y)))
+                .then(|| self.wall_backdrop(&m.name, corner))
                 .flatten();
             crate::ui::glass::card(
                 container(inner).padding(10),

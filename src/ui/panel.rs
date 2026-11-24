@@ -1694,11 +1694,7 @@ impl App {
                     // Deux groupes, la navigation et le contenu : Ctrl+Tab
                     // passe de l'un à l'autre (HIG ENT-01).
                     super::focus::group(PANEL_GROUPS[0], nav),
-                    // Réglages sur une surface de lecture stable (MLG-282).
-                    super::focus::group(
-                        PANEL_GROUPS[1],
-                        super::tokens::content(detail, &self.cfg.general.theme, 16.0)
-                    )
+                    super::focus::group(PANEL_GROUPS[1], detail)
                 ]
                 .spacing(24)
                 .height(Length::Fill)
@@ -1709,18 +1705,25 @@ impl App {
         .width(self.panel_width() - 2.0 * DRAWER_GAP)
         .height(Length::Fill);
         // Sans flou de Hyprland, la transparence rend le tiroir illisible.
+        // La surface de lecture du thème (MLG-282) est fondue dans le
+        // tiroir entier : un rectangle à part, sous le contenu seul, se
+        // voyait dans le verre.
         let opacity = if self.hypr_blur_off() {
             1.0
         } else {
-            self.cfg
-                .general
-                .theme
-                .shown(crate::config::Place::Settings)
-                .opacity
+            let th = &self.cfg.general.theme;
+            let own = th.shown(crate::config::Place::Settings).opacity;
+            let reading = th.shown(crate::config::Place::Content).opacity;
+            1.0 - (1.0 - own) * (1.0 - reading)
         };
         // Verre du thème (MLG-268) au rayon du tiroir ; vraie réfraction de
         // l'écran capturé à l'ouverture (MLG-275).
         let th = &self.cfg.general.theme;
+        // L'ombre tient dans la marge du tiroir : plus large, la surface la
+        // coupait net à son bord et un cadre se voyait autour du tiroir.
+        let mut surface = super::design::panel_surface(&self.theme, opacity);
+        surface.shadow.offset = iced::Vector::new(0.0, 2.0);
+        surface.shadow.blur_radius = DRAWER_GAP - 2.0;
         let card = super::glass::card(
             card,
             crate::config::Place::Settings,
@@ -1730,7 +1733,7 @@ impl App {
                 super::tokens::tinted(th.bg, crate::config::Place::Settings),
                 opacity,
             ),
-            super::design::panel_surface(&self.theme, opacity),
+            surface,
             true,
             self.panel_backdrop(),
         );

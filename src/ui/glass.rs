@@ -104,6 +104,7 @@ pub fn card<'a, M: 'a>(
         radius,
         tint,
         blur,
+        erase: under.is_some(),
     })
     .width(Length::Fill)
     .height(Length::Fill);
