@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 159] = [
+const SCENES: [&str; 160] = [
     "desktop",
     "typography",
     "icons",
@@ -112,6 +112,7 @@ const SCENES: [&str; 159] = [
     "bar-controls",
     "bar-menu-switch",
     "bar-menu-closing",
+    "bar-menu-shell",
     "bar-bottom",
     "bar-overflow",
     "bar-majs-progression",
@@ -2196,6 +2197,33 @@ impl Preview {
                     popover::Kind::Widget("barcontrols".into()),
                 );
                 self.demo_controls();
+            }
+            // Menu « hyprdesk » ouvert (HIG MENU-01) : son rendu se vérifie sans
+            // session. Les scènes d'aperçu n'exécutent pas les tâches : les
+            // icônes du menu sont résolues tout de suite. L'ancre est
+            // provisoire ; le rendu du titre pose la sienne.
+            if SCENES[self.scene] == "bar-menu-shell" {
+                for entry in super::plugins::bar::menus::entries() {
+                    if let crate::config::MenuEntry::Item {
+                        icon: Some(icon), ..
+                    } = entry
+                    {
+                        let image = self.app.builtin_icon(&icon);
+                        self.app.named_icons.insert(icon, image);
+                    }
+                }
+                self.app.bar_anchors.insert(
+                    (self.bar, "menus:hyprdesk".into()),
+                    iced::Rectangle::new(iced::Point::new(8.0, 0.0), Size::new(76.0, 44.0)),
+                );
+                let _ = self.app.open_popover(
+                    self.bar,
+                    "menus:hyprdesk".into(),
+                    popover::Kind::Menu {
+                        entries: super::plugins::bar::menus::entries(),
+                        source: popover::MenuSource::Shell,
+                    },
+                );
             }
             // Mise à jour en cours (MLG-161) : mode compact (« 42 % ») puis
             // mode détaillé (jauge et %), côte à côte.
