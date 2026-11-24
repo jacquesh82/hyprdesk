@@ -65,6 +65,10 @@ Pas de primitive nouvelle : `App::slider` est un composé de widgets du catalogu
      est plafonné, ce que le composant ne prend pas encore en charge : `sound.rs`, `colors.rs` (un par champ), `curves.rs`,
      `hyprset.rs` (options numériques), `panorama/design.rs` (treize : helper de design et tuiles). `hue.rs` est la surface
      Panorama, hors tiroir : hors correction, à écrire à la clôture de l'écart.
+   - **Faits (B23, étape 3 achevée)** : les cinq sites restants (`0abf436`) — `sound.rs`, `colors.rs`, `curves.rs`,
+     `hyprset.rs` (curseur plafonné, `SliderLook::capped`), `panorama/design.rs` —, l'encre de valeur du site
+     (`SliderLook::ink`) et, pour tous les curseurs, le brouillon du champ ramené au pas (`SliderEdit::new`). **Étape 3
+     faite ; l'écart passe `fait`.**
 
 ## Périmètre
 
