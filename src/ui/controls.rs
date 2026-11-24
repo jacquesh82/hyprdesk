@@ -8,6 +8,25 @@ use crate::ui::plugins::bar::popover::Request;
 use crate::ui::{App, DesktopMode, Msg, color, design};
 use crate::widgets::Value;
 
+/// Symbole d'une commande à bascule quand il dépend de son état : pour le
+/// Wi-Fi, celui de sa radio — les ondes allumées, barrées éteintes —, l'état
+/// de la connexion se lisant dans la valeur. Sinon rien : le symbole que
+/// donne le widget fait foi (HIG SYS-08).
+pub(in crate::ui) fn radio_symbol(type_id: &str, toggled: Option<bool>) -> Option<&'static str> {
+    match (type_id, toggled) {
+        ("network", Some(on)) => Some(wifi_radio(on)),
+        _ => None,
+    }
+}
+
+fn wifi_radio(on: bool) -> &'static str {
+    if on {
+        "network-wireless-symbolic"
+    } else {
+        "network-wireless-disabled-symbolic"
+    }
+}
+
 impl App {
     pub(in crate::ui) fn control_source(&self, type_id: &str) -> Option<&WidgetDef> {
         self.cfg
@@ -59,8 +78,8 @@ impl App {
             rich.and_then(|r| r.tooltip.clone())
                 .unwrap_or_else(|| crate::i18n::tr("Chargement…").to_string())
         };
-        let glyph = rich
-            .and_then(|r| r.icon.as_deref())
+        let glyph = radio_symbol(type_id, rich.and_then(|r| r.toggled))
+            .or_else(|| rich.and_then(|r| r.icon.as_deref()))
             .unwrap_or(if type_id == "network" {
                 "network-offline-symbolic"
             } else {
@@ -385,5 +404,30 @@ impl App {
             );
         }
         col.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::radio_symbol;
+
+    /// La tuile « Wi-Fi » a un symbole par état de sa radio ; les autres
+    /// commandes gardent celui de leur widget (HIG SYS-08).
+    #[test]
+    fn symbole_de_la_radio_wifi() {
+        assert_eq!(
+            radio_symbol("network", Some(true)),
+            Some("network-wireless-symbolic")
+        );
+        assert_eq!(
+            radio_symbol("network", Some(false)),
+            Some("network-wireless-disabled-symbolic")
+        );
+        assert_eq!(
+            radio_symbol("network", None),
+            None,
+            "état inconnu : le widget décide"
+        );
+        assert_eq!(radio_symbol("bluetooth", Some(true)), None);
     }
 }

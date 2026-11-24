@@ -730,13 +730,11 @@ impl App {
         } else {
             tr(label).into()
         };
-        let pill = self.dashboard_pill(
-            pal,
-            rich.and_then(|r| r.icon.as_deref()).unwrap_or(fallback),
-            &label,
-            active,
-            (!pending).then_some(action),
-        );
+        // Symbole de la radio Wi-Fi quand son état est connu (HIG SYS-08).
+        let icon = crate::ui::controls::radio_symbol(type_id, rich.and_then(|r| r.toggled))
+            .or_else(|| rich.and_then(|r| r.icon.as_deref()))
+            .unwrap_or(fallback);
+        let pill = self.dashboard_pill(pal, icon, &label, active, (!pending).then_some(action));
         let detail = error.map(str::to_owned).or_else(|| match value {
             Some(Value::Error(e)) => Some(e.clone()),
             _ => rich.and_then(|r| r.tooltip.clone()),
