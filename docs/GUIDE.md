@@ -264,7 +264,10 @@ leave.
 
 A fullscreen window does not hide the dock for good: it tucks away at the
 screen edge and appears over the window when the pointer touches that edge.
-A window that is only maximized leaves it in place.
+A window that is only maximized leaves it in place. The bar does the same:
+in full screen it tucks away at its edge and comes back on hover, menus
+included. A menu open when full screen starts or ends closes. A bar set to
+the overlay layer stays visible.
 
 Desktop modes are saved per workspace across sessions. With multiple monitors,
 each screen follows the workspace it displays. Use **Settings → Desktop →

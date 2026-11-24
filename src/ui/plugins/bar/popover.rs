@@ -1528,7 +1528,13 @@ impl App {
         tasks.push(Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
                 size: Some((0, 0)),
-                layer: Layer::Top,
+                // Barre par-dessus un plein écran : le capteur aussi, sinon un
+                // clic hors du menu irait à la fenêtre (HIG PAT-03).
+                layer: if self.bar_over_fullscreen.contains(&bar) {
+                    Layer::Overlay
+                } else {
+                    Layer::Top
+                },
                 anchor: LsAnchor::Top | LsAnchor::Bottom | LsAnchor::Left | LsAnchor::Right,
                 exclusive_zone: Some(-1),
                 keyboard_interactivity: KeyboardInteractivity::None,

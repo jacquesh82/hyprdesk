@@ -571,6 +571,8 @@ pub struct App {
     control_since: HashMap<String, Instant>,
     bar_hidden: HashMap<Id, Vec<usize>>,
     bar_full_width: HashMap<Id, u32>,
+    /// Barres recréées par-dessus un plein écran (HIG PAT-03).
+    bar_over_fullscreen: HashSet<Id>,
     /// Barres masquées hors survol : montrée, génération du dernier survol.
     bar_reveal: HashMap<Id, (bool, u64)>,
     /// Étendues mesurées des zones de chaque barre (voir `Msg::BarLayout`) :
@@ -1130,6 +1132,7 @@ impl App {
             control_since: HashMap::new(),
             bar_hidden: HashMap::new(),
             bar_full_width: HashMap::new(),
+            bar_over_fullscreen: HashSet::new(),
             bar_reveal: HashMap::new(),
             bar_zone_extents: HashMap::new(),
             bar_preview: None,
@@ -3163,6 +3166,10 @@ impl App {
         if self.dock_cover_changed() {
             tasks.push(self.sync_launchers());
         }
+        // La barre aussi (HIG PAT-03).
+        if self.bar_cover_changed() {
+            tasks.push(self.sync_bars());
+        }
         if self.visible {
             tasks.push(Task::done(Msg::Poll));
         }
@@ -4559,6 +4566,9 @@ impl App {
                 if self.dock_cover_changed() {
                     tasks.push(self.sync_launchers());
                 }
+                if self.bar_cover_changed() {
+                    tasks.push(self.sync_bars());
+                }
                 // Bureau vide seulement : avec les fenêtres, une nouvelle fenêtre
                 // est une fenêtre ordinaire (mise de côté si on revient au bureau vide).
                 if self.visible {
@@ -5611,6 +5621,7 @@ impl App {
                 }
                 self.launcher_surfaces.remove(&id);
                 self.bar_surfaces.remove(&id);
+                self.bar_over_fullscreen.remove(&id);
                 // Barre disparue : elle ne tient plus le clavier.
                 if self.bar_keyboard == Some(id) {
                     self.bar_keyboard = None;

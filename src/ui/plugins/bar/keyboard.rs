@@ -144,6 +144,73 @@ mod tests {
         (app, bar)
     }
 
+    /// HIG PAT-03 : par-dessus une fenêtre plein écran, la barre se retire
+    /// au bord (bande de rappel) ; le plein écran parti, elle revient.
+    #[test]
+    fn the_bar_stays_reachable_over_a_fullscreen_window() {
+        let (mut app, _) = app();
+        app.bar_surfaces.clear();
+        std::sync::Arc::make_mut(&mut app.cfg).bar = Some(crate::config::BarDef {
+            shape: Default::default(),
+            monitors: None,
+            position: crate::config::BarPosition::Top,
+            height: 40,
+            margin: 0,
+            zones: Default::default(),
+            portrait: None,
+            compact: crate::config::BarCompact::Auto,
+            style: crate::config::BarStyle::Continuite,
+            colors: Default::default(),
+            convex: Default::default(),
+        });
+        let _ = app.sync_bars();
+        let bar = |app: &App| {
+            assert_eq!(app.bar_surfaces.len(), 1);
+            *app.bar_surfaces.keys().next().unwrap()
+        };
+        let before = bar(&app);
+        let shape = app.bar_surfaces[&before].shape;
+        let autohide = shape.visibility == crate::config::BarVisibility::AutoHide;
+        assert!(!app.bar_over_fullscreen.contains(&before));
+        assert_eq!(app.bar_hides(before, &shape), autohide, "hors plein écran");
+        let window = |fullscreen| crate::hypr::WindowGeo {
+            address: "0x1".into(),
+            class: "foot".into(),
+            title: String::new(),
+            workspace: "1".into(),
+            floating: false,
+            rect: (0, 0, 900, 640),
+            fullscreen,
+        };
+        let clients = app.clients.clone();
+        let _ = app.update_inner(Msg::Hypr(crate::hypr::Update::Clients(
+            clients.clone(),
+            vec![window(true)],
+        )));
+        let over = bar(&app);
+        assert_ne!(over, before, "surface recréée sur le calque Overlay");
+        assert!(app.bar_over_fullscreen.contains(&over));
+        assert!(app.bar_hides(over, &shape));
+        assert!(!app.bar_revealed(over), "réduite d'emblée à sa bande");
+        // Même état relu : rien ne bouge.
+        let _ = app.update_inner(Msg::Hypr(crate::hypr::Update::Clients(
+            clients.clone(),
+            vec![window(true)],
+        )));
+        assert_eq!(bar(&app), over, "pas de recréation sans changement");
+        let _ = app.update_inner(Msg::Hypr(crate::hypr::Update::Clients(
+            clients,
+            vec![window(false)],
+        )));
+        let back = bar(&app);
+        assert!(
+            !app.bar_over_fullscreen.contains(&back),
+            "revenue à sa place"
+        );
+        assert_eq!(app.bar_hides(back, &shape), autohide);
+        assert!(app.bar_over_fullscreen.is_empty());
+    }
+
     /// HIG ENT-02 : le raccourci de la barre lui donne le clavier sur l'écran
     /// actif ; pressé deux fois, ou par Échap, elle le rend.
     #[test]

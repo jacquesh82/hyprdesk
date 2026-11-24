@@ -78,6 +78,13 @@ pub struct BarSurface {
     pub width: u32,
 }
 
+/// Une barre passe par-dessus un plein écran, sauf réglée déjà sur
+/// `Overlay` (visible par-dessus, au choix de l'utilisateur) ou en Convex
+/// masqué hors survol, qui a son propre geste (HIG PAT-03).
+fn bar_covers(layer: crate::config::BarLayer, convex_auto_hide: bool, fullscreen: bool) -> bool {
+    fullscreen && layer != crate::config::BarLayer::Overlay && !convex_auto_hide
+}
+
 /// Couleurs effectives de la barre.
 #[derive(Debug, Clone, Copy)]
 pub(in crate::ui) struct BarPalette {
@@ -613,11 +620,15 @@ impl App {
         let mut changed = false;
         for (id, s) in self.bar_surfaces.clone() {
             let height = spec.map(|(_, h, _, _)| self.bar_height_on(&s.monitor, h));
+            // Plein écran venu ou parti : le calque change, la surface est
+            // recréée (HIG PAT-03).
             if !(want.contains(&s.monitor)
                 && spec.map(|(p, _, m, sh)| (p, height.unwrap_or(0), m, sh))
-                    == Some((s.position, s.height, s.margin, s.shape)))
+                    == Some((s.position, s.height, s.margin, s.shape))
+                && self.bar_over_fullscreen.contains(&id) == self.bar_covered(&s.monitor, &s.shape))
             {
                 self.bar_surfaces.remove(&id);
+                self.bar_over_fullscreen.remove(&id);
                 tasks.push(iced::window::close(id));
                 changed = true;
             }
@@ -668,7 +679,19 @@ impl App {
                         crate::config::BarAlign::End => edge | along_end,
                     }
                 };
+                // Par-dessus un plein écran : calque `Overlay`, sans zone
+                // réservée, réduite d'emblée à sa bande de rappel (HIG PAT-03).
+                let cover = self.bar_covered(&mon, &shape);
                 let autohide = shape.visibility == crate::config::BarVisibility::AutoHide;
+                let thick = if cover {
+                    shape.reveal_zone.max(1)
+                } else {
+                    height
+                };
+                if cover {
+                    self.bar_over_fullscreen.insert(id);
+                    self.bar_reveal.insert(id, (false, 0));
+                }
                 self.bar_surfaces.insert(
                     id,
                     BarSurface {
@@ -683,11 +706,12 @@ impl App {
                 tasks.push(Task::done(Msg::NewLayerShell {
                     settings: NewLayerShellSettings {
                         size: Some(if vertical {
-                            (height as u32, width)
+                            (thick as u32, width)
                         } else {
-                            (width, height as u32)
+                            (width, thick as u32)
                         }),
                         layer: match shape.layer {
+                            _ if cover => Layer::Overlay,
                             crate::config::BarLayer::Top => Layer::Top,
                             crate::config::BarLayer::Overlay => Layer::Overlay,
                             crate::config::BarLayer::Bottom => Layer::Bottom,
@@ -697,7 +721,7 @@ impl App {
                         // marge : la lame flotte au-dessus du bord. Masquée
                         // hors survol ou sans réserve : les fenêtres passent
                         // dessous.
-                        exclusive_zone: Some(if shape.reserve_space && !autohide {
+                        exclusive_zone: Some(if shape.reserve_space && !autohide && !cover {
                             height as i32
                         } else {
                             0
@@ -715,7 +739,7 @@ impl App {
                     },
                     id,
                 }));
-                if autohide {
+                if autohide && !cover {
                     // Montrée à l'apparition, masquée après le délai.
                     tasks.push(Task::done(Msg::BarReveal(id, false)));
                 }
@@ -999,7 +1023,7 @@ impl App {
             true,
             under,
         );
-        if shape.visibility == crate::config::BarVisibility::AutoHide {
+        if self.bar_hides(id, &shape) {
             mouse_area(el)
                 .on_enter(Msg::BarReveal(id, true))
                 .on_exit(Msg::BarReveal(id, false))
@@ -1027,6 +1051,31 @@ impl App {
             .unwrap_or(base)
     }
 
+    /// Barre masquée hors survol : réglée ainsi (MLG-277), ou par-dessus un
+    /// plein écran (HIG PAT-03).
+    pub(in crate::ui) fn bar_hides(&self, id: Id, shape: &crate::config::BarShape) -> bool {
+        shape.visibility == crate::config::BarVisibility::AutoHide
+            || self.bar_over_fullscreen.contains(&id)
+    }
+
+    /// La barre de l'écran `monitor` passe par-dessus un plein écran
+    /// (HIG PAT-03).
+    fn bar_covered(&self, monitor: &str, shape: &crate::config::BarShape) -> bool {
+        bar_covers(
+            shape.layer,
+            self.convex_auto_hide(),
+            self.fullscreen_on(monitor),
+        )
+    }
+
+    /// Une barre d'écran n'est plus sur le bon calque : plein écran venu ou
+    /// parti sur son espace affiché (HIG PAT-03).
+    pub(in crate::ui) fn bar_cover_changed(&self) -> bool {
+        self.bar_surfaces.iter().any(|(id, s)| {
+            self.bar_over_fullscreen.contains(id) != self.bar_covered(&s.monitor, &s.shape)
+        })
+    }
+
     /// Dock masqué hors survol (`dock.autohide`, MLG-279), hors mode convexe
     /// qui a le sien.
     pub(in crate::ui) fn dock_autohide(&self) -> bool {
@@ -1050,7 +1099,7 @@ impl App {
             let Some(s) = self.bar_surfaces.get(&id) else {
                 return Task::none();
             };
-            if s.shape.visibility != crate::config::BarVisibility::AutoHide {
+            if !self.bar_hides(id, &s.shape) {
                 return Task::none();
             }
             u64::from(if hover {
@@ -1237,7 +1286,7 @@ impl App {
         let shape = bar.shape;
         crate::ui::plugins::bar::layout::set_gap(shape.item_gap.map_or(2.0, f32::from));
         // Masquée hors survol : une fine bande au bord la fait revenir.
-        if shape.visibility == crate::config::BarVisibility::AutoHide && !self.bar_revealed(id) {
+        if self.bar_hides(id, &shape) && !self.bar_revealed(id) {
             return mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
                 .on_enter(Msg::BarReveal(id, true))
                 .into();
@@ -1627,7 +1676,7 @@ impl App {
         };
         // Masquée hors survol (MLG-277) : le survol la garde, la sortie la
         // masque après le délai.
-        if shape.visibility == crate::config::BarVisibility::AutoHide {
+        if self.bar_hides(id, &shape) {
             mouse_area(bar_el)
                 .on_enter(Msg::BarReveal(id, true))
                 .on_exit(Msg::BarReveal(id, false))
@@ -2771,6 +2820,19 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    /// Par-dessus un plein écran, la barre se retire au bord, sauf déjà sur
+    /// `Overlay` ou en Convex masqué (HIG PAT-03).
+    #[test]
+    fn barre_par_dessus_le_plein_ecran() {
+        use super::bar_covers;
+        use crate::config::BarLayer;
+        assert!(bar_covers(BarLayer::Top, false, true));
+        assert!(bar_covers(BarLayer::Bottom, false, true));
+        assert!(!bar_covers(BarLayer::Top, false, false));
+        assert!(!bar_covers(BarLayer::Overlay, false, true));
+        assert!(!bar_covers(BarLayer::Top, true, true));
+    }
+
     /// Cible d'un module de barre : 20 px au moins, jamais plus haut que la
     /// barre (HIG ACC-09).
     #[test]
