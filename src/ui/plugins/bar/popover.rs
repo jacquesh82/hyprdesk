@@ -168,6 +168,98 @@ mod tests {
         }
     }
 
+    /// HIG PRES-02 : une carte qui change de taille interpole sa hauteur ;
+    /// la surface garde la plus grande des deux, puis se resserre.
+    #[test]
+    fn une_carte_qui_change_de_taille_interpole_sa_hauteur() {
+        let (mut app, bar) = app();
+        let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
+        let win = app.popover.as_ref().unwrap().win;
+        let settle = |app: &mut App| {
+            let past = Instant::now() - Duration::from_secs(1);
+            let p = app.popover.as_mut().unwrap();
+            p.visibility.start = past;
+            if let Some(g) = p.grow.as_mut() {
+                g.fade.start = past;
+            }
+            let _ = app.popover_frame();
+            assert!(app.popover.as_ref().unwrap().grow.is_none());
+        };
+        let _ = app.fit_popover(win, 200.0);
+        settle(&mut app);
+        let low = app.popover.as_ref().unwrap().size.height;
+
+        // Plus haute : la surface s'agrandit d'emblée, le cadre part de
+        // l'ancienne hauteur.
+        let _ = app.fit_popover(win, 300.0);
+        let p = app.popover.as_ref().unwrap();
+        assert_eq!(p.size.height, low + 100.0);
+        assert!((p.drawn_height(Instant::now()) - low).abs() < 5.0);
+        settle(&mut app);
+        assert_eq!(app.popover.as_ref().unwrap().size.height, low + 100.0);
+
+        // Plus basse : la surface attend la fin ; une même mesure ne relance rien.
+        let _ = app.fit_popover(win, 200.0);
+        let start = app.popover.as_ref().unwrap().grow.unwrap().fade.start;
+        assert_eq!(app.popover.as_ref().unwrap().size.height, low + 100.0);
+        let _ = app.fit_popover(win, 200.0);
+        assert_eq!(
+            app.popover.as_ref().unwrap().grow.unwrap().fade.start,
+            start
+        );
+        settle(&mut app);
+        assert_eq!(app.popover.as_ref().unwrap().size.height, low);
+        let _ = app.fit_popover(win, 300.0);
+        settle(&mut app);
+        let _ = app.fit_popover(win, 200.0);
+
+        // Un changement en cours repart de la hauteur dessinée.
+        {
+            let p = app.popover.as_mut().unwrap();
+            let g = p.grow.as_mut().unwrap();
+            g.fade.start = Instant::now() - g.fade.dur / 2;
+        }
+        let mid = app.popover.as_ref().unwrap().drawn_height(Instant::now());
+        assert!(mid < low + 95.0 && mid > low + 5.0);
+        let _ = app.fit_popover(win, 300.0);
+        let g = app.popover.as_ref().unwrap().grow.unwrap();
+        assert!((g.from - mid).abs() < 5.0);
+        assert_eq!(g.to, low + 100.0);
+        settle(&mut app);
+
+        // À la fermeture : immédiat.
+        let _ = app.close_popover();
+        let _ = app.fit_popover(win, 250.0);
+        let p = app.popover.as_ref().unwrap();
+        assert!(p.grow.is_none());
+        assert_eq!(p.size.height, low + 50.0);
+        let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
+        let _ = app.fit_popover(win, 300.0);
+        settle(&mut app);
+
+        // Sans transition : immédiat.
+        Arc::make_mut(&mut app.cfg).general.transition = crate::config::Transition::None;
+        let _ = app.fit_popover(win, 200.0);
+        let p = app.popover.as_ref().unwrap();
+        assert!(p.grow.is_none());
+        assert_eq!(p.size.height, low);
+    }
+
+    /// HIG PRES-02 : une carte remplacée va vers la hauteur de la nouvelle.
+    #[test]
+    fn une_carte_remplacee_interpole_sa_hauteur() {
+        let (mut app, bar) = app();
+        let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
+        let before = app.popover.as_ref().unwrap().size.height;
+        let _ = app.open_popover(bar, "calendar".into(), Kind::Calendar);
+        let p = app.popover.as_ref().unwrap();
+        let g = p
+            .grow
+            .expect("Son et Calendrier n'ont pas la même hauteur estimée");
+        assert!((g.from - before).abs() < 0.5);
+        assert_eq!(p.size.height, g.from.max(g.to));
+    }
+
     #[test]
     fn late_first_present_keeps_the_entire_opening_transition() {
         let (mut app, bar) = app();
@@ -252,6 +344,10 @@ mod tests {
         app.popover.as_mut().unwrap().change.as_mut().unwrap().start =
             Instant::now() - Duration::from_secs(1);
         app.popover.as_mut().unwrap().visibility.start = Instant::now() - Duration::from_secs(1);
+        // Changement de hauteur de la carte remplacée (HIG PRES-02).
+        if let Some(g) = app.popover.as_mut().unwrap().grow.as_mut() {
+            g.fade.start = Instant::now() - Duration::from_secs(1);
+        }
         let _ = app.popover_frame();
         assert!(app.popover.as_ref().unwrap().previous.is_none());
         assert!(!app.popover.as_ref().unwrap().animating(Instant::now()));
@@ -776,6 +872,16 @@ pub(in crate::ui) struct Attached {
     from_height: f32,
 }
 
+/// Changement de hauteur d'une carte non rattachée (HIG PRES-02) : le cadre
+/// dessiné va de `from` à `to` ; la surface garde la plus grande des deux
+/// jusqu'à la fin.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::ui) struct Grow {
+    from: f32,
+    to: f32,
+    fade: Fade,
+}
+
 pub struct Popover {
     pub win: Id,
     pub catcher: Id,
@@ -784,6 +890,7 @@ pub struct Popover {
     pub left: f32,
     pub origin: f32,
     pub(in crate::ui) attached: Option<Attached>,
+    pub(in crate::ui) grow: Option<Grow>,
     pub visibility: Fade,
     shown: bool,
     pub change: Option<Fade>,
@@ -829,11 +936,61 @@ impl Popover {
     pub(in crate::ui) fn closing(&self) -> bool {
         self.visibility.to == 0.0
     }
+
+    /// Hauteur visée de la carte : la fin du changement en cours.
+    fn target_height(&self) -> f32 {
+        self.attached
+            .map(|a| a.height)
+            .or(self.grow.map(|g| g.to))
+            .unwrap_or(self.size.height)
+    }
+
+    /// Hauteur de la surface que le cadre occupe à l'instant `now`.
+    pub(in crate::ui) fn drawn_height(&self, now: std::time::Instant) -> f32 {
+        self.grow.map_or(self.size.height, |g| {
+            g.from + (g.to - g.from) * g.fade.value(now)
+        })
+    }
+
+    /// Nouvelle hauteur d'une carte non rattachée (HIG PRES-02) : le cadre y
+    /// va depuis sa hauteur dessinée, la surface prend la plus grande des
+    /// deux. Sans durée, avant le premier rendu, à la fermeture, ou d'un
+    /// tiroir et du tableau Continuité : immédiate.
+    fn retarget(&mut self, target: f32, now: std::time::Instant, dur: std::time::Duration) {
+        if dur.is_zero()
+            || !self.shown
+            || self.closing()
+            || self.attached.is_some()
+            || self.dashboard.is_some()
+        {
+            self.size.height = target;
+            self.grow = None;
+            return;
+        }
+        let from = self.drawn_height(now);
+        if (from - target).abs() < 0.5 {
+            self.size.height = target;
+            self.grow = None;
+            return;
+        }
+        self.grow = Some(Grow {
+            from,
+            to: target,
+            fade: Fade {
+                from: 0.0,
+                to: 1.0,
+                start: now,
+                dur,
+            },
+        });
+        self.size.height = from.max(target);
+    }
     pub(in crate::ui) fn animating(&self, now: std::time::Instant) -> bool {
         self.shown
             && (!self.visibility.done(now)
                 || self.visibility.from != self.visibility.to
-                || self.change.is_some())
+                || self.change.is_some()
+                || self.grow.is_some())
     }
 }
 
@@ -1286,6 +1443,9 @@ impl App {
         {
             let reversing = p.closing() && p.key == key;
             let edge_changed = p.attached.map(|a| a.edge) != attached.map(|a| a.edge);
+            // Carte simple remplacée (HIG PRES-02) : le cadre va vers sa
+            // nouvelle hauteur au rythme du fondu de contenu.
+            let was_plain = p.attached.is_none() && p.dashboard.is_none();
             p.visibility = Fade {
                 from: if edge_changed {
                     0.0
@@ -1313,7 +1473,13 @@ impl App {
             p.left = left;
             p.origin = origin;
             p.attached = attached;
-            p.size = size;
+            if was_plain {
+                p.size.width = size.width;
+                p.retarget(size.height, now, change_duration);
+            } else {
+                p.size = size;
+                p.grow = None;
+            }
             p.max_height = max_height;
             p.confirm = None;
             // Un menu remplacé referme le sous-menu du précédent.
@@ -1331,7 +1497,7 @@ impl App {
             tasks.push(Task::done(Msg::MarginChange { id: p.win, margin }));
             tasks.push(Task::done(Msg::SizeChange {
                 id: p.win,
-                size: (size.width as u32, size.height as u32),
+                size: (p.size.width as u32, p.size.height as u32),
             }));
             // Le contenu remplacé emporte le menu d'une carte de notification
             // ouvert sur lui (HIG ENT-07).
@@ -1416,6 +1582,7 @@ impl App {
             left,
             origin,
             attached,
+            grow: None,
             shown: cfg!(test),
             visibility: Fade {
                 from: 0.0,
@@ -1577,6 +1744,18 @@ impl App {
             if p.change.is_some_and(|f| still || f.done(now)) {
                 p.previous = None;
                 p.change = None;
+            }
+            if let Some(g) = p.grow
+                && (still || g.fade.done(now))
+            {
+                p.grow = None;
+                if (p.size.height - g.to).abs() > 0.5 {
+                    p.size.height = g.to;
+                    resize = Task::done(Msg::SizeChange {
+                        id: p.win,
+                        size: (p.size.width as u32, p.size.height as u32),
+                    });
+                }
             }
             if p.change.is_none()
                 && let Some(a) = p.attached
@@ -1850,6 +2029,7 @@ impl App {
         if !content_height.is_finite() || content_height <= 0.0 {
             return Task::none();
         }
+        let dur = self.bar_duration(160);
         let Some(p) = self
             .popover
             .as_mut()
@@ -1864,7 +2044,7 @@ impl App {
         let height = (content_height + 24.0 + 2.0 * SHADOW + header)
             .ceil()
             .min(p.max_height);
-        if (height - p.attached.map_or(p.size.height, |a| a.height)).abs() < 1.0 {
+        if (height - p.target_height()).abs() < 1.0 {
             return Task::none();
         }
         if let Some(a) = p.attached.as_mut() {
@@ -1877,7 +2057,7 @@ impl App {
                 height
             };
         } else {
-            p.size.height = height;
+            p.retarget(height, std::time::Instant::now(), dur);
         }
         let resize = Task::done(Msg::SizeChange {
             id: win,
@@ -2077,11 +2257,23 @@ impl App {
             let mut style = crate::ui::design::bar_card(bg, fg);
             style.border.color.a *= alpha;
             style.shadow.color.a *= alpha;
+            // Pendant un changement de taille (HIG PRES-02), le contenu qui
+            // dépasse brièvement le cadre ne fait pas clignoter la barre de
+            // défilement ; le widget reste le même, son état aussi.
+            let bar = if p.grow.is_some() {
+                iced::widget::scrollable::Scrollbar::hidden()
+            } else {
+                iced::widget::scrollable::Scrollbar::new()
+            };
             crate::ui::glass::card(
-                container(iced::widget::scrollable(content()).height(Length::Fill))
-                    .padding(12)
-                    .width(Length::Fill)
-                    .height(Length::Fill),
+                container(
+                    iced::widget::scrollable(content())
+                        .direction(iced::widget::scrollable::Direction::Vertical(bar))
+                        .height(Length::Fill),
+                )
+                .padding(12)
+                .width(Length::Fill)
+                .height(Length::Fill),
                 crate::config::Place::Menus,
                 crate::ui::design::RADIUS,
                 fg,
@@ -2113,19 +2305,33 @@ impl App {
         } else {
             mo.scale + (1.0 - mo.scale) * alpha
         };
+        // Changement de taille (HIG PRES-02) : le cadre a sa hauteur
+        // interpolée, collé au bord où la surface est ancrée.
+        let framed = container(crate::ui::plugins::bar::motion::surface(
+            card,
+            scale,
+            Vector::new(
+                p.slide_from * (1.0 - mix),
+                direction * mo.offset * (1.0 - alpha),
+            ),
+            origin,
+        ))
+        .padding(SHADOW)
+        .width(Length::Fill)
+        .height(if p.grow.is_some() {
+            Length::Fixed(p.drawn_height(now))
+        } else {
+            Length::Fill
+        });
         iced::widget::sensor(
-            container(crate::ui::plugins::bar::motion::surface(
-                card,
-                scale,
-                Vector::new(
-                    p.slide_from * (1.0 - mix),
-                    direction * mo.offset * (1.0 - alpha),
-                ),
-                origin,
-            ))
-            .padding(SHADOW)
-            .width(Length::Fill)
-            .height(Length::Fill),
+            container(framed)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_y(if p.position == BarPosition::Bottom {
+                    Alignment::End
+                } else {
+                    Alignment::Start
+                }),
         )
         .key(win)
         .on_show(move |_| Msg::PopoverShown(win))
