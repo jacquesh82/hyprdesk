@@ -966,9 +966,17 @@ impl Preview {
         if SCENES[self.scene] == "notifications" {
             let mut crit = std::collections::HashMap::new();
             crit.insert("urgency".to_string(), zbus::zvariant::OwnedValue::from(2u8));
-            let acts: Vec<String> = ["default", "Ouvrir", "later", "Plus tard"]
-                .map(String::from)
-                .to_vec();
+            // La seconde action est destructrice : bouton en rouge (HIG SYS-17).
+            let acts: Vec<String> = [
+                "default",
+                "Ouvrir",
+                "later",
+                "Plus tard",
+                "destructive:dismiss",
+                "Ne plus m'avertir",
+            ]
+            .map(String::from)
+            .to_vec();
             let _ = self
                 .app
                 .want_icon("preferences-system-notifications-symbolic");

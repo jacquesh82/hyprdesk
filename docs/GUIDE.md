@@ -177,6 +177,13 @@ under Do Not Disturb, except the critical one. An action or a dismissal its
 application did not receive is reported by a Hyprland notification, with its
 cause.
 
+An action can declare itself destructive — erase, discard — by prefixing its
+key with `destructive:` (`destructive:erase`, for example with `notify-send -A
+"destructive:erase=Erase everything"`): the freedesktop specification defines
+nothing here, this is the hyprdesk convention. Its button stands apart from
+the others, in red like a destructive menu entry, and the application receives
+the key as is when it is invoked.
+
 Silence (Do not disturb) picks its end when it is turned on, from the Continuity
 control center: one hour, until this evening (6 PM) or until turned off. It
 turns itself off at its deadline, and its tile says until when ("Silence ·

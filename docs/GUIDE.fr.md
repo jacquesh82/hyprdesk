@@ -180,6 +180,13 @@ notification sous Ne pas déranger, sauf la critique. Une action ou une
 fermeture que son application n'a pas reçue est annoncée par une notification
 de Hyprland, avec sa cause.
 
+Une action peut se déclarer destructrice — effacer, abandonner — en préfixant
+sa clé par `destructive:` (`destructive:erase`, avec `notify-send -A
+"destructive:erase=Tout effacer"` par exemple) : la spécification freedesktop
+ne définit rien ici, c'est la convention de hyprdesk. Son bouton se distingue
+des autres, en rouge comme une entrée de menu destructive, et l'application
+reçoit la clé telle quelle quand on l'appelle.
+
 Le Silence (Ne pas déranger) choisit sa fin à l'activation, dans le centre de
 contrôle de Continuité : une heure, jusqu'à ce soir (18 h) ou jusqu'à
 désactivation. Il s'éteint seul à son échéance, et sa tuile dit jusqu'à quand

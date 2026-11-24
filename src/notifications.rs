@@ -255,6 +255,26 @@ pub fn parse_actions(list: &[String]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Préfixe de la clé d'une action destructrice (HIG SYS-17).
+pub const DESTRUCTIVE_PREFIX: &str = "destructive:";
+
+/// Action destructrice (HIG SYS-17). La spécification freedesktop 1.2 n'en
+/// définit pas : convention de hyprdesk, documentée dans le guide — la clé de
+/// l'action commence par `destructive:`. Elle est renvoyée telle quelle à
+/// l'application quand on l'appelle.
+pub fn is_destructive(key: &str) -> bool {
+    key.starts_with(DESTRUCTIVE_PREFIX)
+}
+
+impl Notification {
+    /// L'action d'indice `index` est destructrice (HIG SYS-17).
+    pub fn is_destructive(&self, index: usize) -> bool {
+        self.actions
+            .get(index)
+            .is_some_and(|(k, _)| is_destructive(k))
+    }
+}
+
 /// Hint `action-icons` : une icône par action, dans le même ordre ; `-` ou
 /// vide : aucune. Le préfixe `image://` introduit le chemin (ou l'adresse)
 /// d'une image : il est retiré, la résolution des icônes lit les chemins.
@@ -807,5 +827,37 @@ mod tests {
         let out = render_state(true, Some(1_000_600), &[]);
         assert_eq!(out, "dnd=1\ncount=0\ndnd_until=1000600\n");
         assert_eq!(render_state(false, None, &[]), "dnd=0\ncount=0\n");
+    }
+
+    /// HIG SYS-17 : une action est destructrice par sa clé, préfixée
+    /// `destructive:` ; la clé est gardée telle quelle pour l'application.
+    #[test]
+    fn une_action_destructive_est_marquee_par_sa_cle() {
+        let actions = [
+            "default",
+            "Ouvrir",
+            "destructive:erase",
+            "Tout effacer",
+            "later",
+            "Plus tard",
+        ]
+        .map(String::from);
+        let n = build(1, "a", "", "s", "b", &actions, &HashMap::new(), -1);
+        // Liste plate [clé, libellé] : paires (défaut, destructive, autre).
+        assert_eq!(
+            n.actions[1],
+            ("destructive:erase".into(), "Tout effacer".into())
+        );
+        assert!(n.is_destructive(1));
+        assert!(!n.is_destructive(0), "`default` n'est pas destructive");
+        assert!(!n.is_destructive(2));
+        assert!(!n.is_destructive(4));
+        assert!(!n.is_destructive(9));
+        assert!(is_destructive("destructive:default"), "le préfixe suffit");
+        assert!(!is_destructive("default"));
+        assert!(
+            !is_destructive("Destructive:erase"),
+            "la convention est exacte"
+        );
     }
 }

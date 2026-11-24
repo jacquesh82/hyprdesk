@@ -305,6 +305,16 @@ pub(in crate::ui) fn silence_command(rank: i64) -> String {
     .to_string()
 }
 
+/// Teinte du libellé et de l'icône d'un bouton d'action : le ton « danger »
+/// pour une action destructrice (HIG SYS-17), celui des autres actions sinon.
+fn action_tone(destructive: bool, fg: Color) -> Color {
+    if destructive {
+        crate::ui::tone::danger()
+    } else {
+        fg
+    }
+}
+
 /// Abonnement de la fin du Silence (HIG PAT-04) : un message à l'échéance.
 /// Le temps monotone s'arrête en veille : le réveil est borné et l'heure
 /// relue à l'horloge murale à chaque tour.
@@ -876,16 +886,28 @@ impl App {
             // Boutons sans bordure : 12 px d'écart au moins (HIG ACC-10).
             let mut r = row![].spacing(12);
             for (i, (k, label)) in extra {
-                let caption = text(label.clone())
+                // Action destructrice (HIG SYS-17) : libellé et icône en
+                // rouge, comme une entrée de menu destructive.
+                let destructive = t.n.is_destructive(i);
+                let mut caption = text(label.clone())
                     .font(self.font)
                     .size(crate::ui::tokens::ts(11.0));
+                if destructive {
+                    caption = caption.color(action_tone(true, fg));
+                }
                 // Icône de l'action (hint `action-icons`) après le libellé
                 // (HIG SYS-18).
                 let icon =
                     t.n.action_icons
                         .get(i)
                         .and_then(|icon| icon.as_deref())
-                        .and_then(|name| self.icon_named(name, crate::ui::tokens::ts(12.0), fg));
+                        .and_then(|name| {
+                            self.icon_named(
+                                name,
+                                crate::ui::tokens::ts(12.0),
+                                action_tone(destructive, fg),
+                            )
+                        });
                 let content: Element<'_, Msg> = match icon {
                     Some(icon) => row![caption, icon]
                         .spacing(6)
@@ -1407,5 +1429,19 @@ mod silence_tests {
         assert_eq!(silence_command(0), "dnd on 1h");
         assert_eq!(silence_command(1), "dnd on soir");
         assert_eq!(silence_command(2), "dnd on");
+    }
+}
+
+#[cfg(test)]
+mod action_tests {
+    use super::{Color, action_tone};
+
+    /// HIG SYS-17 : une action destructrice prend le ton « danger », celui
+    /// des entrées de menu destructrices ; les autres gardent celui du texte.
+    #[test]
+    fn une_action_destructive_prend_le_ton_danger() {
+        let fg = Color::from_rgba8(10, 20, 30, 1.0);
+        assert_eq!(action_tone(true, fg), crate::ui::tone::danger());
+        assert_eq!(action_tone(false, fg), fg);
     }
 }
