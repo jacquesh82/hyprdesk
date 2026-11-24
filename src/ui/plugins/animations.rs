@@ -58,13 +58,15 @@ pub enum Msg {
 }
 
 /// Réglages effectifs : ceux de la config, ou rien si le paquet est coupé
-/// (ainsi que Performance, qui écrit dans les mêmes réglages).
+/// (ainsi que Performance, qui écrit dans les mêmes réglages) ; le mouvement
+/// réduit coupe en plus glissements et agrandissements (HIG FON-08).
 pub fn effective(cfg: &Config) -> Fx {
-    if cfg.plugin_on(INFO.id) || cfg.plugin_on(super::performance::INFO.id) {
+    let fx = if cfg.plugin_on(INFO.id) || cfg.plugin_on(super::performance::INFO.id) {
         cfg.general.fx.clone()
     } else {
         Fx::default()
-    }
+    };
+    fx::with_reduced_motion(fx, cfg.general.reduced_motion)
 }
 
 /// Lit les valeurs en place dans Hyprland, hors du fil de l'interface.
@@ -255,6 +257,19 @@ impl App {
             .color(dim),
         ]
         .spacing(14);
+        // Mouvement réduit : il l'emporte sur les réglages ci-dessous (HIG FON-08).
+        if self.cfg.general.reduced_motion {
+            col = col.push(
+                text(crate::i18n::tr(
+                    "Mouvement réduit est activé (Thème → Accessibilité) : fenêtres et \
+                     calques ne glissent ni ne grossissent plus, les workspaces changent \
+                     en fondu, quels que soient les réglages ci-dessous.",
+                ))
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim),
+            );
+        }
         // Catalogue de hyprdesk, puis courbes de l'utilisateur (MLG-143).
         let curves: Vec<Choice<String>> = fx::CURVES
             .iter()

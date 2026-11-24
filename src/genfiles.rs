@@ -60,11 +60,13 @@ fn header(module: &str, page: &str) -> String {
 
 /// Effets réellement appliqués (paquets Animations/Performance coupés : rien).
 fn fx_of(cfg: &Config) -> crate::fx::Fx {
-    if cfg.plugin_on("animations") || cfg.plugin_on("performance") {
+    let fx = if cfg.plugin_on("animations") || cfg.plugin_on("performance") {
         cfg.general.fx.clone()
     } else {
         Default::default()
-    }
+    };
+    // Mouvement réduit : aussi les animations de Hyprland (HIG FON-08).
+    crate::fx::with_reduced_motion(fx, cfg.general.reduced_motion)
 }
 
 fn tiling_of(cfg: &Config) -> crate::tiling::Tiling {
@@ -519,6 +521,35 @@ pub fn sync(config_path: &Path, cfg: &Config) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Mouvement réduit : les animations de Hyprland suivent, même sans le
+    /// paquet Animations ; les fondus restent (HIG FON-08).
+    #[test]
+    fn mouvement_reduit_coupe_les_glissements_de_hyprland() {
+        let mut cfg = Config::default();
+        let calm: BTreeMap<_, _> = render(&cfg).into_iter().collect();
+        assert!(
+            !calm["animations"].contains("hl.animation"),
+            "rien sans réglage"
+        );
+        cfg.general.reduced_motion = true;
+        let files: BTreeMap<_, _> = render(&cfg).into_iter().collect();
+        let a = &files["animations"];
+        for leaf in ["windows", "windowsIn", "layers", "borderangle"] {
+            assert!(
+                a.contains(&format!("leaf = \"{leaf}\", enabled = false")),
+                "{leaf} coupé : {a}"
+            );
+        }
+        assert!(
+            a.contains("leaf = \"workspaces\", enabled = true, speed = 2, bezier = \"default\", style = \"fade\""),
+            "workspaces en fondu : {a}"
+        );
+        assert!(
+            !a.contains("\"fade\", enabled = false"),
+            "les fondus restent"
+        );
+    }
 
     #[test]
     fn fichiers_creux_et_sans_marqueur() {

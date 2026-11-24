@@ -495,6 +495,61 @@ impl Anim {
     }
 }
 
+/// Éléments qui déplacent ou agrandissent : coupés en mouvement réduit, leurs
+/// fondus restent (HIG FON-08).
+const MOVING: &[&str] = &[
+    "windows",
+    "windowsIn",
+    "windowsOut",
+    "windowsMove",
+    "layers",
+    "layersIn",
+    "layersOut",
+    "borderangle",
+];
+
+/// Changements d'espace : en fondu court en mouvement réduit (HIG FON-08).
+const SWITCHING: &[&str] = &[
+    "workspaces",
+    "workspacesIn",
+    "workspacesOut",
+    "specialWorkspace",
+    "specialWorkspaceIn",
+    "specialWorkspaceOut",
+];
+
+/// Réglages tels que posés dans Hyprland : en mouvement réduit (Réglages →
+/// Thème → Accessibilité, `theme.reduced_motion`), fenêtres et calques ne
+/// glissent ni ne grossissent plus et les espaces changent en fondu, par-dessus
+/// les réglages de l'utilisateur ; les fondus restent (HIG FON-08).
+pub fn with_reduced_motion(mut fx: Fx, reduced: bool) -> Fx {
+    if reduced {
+        for leaf in MOVING {
+            fx.anims.insert(
+                (*leaf).to_string(),
+                Anim {
+                    enabled: false,
+                    speed: 1.0,
+                    curve: "default".into(),
+                    style: None,
+                },
+            );
+        }
+        for leaf in SWITCHING {
+            fx.anims.insert(
+                (*leaf).to_string(),
+                Anim {
+                    enabled: true,
+                    speed: 2.0,
+                    curve: "default".into(),
+                    style: Some("fade".into()),
+                },
+            );
+        }
+    }
+    fx
+}
+
 /// Réglages faits dans hyprdesk.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Fx {

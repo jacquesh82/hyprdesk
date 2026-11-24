@@ -1568,7 +1568,7 @@ pub static KEYS: &[Key] = keys![
         |c| format!("{}", c.general.text_scale),
         |s, v, c| { let x: f32 = v.trim().replace(',', ".").parse().map_err(|_| crate::tr!("« {v} » : nombre attendu", v = v))?; if !(0.75..=2.0).contains(&x) { return Err(crate::i18n::tr("échelle du texte attendue entre 0,75 et 2").to_string()); } s.text_scale = Some(x); Ok(()) },
         |s| s.text_scale = None;
-    "theme.reduced_motion", "theme", "on | off — mouvement réduit : ouvertures en fondu court, sans échelle ni déplacement",
+    "theme.reduced_motion", "theme", "on | off — mouvement réduit : ouvertures en fondu court, sans échelle ni déplacement, animations de Hyprland comprises",
         |c| on_off(c.general.reduced_motion),
         |s, v, c| { s.reduced_motion = Some(parse_bool(v)?); Ok(()) },
         |s| s.reduced_motion = None;

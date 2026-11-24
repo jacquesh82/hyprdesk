@@ -362,7 +362,10 @@ application : `hyprdesk binds generate --write`.
   fenêtres, groupes, curseur, gestes du pavé tactile (doigts et sens →
   workspace, déplacer, redimensionner, plein écran…), environnement et
   délais de veille. hyprdesk les écrit dans des fichiers générés chargés
-  par `hyprland.lua`.
+  par `hyprland.lua`. « Mouvement réduit » (Thème → Accessibilité) l'emporte sur les
+  animations réglées : fenêtres et calques ne glissent ni ne grossissent
+  plus, les workspaces changent en fondu, et le dock ne grossit plus au
+  survol.
 - **Configuration avancée** (interrupteur dans le corps des Réglages) : ce qui ne
   sert qu'à l'expert, marqué en cyan — une fiole à côté de l'onglet et, avec
   le nombre de réglages avancés, à côté de chaque paquet qui en contient,

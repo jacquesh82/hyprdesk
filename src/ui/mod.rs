@@ -2679,11 +2679,24 @@ impl App {
                 .is_some_and(|o| o.animating(Instant::now()))
     }
 
+    /// Millisecondes d'un fondu de survol ou de fermeture : celles réglées, dans
+    /// la limite de 220 ; 90 au plus en mouvement réduit, où il ne reste qu'un
+    /// fondu court (HIG FON-07).
+    fn motion_millis(fade_ms: u64, reduced: bool) -> u64 {
+        let ms = fade_ms.min(220);
+        if reduced { ms.min(90) } else { ms }
+    }
+
+    /// Durée d'un fondu de survol ou de fermeture : nulle sans transition,
+    /// courte en mouvement réduit (HIG FON-07).
     fn motion_duration(&self) -> Duration {
         if self.cfg.general.transition == Transition::None {
             Duration::ZERO
         } else {
-            Duration::from_millis(self.cfg.general.fade_ms.min(220))
+            Duration::from_millis(Self::motion_millis(
+                self.cfg.general.fade_ms,
+                crate::ui::tokens::motion().reduced,
+            ))
         }
     }
 
@@ -6161,8 +6174,11 @@ impl App {
                     ));
                 }
             }
-            // Le lanceur a sa propre surface, au-dessus des fenêtres.
-            let shift = if self.cfg.general.transition == Transition::Slide {
+            // Le lanceur a sa propre surface, au-dessus des fenêtres. En
+            // mouvement réduit, la remontée devient un simple fondu (HIG FON-07).
+            let shift = if self.cfg.general.transition == Transition::Slide
+                && !crate::ui::tokens::motion().reduced
+            {
                 (1.0 - t) * SLIDE_PX
             } else {
                 0.0
@@ -6560,6 +6576,16 @@ pub fn check(path: &std::path::Path) -> Result<Config, String> {
 #[cfg(test)]
 mod regression_tests {
     use super::*;
+
+    /// En mouvement réduit, les fondus de survol et de fermeture restent courts
+    /// (HIG FON-07).
+    #[test]
+    fn fondu_court_en_mouvement_reduit() {
+        assert_eq!(App::motion_millis(150, false), 150);
+        assert_eq!(App::motion_millis(150, true), 90);
+        assert_eq!(App::motion_millis(400, false), 220);
+        assert_eq!(App::motion_millis(50, true), 50, "déjà court : inchangé");
+    }
 
     fn app() -> App {
         App::boot_with(PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"), true).0

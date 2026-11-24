@@ -57,6 +57,13 @@ pub(in crate::ui) enum Slot {
     Separator,
 }
 
+/// Part de grossissement au survol : nulle quand aucun mouvement n'est
+/// possible — icône incorporée au bureau, « Aucune » transition, mouvement
+/// réduit : un grossissement est un zoom (HIG FON-07).
+fn magnifies(over: f32, embedded: bool, still: bool) -> f32 {
+    if embedded || still { 0.0 } else { over }
+}
+
 /// Ordre des workspaces : numériques d'abord, dans l'ordre, puis par nom.
 fn ws_key(name: &str) -> (i64, String) {
     (name.parse::<i64>().unwrap_or(i64::MAX), name.to_string())
@@ -536,8 +543,12 @@ impl App {
             let launching = key
                 .strip_prefix("dock-pin:")
                 .and_then(|id| self.launcher_runtime.launches.get(id));
+            // Sans mouvement possible — « Aucune » transition, mouvement réduit
+            // — : ni zoom ni pulsation (HIG FON-07).
+            let still = g.transition == crate::config::Transition::None
+                || crate::ui::tokens::motion().reduced;
             let pulse = launching.map(|launch| {
-                if g.transition == crate::config::Transition::None {
+                if still {
                     1.0
                 } else {
                     0.5 + 0.5
@@ -545,11 +556,7 @@ impl App {
                             .sin()
                 }
             });
-            let motion = if embedded || g.transition == crate::config::Transition::None {
-                0.0
-            } else {
-                over
-            };
+            let motion = magnifies(over, embedded, still);
             let lift = match l.position {
                 LauncherPosition::Bottom => iced::Vector::new(0.0, -2.5 * motion),
                 LauncherPosition::Top => iced::Vector::new(0.0, 2.5 * motion),
@@ -1661,6 +1668,18 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Le survol du dock ne grossit rien sans mouvement possible (HIG FON-07).
+    #[test]
+    fn pas_de_grossissement_sans_mouvement() {
+        assert!((magnifies(0.8, false, false) - 0.8).abs() < 1e-6);
+        assert_eq!(
+            magnifies(0.8, false, true),
+            0.0,
+            "mouvement réduit ou aucune transition"
+        );
+        assert_eq!(magnifies(0.8, true, false), 0.0, "icône incorporée");
+    }
 
     fn app() -> App {
         App::boot_with(
