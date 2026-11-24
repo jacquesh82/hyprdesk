@@ -79,6 +79,7 @@
 | 2026-11-24 | B22 | SEL-08, étape 3 (premier lot) : lot de B21 rebasé sur l'intégration, porte repassée (code bougé), publié (`c93b57d`) ; il en reste 11 dans ce couloir |
 | 2026-11-24 | B23 | SEL-08, étape 3 achevée (travail interrompu repris et mis au point : cinq derniers sites, curseur plafonné, brouillon ramené au pas) : écart fait ; SEL-09 traité (`e4b73e0`) : bornes sous chaque curseur, graduations sous les domaines de dix pas au plus  ; SEL-06 et SEL-13 traités (`a639d6e`) : segments « Affichage du bureau » nommés d'un nom, de largeur égale, libellé centré  ; SEL-04 sans objet (couvert par SYS-08 pour le Wi-Fi ; Bluetooth et Silence changeaient déjà de symbole)  ; DAT-20 traité (`8ef4dc9`) : infobulle de « Selon le mode » ramenée à 58 caractères  ; DAT-06 traité (`f78a83e`) : connexion sans envoi à vide ; il en reste 4 dans ce couloir |
 | 2026-11-24 | B24 | DAT-01 traité (`175a6a4`) : premier démarrage en version courte, personnalisation remise aux Réglages ; il en reste 3 dans ce couloir |
+| 2026-11-24 | B25 | DAT-03 traité (`8e801c3`) : aperçu du résultat de fichier sélectionné, cause d'un échec de xdg-open ; il en reste 2 dans ce couloir |
 
 ### Couloir C
 
@@ -303,7 +304,7 @@ Référence verte : `9b19a8e` (porte complète `scripts/verify.sh` passée le 24
 | PRES-10 | Assistant de configuration, étape Récapitulatif | ÉCART | S | haute | à faire | — | — |
 | TYP-02 | Écriture — état sans résultat du lanceur | ÉCART | S | haute | à faire | — | — |
 | TYP-13 | Écriture — échec sans message | ÉCART | S | moyenne | à faire | — | — |
-| DAT-03 | Résultats de recherche de fichiers | ÉCART | M | haute | à faire | — | — |
+| DAT-03 | Résultats de recherche de fichiers | ÉCART | M | haute | fait | `8e801c3` | Plan `boucle/plans/DAT-03.md`, relu avant exécution et diff relu, par des agents indépendants. Le résultat sélectionné du mode `:f` porte, sous sa ligne, un aperçu de 40 px : vignette 64 × 36 (`wizard::scene_thumb`, dimensions lues avant décodage, 40 Mpx au plus), ou deux premières lignes d'un texte UTF-8, et « Modifié le … » ; lu hors du fil de l'interface, demandé 120 ms après l'arrêt de la sélection, jeté s'il n'est plus celui de la sélection. `open_path_checked` lit le code de sortie de `xdg-open` (1,5 s au plus, puis un fil récupère le processus) et nomme la cause dans la notification de PAT-11 ; `open_path` reste immédiat pour À propos et les menus de la barre. Preuve en partie dépassée : l'échec du lancement était déjà notifié (PAT-11), pas celui de `xdg-open`. Hors correction : la sélection n'est pas suivie au défilement dans la carte de hauteur fixe (défaut antérieur). Tests `apercu_texte`, `apercu_de_la_selection`, `codes_xdg_open`. |
 | PRES-13 | Alerte problème répétée | ABSENT | S | moyenne | à faire | — | — |
 | PRES-14 | Alerte problème : image | ABSENT | S | haute | à faire | — | — |
 | DAT-07 | Découverte des fonctions du shell | ABSENT | M | haute | à faire | — | — |
