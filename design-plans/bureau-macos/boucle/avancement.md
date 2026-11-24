@@ -30,6 +30,7 @@
 | 2026-11-24 | B2 | PAT-09, PRES-01, TYP-03 traités ; il en reste 49 dans ce couloir |
 | 2026-11-24 | B3 | TYP-01, TYP-07 traités ; il en reste 47 dans ce couloir |
 | 2026-11-24 | B4 | ACC-10 traité ; il en reste 46 dans ce couloir |
+| 2026-11-24 | B5 | DAT-02, PRES-04 traités ; il en reste 44 dans ce couloir |
 
 ### Couloir C
 
@@ -139,10 +140,10 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 
 | Écart | Objet | Nature | Effort | Confiance | Statut | Commit | Remarque |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| DAT-02 | Champs de couleur et de texte des réglages | ÉCART | S | haute | à faire | — | — |
+| DAT-02 | Champs de couleur et de texte des réglages | ÉCART | S | haute | fait | 88eb59d | la valeur d'un champ d'option (couleur, dégradé, côtés, texte) est analysée à chaque frappe : `Msg::Draft` porte désormais le magasin (`Draft(Store, String, String)`) et pose le message dans `opt_errors` dès que la valeur est invalide, avec le rendu existant sous le champ (`draft_error`, `src/ui/hyprset.rs`) ; il disparaît à la frappe valide suivante. Un champ vidé (qui retire l'option à Entrée) et une option inconnue n'ont pas de message. Conséquence assumée par la colonne Correction : le message paraît aussi au milieu d'une saisie incomplète (« #1 » le temps d'écrire « #123456 »). Test `la_saisie_est_validee_a_chaque_frappe`. Pas de documentation à changer : les guides ne décrivent pas la validation par Entrée. |
 | DAT-09 | Champs numériques des listes de règles | ÉCART | S | moyenne | fait | 0824a6e | même changement que SEL-01 : un champ `Field::Num` n'accepte qu'un nombre fini, la saisie refusée reste au champ et l'erreur s'affiche dessous. |
 | LAY-05 | Labels — textes utiles des réglages | ÉCART | S | haute | à faire | — | — |
-| PRES-04 | Tiroir des Réglages : barres de défilement | ÉCART | S | moyenne | à faire | — | — |
+| PRES-04 | Tiroir des Réglages : barres de défilement | ÉCART | S | moyenne | fait | 88eb59d | la zone de contenu du tiroir reçoit la barre de 4 px de la navigation (`src/ui/panel.rs`), au lieu de la barre par défaut d'Iced : les deux barres du panneau ont la même taille. Propriétaire partagé `panel.rs` : relu à froid, sans outil d'agent — le diff fait ce que demande l'écart ; `DESIGN.md` et les conventions du dépôt sont respectés ; aucune régression trouvée ; pas de test, taille de vue seule. Porte complète avec captures avant le dernier rebasage (`scripts/verify.sh --visual`) : `fenetres-regles` à 1440 px, la barre de la zone de contenu a la même épaisseur fine que celle de la navigation ; après rebasage sur la publication du couloir A (aucun fichier du lot touché), porte complète sans captures. |
 | SEL-03 | Commutateur « Configuration avancée » | ÉCART | S | moyenne | à faire | — | — |
 | SEL-05 | Segments sans info-bulle | ÉCART | S | haute | à faire | — | — |
 | SEL-07 | Champ hexadécimal du sélecteur de couleur | ÉCART | S | haute | à faire | — | — |
