@@ -754,7 +754,8 @@ impl App {
                 .take(3)
                 .collect();
         if !extra.is_empty() {
-            let mut r = row![].spacing(8);
+            // Boutons sans bordure : 12 px d'écart au moins (HIG ACC-10).
+            let mut r = row![].spacing(12);
             for (k, label) in extra {
                 r = r.push(
                     button(

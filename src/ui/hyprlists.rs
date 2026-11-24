@@ -408,7 +408,7 @@ impl App {
                 .size(crate::ui::tokens::ts(14.0))
                 .width(Length::Fill)
         ]
-        .spacing(6)
+        .spacing(12)
         .align_y(Alignment::Center);
         if movable.0 || movable.1 {
             head = head
@@ -425,15 +425,27 @@ impl App {
                         .on_press_maybe(movable.1.then(|| wrap(Msg::SpecMove(list, i, 1)))),
                 );
         }
+        // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07). Il supprime
+        // l'élément : sans bordure, 24 px le séparent de « ↓ » (12 px d'écart
+        // commun, 12 px de plus), hors du clic raté (HIG ACC-10).
         head = head.push(
-            // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07).
-            button(
-                crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(14.0), self.ink().fg)
+            container(
+                button(
+                    crate::ui::icons::glyph(
+                        "window-close",
+                        crate::ui::tokens::ts(14.0),
+                        self.ink().fg,
+                    )
                     .expect("glyphe de fermeture"),
+                )
+                .padding([2, 10])
+                .style(button::text)
+                .on_press(wrap(Msg::SpecDel(list, i))),
             )
-            .padding([2, 10])
-            .style(button::text)
-            .on_press(wrap(Msg::SpecDel(list, i))),
+            .padding(iced::Padding {
+                left: 12.0,
+                ..iced::Padding::ZERO
+            }),
         );
         let mut card = column![head].spacing(6);
         if let Some(e) = head_extra {

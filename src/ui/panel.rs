@@ -615,7 +615,8 @@ impl App {
                             .style(button::secondary)
                             .on_press(Msg::Panel(PanelMsg::DefaultsCancel)),
                     ]
-                    .spacing(8),
+                    // 12 px entre les deux commandes (HIG ACC-10).
+                    .spacing(12),
                 ]
                 .spacing(8)
                 .into(),
