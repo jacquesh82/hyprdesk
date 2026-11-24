@@ -116,6 +116,7 @@
 | 2026-11-24 | D6 | TYP-18 traité ; il en reste 12 dans ce couloir |
 | 2026-11-24 | D7 | TYP-04 traité ; il en reste 11 dans ce couloir |
 | 2026-11-24 | D8 | TYP-11 traité ; il en reste 10 dans ce couloir |
+| 2026-11-24 | D9 | PRES-08, PRES-06 traités ; il en reste 8 dans ce couloir |
 
 Référence verte : `9b19a8e` (porte complète `scripts/verify.sh` passée le 24 novembre 2026 après rebasage de l'étape 1 de ENT-01 sur l'intégration `8aa2b0c` : code de sortie 0 ; précédente référence : `d2ea20a`, le même jour).
 
@@ -287,14 +288,14 @@ Référence verte : `9b19a8e` (porte complète `scripts/verify.sh` passée le 24
 | SYS-15 | Widgets de bureau : tailles | ABSENT | L | haute | en cours | 7add7b8 | plan écrit, relu par un agent indépendant et corrigé : `boucle/plans/SYS-15.md`, six étapes ; étape 1 sur 6 faite (d3a58fe) : `WidgetFamily` (small, medium, large, xlarge ; medium par défaut, l'affichage actuel) sur `WidgetDef` et `Placement`, option propre `family` de l'horloge, du calendrier, du système et du média, `hd.place` (ignorée sur un widget à une seule taille), écrite par les réglages hors medium, comptée dans `same_content`, gardée par « Rétablir » ; diff relu ; étape 2 sur 6 faite (7add7b8) : « Taille du widget » à quatre choix dans le détail d'un widget des Réglages (pour les quatre widgets concernés), relu à froid ; aucun effet visible sur le bureau encore |
 | DAT-16 | Image de glissement de l'aperçu | PISTE | S | haute | à faire | — | — |
 | DAT-17 | Curseur pendant le glisser d'une fenêtre | PISTE | S | haute | à faire | — | — |
-| PRES-08 | Dock : clic sur une application groupée | PISTE | S | moyenne | à faire | — | — |
+| PRES-08 | Dock : clic sur une application groupée | PISTE | S | moyenne | fait | 4b04494 | Un clic sur une application regroupée du dock donne le focus à sa fenêtre la plus récemment utilisée (ordre `focusHistoryID` de Hyprland, relevé par `switcher::read_with` hors du fil de l'interface), et non plus à « sa fenêtre suivante, à tour de rôle » ; sans cet ordre (aperçu, IPC indisponible), la première fenêtre. Le compteur `launcher_cycle` disparaît. Test `application_groupee_fenetre_la_plus_recente`. `docs/PLUGINS.md` et `docs/PLUGINS.en.md` suivis. Les autres fenêtres de l'application restent à portée par le menu du dock et le commutateur. Relecture à froid sans agent : le diff fait ce que demande l'écart, respecte `DESIGN.md`, un test couvre le choix. |
 | TYP-17 | Disposition — marge basse des widgets | PISTE | S | moyenne | à faire | — | — |
 | PAT-03 | Barre en plein écran | PISTE | M | haute | à faire | — | — |
 | PRES-02 | Cartes de la barre : changement de taille | PISTE | M | moyenne | à faire | — | — |
 | DAT-01 | Assistant de premier démarrage | ÉCART | S | haute | à faire | — | — |
 | DAT-06 | Écran de connexion : envoi à vide | ÉCART | S | haute | fait | `f78a83e` | Écran de connexion : « Se connecter » est inactif tant que l'identifiant est vide ; Entrée dans une réponse vide n'envoie rien à greetd et rend le focus au champ, la question restant posée (toutes les questions de PAM, secrètes ou non). Test : la démo n'avance pas sur une réponse vide. Conséquence assumée : un compte sans mot de passe (PAM `nullok`) ne peut plus répondre à vide — la correction le demande. Preuve exacte à des numéros de ligne près. |
 | PAT-10 | « + Nouvel espace » | ÉCART | S | haute | à faire | — | — |
-| PRES-06 | Alerte problème : texte d'accompagnement | ÉCART | S | moyenne | à faire | — | — |
+| PRES-06 | Alerte problème : texte d'accompagnement | ÉCART | S | moyenne | fait | 4b04494 | La phrase « Le détail ci-dessous peut être copié pour le chercher ou le confier à un assistant. », qui expliquait les boutons « Copier » et « Demander à LYRA », quitte l'alerte problème (`src/ui/problem.rs`) et le catalogue anglais. Le titre et le détail restent ; capture `probleme` regardée. |
 | PRES-10 | Assistant de configuration, étape Récapitulatif | ÉCART | S | haute | à faire | — | — |
 | TYP-02 | Écriture — état sans résultat du lanceur | ÉCART | S | haute | à faire | — | — |
 | TYP-13 | Écriture — échec sans message | ÉCART | S | moyenne | à faire | — | — |
