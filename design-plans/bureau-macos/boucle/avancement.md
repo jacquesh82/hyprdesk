@@ -89,6 +89,7 @@
 | Date | Itération | Résultat |
 | --- | --- | --- |
 | 2026-11-24 | D1 | TYP-08 traité ; il en reste 19 dans ce couloir |
+| 2026-11-24 | D2 | TYP-06, TYP-14 traités ; il en reste 17 dans ce couloir |
 
 Référence verte : `06a2180` (code vérifié par `scripts/verify.sh --visual` le 24 novembre 2026 à 19 h 15 : code de sortie 0 ; précédente référence : `b7c6f1f`, le 23 novembre 2026 à 23 h 17).
 
@@ -226,7 +227,7 @@ Référence verte : `06a2180` (code vérifié par `scripts/verify.sh --visual` l
 | SYS-08 | Centre de contrôle : symboles du Wi-Fi | ÉCART | S | haute | à faire | — | — |
 | SYS-09 | Galerie de widgets : descriptions | ÉCART | S | haute | à faire | — | — |
 | SYS-16 | Widget Système : alerte | ÉCART | S | moyenne | à faire | — | — |
-| TYP-06 | Écriture — casse des états | ÉCART | S | haute | à faire | — | — |
+| TYP-06 | Écriture — casse des états | ÉCART | S | haute | fait | 0ef9e75 | Table `ui::etats::Etat` (`src/ui/etats.rs`) : tout état qui se lit seul prend la majuscule initiale — badges des paquets et des widgets (« Activé », « Désactivé », « Intégré », « Livré », « Tiers », « Cœur », « En erreur »), composants de la session (« Actif (pid n) », « Arrêté », « Abandonné (plantages) »), connexions (« Connecté », « Non connecté »), thèmes d'applications (« Installé », « Introuvable »), dans les Réglages et la carte Bluetooth de la barre (`assets/widgets/integres/bluetooth.lua`). Les clés minuscules restent dans les phrases et dans les sorties en ligne de commande. « Actif » de la vue d'ensemble (écran courant) et « Activé », libellé d'interrupteur, restent tels quels. Test `un_terme_par_etat_majuscule_et_traduit`. Recouvrement : même commit que TYP-14. |
 | ICO-01 | Icônes d'application (lanceur, dock, aperçu, commutateur, sélecteur d'activité, menu de fenêtre) | ÉCART | M | haute | à faire | — | — |
 | TYP-19 | Typographie — rôle infobulle | ABSENT | S | moyenne | à faire | — | — |
 | ICO-04 | Icônes d'application (dock, lanceur, aperçu) | ABSENT | M | moyenne | à faire | — | — |
@@ -238,7 +239,7 @@ Référence verte : `06a2180` (code vérifié par `scripts/verify.sh --visual` l
 | TYP-09 | Typographie — barre et échelle de texte | PISTE | S | moyenne | à faire | — | — |
 | TYP-10 | Écriture — boutons du conflit de raccourcis | PISTE | S | haute | à faire | — | — |
 | TYP-12 | Écriture — fin de parcours | PISTE | S | haute | à faire | — | — |
-| TYP-14 | Écriture — vocabulaire des états | PISTE | S | haute | à faire | — | — |
+| TYP-14 | Écriture — vocabulaire des états | PISTE | S | haute | fait | 0ef9e75 | Un terme par état, dans les deux langues, tenu par la même table : « coupé » et « inactif » cèdent la place à « Désactivé », terme déjà celui de la page Raccourcis ; « actif » de la page Plugins devient « Activé ». « Arrêté » reste le terme d'un composant de la session qui ne tourne pas : ce n'est pas un réglage qu'on éteint, et le composant en marche est « Actif (pid n) ». Les anciennes clés quittent le catalogue quand plus rien ne les emploie. Recouvrement : même commit que TYP-06. |
 | TYP-18 | Disposition — ajustement du fond d'écran | PISTE | S | moyenne | à faire | — | — |
 | ICO-12 | Graisse des glyphes | PISTE | M | haute | à faire | — | — |
 | TYP-04 | Typographie — échelle des corps | PISTE | M | moyenne | à faire | — | — |
