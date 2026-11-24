@@ -419,8 +419,22 @@ impl App {
             .center_x(Length::Fill)
             .center_y(Length::Fill);
         let b = self.dash_button(pal, centered.into(), action.as_ref(), selected, Some(size));
-        tooltip(
+        self.dash_tooltip(
+            pal,
             keyboard::press(b, action, if selected { pal.ink } else { pal.fg }),
+            label,
+        )
+    }
+
+    /// Info-bulle d'une commande du tableau de bord : son libellé suit le curseur.
+    fn dash_tooltip<'a>(
+        &'a self,
+        pal: Palette,
+        content: Element<'a, Msg>,
+        label: impl Into<String>,
+    ) -> Element<'a, Msg> {
+        tooltip(
+            content,
             self.dash_label(label, 12.0, pal.fg),
             tooltip::Position::FollowCursor,
         )
@@ -1317,10 +1331,12 @@ impl App {
                 .width(Length::Fill)
                 .height(43)
                 .padding([4, 3]);
-            line = line.push(keyboard::press(
-                button,
-                Some(action),
-                if active { pal.ink } else { pal.fg },
+            // La cellule ne garde que quatre signes du nom : l'info-bulle dit
+            // lequel (HIG SEL-05).
+            line = line.push(self.dash_tooltip(
+                pal,
+                keyboard::press(button, Some(action), if active { pal.ink } else { pal.fg }),
+                w.name.clone(),
             ));
         }
         if spaces.len() > 5 || spaces.is_empty() {
@@ -1349,10 +1365,11 @@ impl App {
             let button = self
                 .dash_button(pal, content.into(), Some(&action), active, None)
                 .padding([3, 7]);
-            modes = modes.push(keyboard::press(
-                button,
-                Some(action),
-                if active { pal.ink } else { pal.fg },
+            // Un segment, une info-bulle : son libellé (HIG SEL-05).
+            modes = modes.push(self.dash_tooltip(
+                pal,
+                keyboard::press(button, Some(action), if active { pal.ink } else { pal.fg }),
+                tr(label),
             ));
         }
         self.dash_card(

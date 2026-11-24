@@ -1,5 +1,5 @@
 //! Composition des réglages existants ; aucune source système supplémentaire.
-use iced::widget::{Space, button, column, container, row, slider};
+use iced::widget::{Space, button, column, container, row, slider, tooltip};
 use iced::{Alignment, Border, Color, Element, Length};
 
 use crate::config::{RenderState, WidgetDef, WidgetKind};
@@ -322,30 +322,47 @@ impl App {
                 ),
             ] {
                 let active = mode == state;
+                // Un segment, une info-bulle : son libellé (HIG SEL-05).
+                let label = crate::i18n::tr(label);
                 modes = modes.push(
-                    button(
+                    tooltip(
+                        button(
+                            text(label)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .color(fg),
+                        )
+                        .padding([8, 6])
+                        .width(Length::Fill)
+                        .on_press(Msg::On(
+                            monitor.to_string(),
+                            Box::new(Msg::Control(command)),
+                        ))
+                        .style(move |_, status| {
+                            iced::widget::button::Style {
+                                background: (active
+                                    || matches!(status, iced::widget::button::Status::Hovered))
+                                .then_some(
+                                    Color {
+                                        a: (if active { 0.13 } else { 0.06 }) * alpha,
+                                        ..fg
+                                    }
+                                    .into(),
+                                ),
+                                text_color: fg,
+                                border: Border::default().rounded(design::SMALL_RADIUS),
+                                ..Default::default()
+                            }
+                        }),
                         text(label)
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0))
                             .color(fg),
+                        iced::widget::tooltip::Position::Bottom,
                     )
-                    .padding([8, 6])
-                    .width(Length::Fill)
-                    .on_press(Msg::On(
-                        monitor.to_string(),
-                        Box::new(Msg::Control(command)),
-                    ))
-                    .style(move |_, status| iced::widget::button::Style {
-                        background: (active
-                            || matches!(status, iced::widget::button::Status::Hovered))
-                        .then_some(
-                            Color {
-                                a: (if active { 0.13 } else { 0.06 }) * alpha,
-                                ..fg
-                            }
-                            .into(),
-                        ),
-                        text_color: fg,
+                    .style(move |_| container::Style {
+                        text_color: Some(Color { a: 1.0, ..fg }),
+                        background: Some(color(self.cfg.general.theme.bg, 1.0).into()),
                         border: Border::default().rounded(design::SMALL_RADIUS),
                         ..Default::default()
                     }),

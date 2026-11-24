@@ -30,6 +30,9 @@ pub struct Picker {
     hover: Option<Point>,
     dragging: bool,
     hex: String,
+    /// La dernière valeur rendue par Entrée était illisible : le texte est
+    /// gardé et l'erreur se lit sous le champ (HIG SEL-07).
+    hex_error: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +57,7 @@ impl Picker {
             hover: None,
             dragging: false,
             hex: crate::settings::hex(c),
+            hex_error: false,
         }
     }
 
@@ -79,6 +83,7 @@ impl Picker {
             self.v = 0.85;
         }
         self.hex = crate::settings::hex(self.color());
+        self.hex_error = false;
     }
 
     pub fn update(&mut self, m: PickerMsg) {
@@ -99,6 +104,7 @@ impl Picker {
             PickerMsg::Value(v) => {
                 self.v = v.clamp(0.0, 1.0);
                 self.hex = crate::settings::hex(self.color());
+                self.hex_error = false;
             }
             PickerMsg::Hex(h) => {
                 // Saisie complète et lisible : appliquée tout de suite.
@@ -106,15 +112,19 @@ impl Picker {
                     && h.trim().trim_start_matches('#').len() == 6
                 {
                     self.set(c);
+                    self.hex_error = false;
                 }
                 self.hex = h;
             }
-            PickerMsg::HexSubmit => {
-                if let Some(c) = Rgba::parse(self.hex.trim()) {
+            PickerMsg::HexSubmit => match Rgba::parse(self.hex.trim()) {
+                Some(c) => {
                     self.set(c);
+                    self.hex = crate::settings::hex(self.color());
+                    self.hex_error = false;
                 }
-                self.hex = crate::settings::hex(self.color());
-            }
+                // Illisible : ni le texte ni la couleur ne changent.
+                None => self.hex_error = true,
+            },
         }
     }
 
@@ -227,7 +237,7 @@ impl Picker {
             .align_x(Alignment::Center)
         };
         let (wh, ws) = (wrap.clone(), wrap);
-        let side = column![
+        let mut side = column![
             row![swatch(self.initial, "avant"), swatch(current, "après")].spacing(8),
             text_input("#rrggbb", &self.hex)
                 .font(font)
@@ -236,26 +246,41 @@ impl Picker {
                 .on_submit(ws(PickerMsg::HexSubmit))
                 .padding(6)
                 .width(120),
-            row![
-                button(
-                    text(crate::i18n::tr("Appliquer"))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .on_press(apply),
-                button(
-                    text(crate::i18n::tr("Annuler"))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press(cancel),
-            ]
-            .spacing(6),
-        ]
-        .spacing(10);
+        ];
+        // Illisible : le texte saisi reste, l'erreur se lit sous le champ (HIG SEL-07).
+        if self.hex_error {
+            side = side.push(
+                text(crate::tr!(
+                    "« {v} » : couleur illisible (#rrggbb)",
+                    v = self.hex.trim()
+                ))
+                .font(font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(crate::ui::tone::danger()),
+            );
+        }
+        let side = side
+            .push(
+                row![
+                    button(
+                        text(crate::i18n::tr("Appliquer"))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(apply),
+                    button(
+                        text(crate::i18n::tr("Annuler"))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(cancel),
+                ]
+                .spacing(6),
+            )
+            .spacing(10);
         let field: Element<'a, M> = tooltip(
             field,
             container(
@@ -381,9 +406,26 @@ mod tests {
         p.update(PickerMsg::Hex("#8aff80".into()));
         assert_eq!(p.color(), Rgba(0x8a, 0xff, 0x80, 0xff));
         assert_eq!(p.initial, Rgba(0x1b, 0x1f, 0x33, 0xff));
-        // Saisie illisible validée : on revient à la couleur en cours.
+        // Saisie illisible validée : la couleur ne bouge pas, le texte reste
+        // et l'erreur se lit sous le champ (HIG SEL-07).
         p.update(PickerMsg::Hex("bleu".into()));
         p.update(PickerMsg::HexSubmit);
         assert_eq!(p.color(), Rgba(0x8a, 0xff, 0x80, 0xff));
+        assert!(p.hex_error);
+        assert_eq!(p.hex, "bleu");
+        // Une couleur lisible, saisie ou validée, efface l'erreur.
+        p.update(PickerMsg::Hex("#8aff80".into()));
+        assert!(!p.hex_error);
+        p.update(PickerMsg::Hex("zz".into()));
+        p.update(PickerMsg::HexSubmit);
+        assert!(p.hex_error);
+        // La saisie corrigée efface l'erreur ; un autre choix (ici la valeur) aussi.
+        p.update(PickerMsg::Hex("#00ff00".into()));
+        assert!(!p.hex_error);
+        p.update(PickerMsg::Hex("zz".into()));
+        p.update(PickerMsg::HexSubmit);
+        assert!(p.hex_error);
+        p.update(PickerMsg::Value(0.5));
+        assert!(!p.hex_error);
     }
 }
