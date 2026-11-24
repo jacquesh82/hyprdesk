@@ -70,3 +70,23 @@ Relu sans agent indépendant, après relevé de `silence_expire`, des deux appel
 ## Documentation de design
 
 - Après acceptation : `DESIGN.md` (un point « Résumé du Silence ») ; guides français et anglais ; scène d'aperçu `notifications-resume`.
+
+## Exécution
+
+- **Étape 1 — faite** (`c471a46`, A14) : `Toasts::held` (les identifiants retenus, mémoire seule), `Toasts::summary`, `resume_notification`, `Toast::summary` ; les bras `Expire`, `Shown` (échéance passée pendant une veille) et `Command::Notifications` resynchronisent la couche ; `Invoke`, `Close` et `Tick` ne parlent jamais à une application pour le résumé. Tests : `le_silence_retient_ce_qu_il_passe_sans_bulle`, `le_silence_qui_s_eteint_resume_ses_retenues`.
+- **Étape 2 — faite** (même commit) : `TMsg::Summary` et `App::open_notifications` (carte « Notifications » de la barre de l'écran actif, à défaut la première ; rien sans barre) ; la carte du résumé est un bouton, au filet renforcé au survol ; scène `notifications-resume` ; guides français et anglais ; `DESIGN.md`.
+
+Écarts au plan, notés au registre :
+
+- `held` est vidé par `notifications clear` lui-même, non par le seul `config reset all` : « Effacer l'historique » (Réglages, centre Continuité) et le volet Panorama passent par là.
+- Un résumé vivant s'efface quand le Silence se rallume (point « à vérifier » du plan).
+- Ne comptent pas comme retenues : une critique dont on a refusé le passage, une demande d'autorisation (non remise).
+- La carte-bouton est celle de la surface des bulles (`view_toast`). La pilule Island montre le résumé comme sa dernière bulle ; son clic ouvre la vue étendue (HIG SYS-13), dont le pied mène à l'historique.
+
+## Relecture du diff
+
+Relu sans agent indépendant (`c471a46`), après les captures de la scène `notifications-resume` (1440 et 640 px, en anglais : « 5 notifications during Do Not Disturb », « from 3 apps »).
+
+- **Le diff fait-il exactement ce que l'écart demande ?** Oui : à l'extinction du Silence — échéance, `dnd off`, échéance passée pendant une veille — une seule bulle de hyprdesk propose les notifications retenues, sa carte ouvre la liste et la referme ; sans retenue, rien. Quatre écarts au plan, ci-dessus.
+- **Respecte-t-il `DESIGN.md` et les conventions du dépôt ?** Oui : aucune primitive nouvelle (un `Toast` de plus dans la liste, le `button` existant), pas d'accent (filet neutre au survol), pas de mouvement ajouté, espacement et rayons inchangés ; français source, trois chaînes dans `locales/en.toml` ; guides et `DESIGN.md` à jour.
+- **Régression, test manquant ?** Corrigé en relisant : le commentaire « Basse urgence » s'était trouvé séparé de son `if` par le bloc de retenue ; deux chemins sans resynchronisation de la couche (retour anticipé de `Shown`, bras `Command::Notifications`) sont couverts. Non testé : l'allumage (`dnd on` écrit l'état réel du Silence — `held` vidé, résumé vivant effacé), le garde de `Invoke` sur le résumé, le clic sans barre.
