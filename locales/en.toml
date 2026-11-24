@@ -4956,3 +4956,8 @@
 "  keyboard-access   bascule l'accès clavier complet : Tab atteint chaque commande des Réglages" = "  keyboard-access   toggles Full Keyboard Access: Tab reaches every control in Settings"
 "                    (raccourci keys.keyboard_access)" = "                    (keys.keyboard_access shortcut)"
 "{ctx} : family « {s} » inconnue (small, medium, large, xlarge)" = "{ctx}: unknown family “{s}” (small, medium, large, xlarge)"
+"Taille du widget" = "Widget size"
+"Petit" = "Small"
+"Moyen" = "Medium"
+"Grand" = "Large"
+"Très grand" = "Extra large"

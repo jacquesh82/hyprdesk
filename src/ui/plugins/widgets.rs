@@ -67,6 +67,8 @@ pub enum Msg {
     /// Écran du widget, et que faire s'il est débranché.
     WidgetScreen(crate::config::WidgetScreen),
     WidgetIfMissing(crate::config::IfMissing),
+    /// Taille du widget : couches d'information (HIG SYS-15).
+    WidgetFamily(crate::config::WidgetFamily),
     WidgetReset,
     /// Supprime un widget placé dans les réglages (premier appui : arme ; second : confirme).
     DeleteWidget(String),
@@ -509,6 +511,37 @@ impl App {
                     .on_press(wrap(Msg::WidgetReset)),
                 ]
                 .spacing(12);
+                // Taille du widget, pour ceux qui en ont plusieurs (HIG SYS-15).
+                let sized = self
+                    .cfg
+                    .widgets
+                    .iter()
+                    .find(|w| w.id == id)
+                    .is_some_and(|w| w.kind.has_family());
+                if sized {
+                    use crate::config::WidgetFamily as F;
+                    let choice = |label: &'static str, v: F| {
+                        iced::widget::radio(crate::i18n::tr(label), v, Some(pl.family), |v| {
+                            wrap(Msg::WidgetFamily(v))
+                        })
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(14.0))
+                    };
+                    c = c.push(
+                        self.field(
+                            "Taille du widget",
+                            "",
+                            row![
+                                choice("Petit", F::Small),
+                                choice("Moyen", F::Medium),
+                                choice("Grand", F::Large),
+                                choice("Très grand", F::XLarge),
+                            ]
+                            .spacing(16)
+                            .wrap(),
+                        ),
+                    );
+                }
                 if user_widget {
                     c = c.push(text("Widget de hyprdesk.lua : sa position est enregistrée dans les réglages (hd.place), votre fichier n'est pas modifié.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim));
                 }
@@ -714,6 +747,10 @@ impl App {
             }
             Msg::WidgetIfMissing(v) => {
                 let t = self.edit_placement(|p| p.if_missing = v);
+                Task::batch([t, self.save()])
+            }
+            Msg::WidgetFamily(v) => {
+                let t = self.edit_placement(|p| p.family = v);
                 Task::batch([t, self.save()])
             }
             Msg::DeleteWidget(id) => {
