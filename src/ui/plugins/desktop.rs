@@ -6,6 +6,7 @@ use crate::i18n::text;
 use iced::widget::{Space, button, column, container, pick_list, radio, row, slider, toggler};
 use iced::{Alignment, Element, Length, Task};
 
+use super::super::etats::Etat;
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
@@ -530,9 +531,9 @@ impl App {
         }
         for (d, st) in comps {
             let state = match (st.pid, st.given_up) {
-                (Some(pid), _) => crate::tr!("actif (pid {pid})", pid = pid),
-                (None, true) => crate::i18n::tr("abandonné (plantages)").to_string(),
-                (None, false) => crate::i18n::tr("arrêté").to_string(),
+                (Some(pid), _) => Etat::en_marche(pid),
+                (None, true) => Etat::Abandonne.libelle().to_string(),
+                (None, false) => Etat::Arrete.libelle().to_string(),
             };
             let extra = if st.restarts > 0 {
                 crate::tr!(" · {n} relance(s)", n = st.restarts)

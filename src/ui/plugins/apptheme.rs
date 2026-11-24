@@ -13,6 +13,7 @@ use crate::i18n::text;
 use iced::widget::{Space, button, column, container, row, text_input, toggler};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
+use super::super::etats::Etat;
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
@@ -131,9 +132,9 @@ impl App {
             let installed = (t.installed)();
             let checked = on.contains(t.id);
             let status = if installed {
-                text(crate::i18n::tr("installé")).color(dim)
+                text(Etat::Installe.libelle()).color(dim)
             } else {
-                text(crate::i18n::tr("introuvable")).color(warn)
+                text(Etat::Introuvable.libelle()).color(warn)
             };
             col = col.push(
                 container(

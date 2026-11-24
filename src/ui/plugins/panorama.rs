@@ -18,6 +18,7 @@ use crate::i18n::text;
 use iced::widget::{Space, button, column, row, slider, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
 
+use super::super::etats::Etat;
 use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg, SubTab};
@@ -961,8 +962,8 @@ impl App {
                 crate::i18n::tr("sans compte")
             } else {
                 match signed {
-                    Some(true) => crate::i18n::tr("connecté"),
-                    Some(false) => crate::i18n::tr("non connecté"),
+                    Some(true) => Etat::Connecte.libelle(),
+                    Some(false) => Etat::NonConnecte.libelle(),
                     None => crate::i18n::tr("compte"),
                 }
             };

@@ -105,7 +105,7 @@ return {
                 local b = levels[d.mac]
                 if b == nil then b = battery(d.mac) end
                 b = b or nil
-                detail = hd.t("connecté") .. (b and (" · " .. b .. " %") or "")
+                detail = hd.t("Connecté") .. (b and (" · " .. b .. " %") or "")
             end
             m[#m + 1] = { label = d.name, detail = detail, checked = c or nil,
                           action = function()

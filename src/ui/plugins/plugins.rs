@@ -13,6 +13,7 @@ use crate::i18n::text;
 use iced::widget::{button, column, container, row, text_input, toggler};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
+use super::super::etats::Etat;
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{BUILTIN, GROUPS, PluginInfo, PluginMsg};
@@ -148,7 +149,7 @@ impl App {
                 let on = self.cfg.plugin_on(info.id);
                 let id = info.id.to_string();
                 let switch: Element<'_, UiMsg> = if core {
-                    badge(crate::i18n::tr("cœur"), true).into()
+                    badge(Etat::Coeur.libelle(), true).into()
                 } else {
                     toggler(on)
                         .on_toggle(move |v| wrap(Msg::Package(id.clone(), v)))
@@ -177,15 +178,9 @@ impl App {
                                 text(info.label)
                                     .font(self.title_font())
                                     .size(crate::ui::tokens::ts(14.0)),
-                                badge(
-                                    if on {
-                                        "actif"
-                                    } else {
-                                        crate::i18n::tr("coupé")
-                                    },
-                                    on
-                                ),
-                                badge(crate::i18n::tr("intégré"), false),
+                                // États de la table des termes (HIG TYP-06, TYP-14).
+                                badge(if on { Etat::Active } else { Etat::Inactive }.libelle(), on),
+                                badge(Etat::Integre.libelle(), false),
                             ]
                             .spacing(8)
                             .align_y(Alignment::Center),
@@ -216,22 +211,27 @@ impl App {
         for t in &self.cfg.catalog {
             let active = self.cfg.widgets.iter().any(|w| w.type_id == t.id);
             let (origin, path, bucket) = match &t.source {
-                WidgetSource::Builtin => (crate::i18n::tr("intégré"), None, &mut integres),
-                WidgetSource::Bundled => (crate::i18n::tr("livré"), None, &mut livres),
-                WidgetSource::Plugin(path) => ("tiers", Some(path.clone()), &mut tiers),
+                WidgetSource::Builtin => (Etat::Integre.libelle(), None, &mut integres),
+                WidgetSource::Bundled => (Etat::Livre.libelle(), None, &mut livres),
+                WidgetSource::Plugin(path) => {
+                    (Etat::Tiers.libelle(), Some(path.clone()), &mut tiers)
+                }
             };
             let mut head = row![
                 text(t.name.clone())
                     .font(self.title_font())
                     .size(crate::ui::tokens::ts(14.0)),
-                badge(if active { "actif" } else { "inactif" }, active),
+                badge(
+                    if active { Etat::Active } else { Etat::Inactive }.libelle(),
+                    active
+                ),
                 badge(origin, false),
             ]
             .spacing(8)
             .align_y(Alignment::Center);
             if t.error.is_some() {
                 head = head.push(
-                    text("en erreur")
+                    text(Etat::EnErreur.libelle())
                         .font(self.font)
                         .size(crate::ui::tokens::ts(12.0))
                         .color(warn),

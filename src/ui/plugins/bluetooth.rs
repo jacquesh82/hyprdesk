@@ -8,6 +8,7 @@ use crate::i18n::text;
 use iced::widget::{button, column, row, toggler};
 use iced::{Alignment, Element, Length, Task};
 
+use super::super::etats::Etat;
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
@@ -235,9 +236,9 @@ impl App {
         }
         for d in &s.paired {
             let detail = match (d.connected, d.battery) {
-                (true, Some(b)) => crate::tr!("connecté · batterie {b} %", b = b),
-                (true, None) => crate::i18n::tr("connecté").to_string(),
-                _ => crate::i18n::tr("non connecté").to_string(),
+                (true, Some(b)) => crate::tr!("Connecté · batterie {b} %", b = b),
+                (true, None) => Etat::Connecte.libelle().to_string(),
+                _ => Etat::NonConnecte.libelle().to_string(),
             };
             let confirm = s.confirm.as_deref() == Some(d.mac.as_str());
             col = col.push(

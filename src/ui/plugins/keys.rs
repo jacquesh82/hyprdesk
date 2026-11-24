@@ -11,6 +11,7 @@ use iced::keyboard::{Key, Modifiers};
 use iced::widget::{Space, button, column, container, row, text_input, toggler};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
+use super::super::etats::Etat;
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
@@ -1037,7 +1038,7 @@ impl App {
         .spacing(2);
         if !s.on {
             what = what.push(
-                text(crate::i18n::tr("Désactivé"))
+                text(Etat::Inactive.libelle())
                     .font(self.font)
                     .size(crate::ui::tokens::ts(11.0))
                     .color(warn),

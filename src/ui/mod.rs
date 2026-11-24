@@ -23,6 +23,7 @@ mod design;
 mod desk_layout;
 mod edit;
 mod engine;
+mod etats;
 mod glass;
 mod hyprlists;
 mod hyprset;

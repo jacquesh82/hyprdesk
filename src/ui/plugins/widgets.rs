@@ -6,6 +6,7 @@ use crate::i18n::text;
 use iced::widget::{Space, button, column, row, slider, toggler};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
+use super::super::etats::Etat;
 use super::super::panel::{Panel, PanelMsg};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
@@ -88,7 +89,7 @@ impl App {
                 .count();
             let disabled = self.cfg.disabled.values().filter(|ty| *ty == &t.id).count();
             let source = match &t.source {
-                WidgetSource::Builtin => crate::i18n::tr("intégré").to_string(),
+                WidgetSource::Builtin => Etat::Integre.libelle().to_string(),
                 WidgetSource::Bundled => crate::i18n::tr("plugin livré").to_string(),
                 WidgetSource::Plugin(path) => format!(
                     "plugin · {}",
