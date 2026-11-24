@@ -1959,7 +1959,7 @@ impl App {
         let mut el: Element<'a, Msg> = m.into();
         if let Some(msg) = activate {
             let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
-            el = popover::continuity::focus_ring(
+            el = crate::ui::focus::press(
                 el,
                 Some(msg),
                 crate::ui::plugins::bar::style::ink(style, &pal),

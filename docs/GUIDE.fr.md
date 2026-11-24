@@ -295,7 +295,11 @@ barre de l'écran actif, `CTRL + F3` au dock (bureau masqué, il paraît sous le
 fenêtres, qui restent en place), `CTRL + F8` ouvre le centre de notifications,
 `CTRL + F6` ouvre le volet des Réglages et pose le focus sur son premier champ.
 Pressé deux fois, la barre et le dock rendent le clavier aux fenêtres ; le
-centre et le volet, qui restent ouverts, le gardent.
+centre et le volet, qui restent ouverts, le gardent. Dans le volet, Tab et
+Maj + Tab ne sortent pas du tiroir : ils passent par ses champs et par les
+commandes de son en-tête (Fermer, Visite guidée, Assistant, effacer la
+recherche), que l'anneau de focus désigne et qu'Entrée ou Espace activent ; un
+clic de souris retire l'anneau.
 
 **Navigation au clavier dans la barre.** Flèches, Tab et Maj + Tab passent d'un
 module activable au suivant : ceux qu'ouvre un clic gauche (menus, volume,

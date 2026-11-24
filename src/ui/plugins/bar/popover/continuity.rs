@@ -19,10 +19,6 @@ use crate::widgets::{SysLine, Value, media::Status};
 
 mod keyboard;
 pub(in crate::ui) use keyboard::handle as handle_key;
-/// L'enveloppe de focus des cartes, pour les modules de la barre (HIG ENT-02).
-pub(in crate::ui) use keyboard::press as focus_ring;
-/// Le contrôle suivant d'une surface nommée prend le focus, sans en sortir.
-pub(in crate::ui) use keyboard::step as focus_step;
 
 const GAP: f32 = 12.0;
 const PADDING: f32 = 12.0;
@@ -463,7 +459,7 @@ impl App {
         let b = self.dash_button(pal, centered.into(), action.as_ref(), selected, Some(size));
         self.dash_tooltip(
             pal,
-            keyboard::press(b, action, if selected { pal.ink } else { pal.fg }),
+            crate::ui::focus::press(b, action, if selected { pal.ink } else { pal.fg }),
             label,
         )
     }
@@ -730,7 +726,7 @@ impl App {
                 }
             })
             .height(39);
-        keyboard::press(button, action, crate::ui::design::mix(pal.fg, pal.ink, on))
+        crate::ui::focus::press(button, action, crate::ui::design::mix(pal.fg, pal.ink, on))
     }
 
     fn dashboard_connection(
@@ -876,7 +872,7 @@ impl App {
                         .center_x(53)
                         .center_y(47)
                         .style(move |_| pal.surface(pal.dark, 16.0)),
-                    keyboard::adjust(control, level, 1.0, set, Some(commit), pal.fg),
+                    crate::ui::focus::adjust(control, level, 1.0, set, Some(commit), pal.fg),
                     label
                 ]
                 .align_x(Alignment::Center)
@@ -893,7 +889,7 @@ impl App {
                     self.dash_label(tr("Luminosité"), 12.0, pal.fg),
                     row![
                         icon,
-                        keyboard::adjust(control, level, 1.0, set, Some(commit), pal.fg),
+                        crate::ui::focus::adjust(control, level, 1.0, set, Some(commit), pal.fg),
                         label
                     ]
                     .spacing(8)
@@ -985,12 +981,12 @@ impl App {
             Some(
                 column![
                     tooltip(
-                        keyboard::press(action, Some(mute), pal.fg),
+                        crate::ui::focus::press(action, Some(mute), pal.fg),
                         self.dash_label(title, 12.0, pal.fg),
                         tooltip::Position::Left
                     )
                     .style(move |_| pal.surface(pal.dark, 8.0)),
-                    keyboard::adjust(adjust, value, 1.5, set, None, pal.fg)
+                    crate::ui::focus::adjust(adjust, value, 1.5, set, None, pal.fg)
                 ]
                 .align_x(Alignment::Center)
                 .spacing(2)
@@ -1005,7 +1001,7 @@ impl App {
                 row![
                     action,
                     self.dash_label(title, 12.0, pal.fg).width(112),
-                    keyboard::adjust(adjust, value, 1.5, set, None, pal.fg)
+                    crate::ui::focus::adjust(adjust, value, 1.5, set, None, pal.fg)
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center)
@@ -1252,7 +1248,7 @@ impl App {
                 let card: Element<'_, Msg> = iced::widget::mouse_area(card)
                     .on_right_press(Msg::Toasts(crate::ui::toasts::TMsg::Menu(n.id)))
                     .into();
-                tiles = tiles.push(keyboard::press(card, press, pal.fg));
+                tiles = tiles.push(crate::ui::focus::press(card, press, pal.fg));
             }
             items = items.push(
                 container(
@@ -1448,7 +1444,11 @@ impl App {
             // lequel (HIG SEL-05).
             line = line.push(self.dash_tooltip(
                 pal,
-                keyboard::press(button, Some(action), if active { pal.ink } else { pal.fg }),
+                crate::ui::focus::press(
+                    button,
+                    Some(action),
+                    if active { pal.ink } else { pal.fg },
+                ),
                 w.name.clone(),
             ));
         }
@@ -1481,7 +1481,11 @@ impl App {
             // Un segment, une info-bulle : son libellé (HIG SEL-05).
             modes = modes.push(self.dash_tooltip(
                 pal,
-                keyboard::press(button, Some(action), if active { pal.ink } else { pal.fg }),
+                crate::ui::focus::press(
+                    button,
+                    Some(action),
+                    if active { pal.ink } else { pal.fg },
+                ),
                 tr(label),
             ));
         }

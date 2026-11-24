@@ -558,22 +558,28 @@ impl App {
         Task::batch([open, reborn, first.unwrap_or_else(Task::none)])
     }
 
-    /// Le premier contrôle du volet prend le focus, lui seul : les autres
-    /// surfaces perdent le leur (HIG ENT-02).
+    /// Une commande du tiroir dans le parcours au clavier (HIG ENT-01) : Tab
+    /// l'atteint, l'anneau la montre, Entrée ou Espace l'active. Jamais un
+    /// champ de saisie, déjà focalisable.
+    pub(in crate::ui) fn focusable<'a>(
+        &self,
+        control: impl Into<Element<'a, Msg>>,
+    ) -> Element<'a, Msg> {
+        super::focus::click(control, self.ink().fg, true)
+    }
+
+    /// Le champ de recherche du volet prend le focus, lui seul : les autres
+    /// surfaces perdent le leur (HIG ENT-02). Viser le champ, et non le
+    /// premier focalisable : la croix de l'en-tête, dans le parcours au
+    /// clavier (HIG ENT-01), le précède dans l'arbre.
     pub(super) fn panel_focus_first(&self) -> Task<Msg> {
-        Task::batch([
-            iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::unfocus()),
-            self.panel_focus_step(false),
-        ])
+        iced::widget::operation::focus(SEARCH_ID)
     }
 
     /// Le contrôle suivant (précédent) du volet prend le focus ; l'opération
     /// est bornée au volet (HIG ENT-02), elle ne va pas aux autres surfaces.
     pub(super) fn panel_focus_step(&self, previous: bool) -> Task<Msg> {
-        super::plugins::bar::popover::continuity::focus_step(
-            iced::widget::Id::new(PANEL_ID),
-            previous,
-        )
+        super::focus::step(iced::widget::Id::new(PANEL_ID), previous)
     }
 
     /// Fond d'écran sous le tiroir, à sa place sur l'écran : ce que son
@@ -1336,15 +1342,17 @@ impl App {
         let (mon, ws) = self.panel_ctx().unwrap_or_default();
         let close_icon = super::icons::get("window-close").unwrap();
         let close = tooltip(
-            button(
-                iced::widget::svg(close_icon)
-                    .width(16)
-                    .height(16)
-                    .style(move |_, _| iced::widget::svg::Style { color: Some(fg) }),
-            )
-            .padding(9)
-            .on_press(Msg::Panel(PanelMsg::Close))
-            .style(button::text),
+            self.focusable(
+                button(
+                    iced::widget::svg(close_icon)
+                        .width(16)
+                        .height(16)
+                        .style(move |_, _| iced::widget::svg::Style { color: Some(fg) }),
+                )
+                .padding(9)
+                .on_press(Msg::Panel(PanelMsg::Close))
+                .style(button::text),
+            ),
             text("Fermer · Échap").font(self.font),
             iced::widget::tooltip::Position::Left,
         );
@@ -1392,10 +1400,12 @@ impl App {
                 });
             layers.push(
                 container(tooltip(
-                    button(glyph)
-                        .padding(2)
-                        .style(button::text)
-                        .on_press(Msg::Panel(PanelMsg::SearchClear)),
+                    self.focusable(
+                        button(glyph)
+                            .padding(2)
+                            .style(button::text)
+                            .on_press(Msg::Panel(PanelMsg::SearchClear)),
+                    ),
                     text(crate::i18n::tr("Effacer la recherche")).font(self.font),
                     // En-tête du tiroir : la bulle s'ouvre dessous.
                     iced::widget::tooltip::Position::Bottom,
@@ -1415,22 +1425,26 @@ impl App {
         }
         let actions = row![
             iced::widget::Stack::with_children(layers),
-            button(
-                text(crate::i18n::tr("Visite guidée"))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-            )
-            .padding([4, 10])
-            .style(button::text)
-            .on_press(Msg::Panel(PanelMsg::Tour(super::tour::TourMsg::Start))),
-            button(
-                text(crate::i18n::tr("Assistant"))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-            )
-            .padding([4, 10])
-            .style(button::text)
-            .on_press(Msg::Control(crate::control::Command::Wizard)),
+            self.focusable(
+                button(
+                    text(crate::i18n::tr("Visite guidée"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .style(button::text)
+                .on_press(Msg::Panel(PanelMsg::Tour(super::tour::TourMsg::Start)))
+            ),
+            self.focusable(
+                button(
+                    text(crate::i18n::tr("Assistant"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .style(button::text)
+                .on_press(Msg::Control(crate::control::Command::Wizard))
+            ),
         ]
         .spacing(12)
         .align_y(Alignment::Center);

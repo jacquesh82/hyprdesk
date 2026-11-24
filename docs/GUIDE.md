@@ -292,7 +292,11 @@ the bar of the active screen, `CTRL + F3` to the dock (hidden desktop: it
 appears under the windows, which stay in place), `CTRL + F8` opens the
 notification center, `CTRL + F6` opens the Settings drawer and focuses its
 first field. Pressed twice, the bar and the dock return the keyboard to the
-windows; the center and the drawer, which stay open, keep it.
+windows; the center and the drawer, which stay open, keep it. In the drawer,
+Tab and Shift + Tab never leave it: they go through its fields and the
+commands of its header (Close, Guided tour, Assistant, clear the search),
+which the focus ring points out and Enter or Space activate; a mouse click
+removes the ring.
 
 **Keyboard navigation in the bar.** The arrow keys, Tab and Shift + Tab move
 from one activable module to the next: those a left click opens (menus, volume,

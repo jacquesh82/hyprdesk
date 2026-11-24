@@ -38,6 +38,7 @@ pub(crate) mod tokens;
 pub(crate) mod tone;
 pub use mymfa_fenetre::run as run_mymfa_fenetre;
 mod controls;
+mod focus;
 mod force_quit;
 mod key_conflict;
 mod osd;
@@ -5849,7 +5850,13 @@ impl App {
                 // dessous ; Tab et Maj + Tab passent d'un champ à l'autre.
                 if self.panel.is_some() || self.chat_shown() {
                     if key == keyboard::Key::Named(keyboard::key::Named::Tab) {
-                        return if self.mods.shift() {
+                        // Le tiroir : Tab ne sort pas du volet et atteint ses
+                        // commandes enveloppées (HIG ENT-01) ; la conversation
+                        // seule garde le parcours de ses champs.
+                        let in_chat = self.chat.as_ref().is_some_and(|c| c.surface == Some(id));
+                        return if self.panel.is_some() && !in_chat {
+                            self.panel_focus_step(self.mods.shift())
+                        } else if self.mods.shift() {
                             iced::widget::operation::focus_previous()
                         } else {
                             iced::widget::operation::focus_next()

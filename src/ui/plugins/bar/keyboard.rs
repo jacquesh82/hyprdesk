@@ -20,7 +20,7 @@ pub(in crate::ui) fn scope(id: Id) -> iced::widget::Id {
 
 /// Le module suivant (précédent) de la barre prend le focus, le seul.
 fn step(id: Id, previous: bool) -> Task<Msg> {
-    super::popover::continuity::focus_step(scope(id), previous)
+    crate::ui::focus::step(scope(id), previous)
 }
 
 /// Module focusable de la barre : l'anneau s'efface.
