@@ -749,9 +749,11 @@ impl App {
                         .find(|t| t.id == w.type_id)
                         .map(|t| t.anchor)
                         .unwrap_or_default();
-                    // Position remise à zéro ; l'écran choisi reste.
+                    // Position remise à zéro ; l'écran choisi et la taille
+                    // du widget (son contenu, HIG SYS-15) restent.
                     let (screen, if_missing) = (w.screen.clone(), w.if_missing);
                     w.set_placement(&Placement {
+                        family: w.family,
                         anchor,
                         x: 0.0,
                         y: 0.0,

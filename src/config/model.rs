@@ -2039,6 +2039,21 @@ pub struct WidgetDef {
     /// Écran du widget, et que faire si cet écran est débranché.
     pub screen: WidgetScreen,
     pub if_missing: IfMissing,
+    /// Taille du widget, couches d'information comprises (HIG SYS-15).
+    pub family: WidgetFamily,
+}
+
+impl WidgetKind {
+    /// Le widget a plusieurs tailles (`family`, HIG SYS-15).
+    pub fn has_family(&self) -> bool {
+        matches!(
+            self,
+            WidgetKind::Clock { .. }
+                | WidgetKind::Calendar
+                | WidgetKind::System { .. }
+                | WidgetKind::Media { .. }
+        )
+    }
 }
 
 impl WidgetDef {
@@ -2051,6 +2066,7 @@ impl WidgetDef {
             card: self.card,
             screen: self.screen.clone(),
             if_missing: self.if_missing,
+            family: self.family,
         }
     }
 
@@ -2078,6 +2094,7 @@ impl WidgetDef {
         self.card = p.card;
         self.screen = p.screen.clone();
         self.if_missing = p.if_missing;
+        self.family = p.family;
     }
 
     /// Même widget, en ignorant sa position : un déplacement ne doit pas
@@ -2088,6 +2105,8 @@ impl WidgetDef {
             && self.kind == o.kind
             && self.interval == o.interval
             && self.sel == o.sel
+            // La taille change ce que le widget relève (HIG SYS-15).
+            && self.family == o.family
     }
 }
 
@@ -2102,6 +2121,8 @@ pub struct Placement {
     pub card: bool,
     pub screen: WidgetScreen,
     pub if_missing: IfMissing,
+    /// Taille du widget (HIG SYS-15).
+    pub family: WidgetFamily,
 }
 
 /// Écran d'un widget du bureau (plusieurs écrans : un widget n'est pas
@@ -2131,6 +2152,39 @@ impl WidgetScreen {
             WidgetScreen::Primary => "primary",
             WidgetScreen::All => "all",
             WidgetScreen::Named(n) => n,
+        }
+    }
+}
+
+/// Taille d'un widget du bureau : chaque taille ajoute une couche
+/// d'information au lieu d'agrandir la précédente ; `Medium` est l'affichage
+/// historique (HIG SYS-15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WidgetFamily {
+    Small,
+    #[default]
+    Medium,
+    Large,
+    XLarge,
+}
+
+impl WidgetFamily {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s.trim() {
+            "small" | "petit" => WidgetFamily::Small,
+            "medium" | "moyen" => WidgetFamily::Medium,
+            "large" | "grand" => WidgetFamily::Large,
+            "xlarge" | "tres-grand" | "très-grand" => WidgetFamily::XLarge,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WidgetFamily::Small => "small",
+            WidgetFamily::Medium => "medium",
+            WidgetFamily::Large => "large",
+            WidgetFamily::XLarge => "xlarge",
         }
     }
 }

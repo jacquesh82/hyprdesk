@@ -469,6 +469,7 @@ mod tests {
             std::sync::Arc::make_mut(&mut app.cfg)
                 .widgets
                 .push(crate::config::WidgetDef {
+                    family: Default::default(),
                     origin: Default::default(),
                     sel: Default::default(),
                     id: "horloge".into(),
@@ -496,6 +497,7 @@ mod tests {
         std::sync::Arc::make_mut(&mut app.cfg)
             .widgets
             .push(crate::config::WidgetDef {
+                family: Default::default(),
                 origin: Default::default(),
                 sel: Default::default(),
                 id: "notif".into(),

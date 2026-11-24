@@ -7240,6 +7240,7 @@ mod regression_tests {
         let mut app = app();
         Arc::make_mut(&mut app.cfg).general.transition = Transition::Fade;
         Arc::make_mut(&mut app.cfg).widgets.push(config::WidgetDef {
+            family: Default::default(),
             origin: config::Origin::User,
             sel: config::Selector::default(),
             id: "wifi".into(),
@@ -7312,6 +7313,7 @@ mod regression_tests {
     fn le_fond_d_un_widget_ouvre_son_contenu() {
         let mut app = app();
         let widget = |id: &str, kind| config::WidgetDef {
+            family: Default::default(),
             origin: config::Origin::User,
             sel: config::Selector::default(),
             id: id.into(),
@@ -7603,6 +7605,7 @@ mod regression_tests {
         {
             let cfg = Arc::make_mut(&mut app.cfg);
             cfg.widgets.push(config::WidgetDef {
+                family: Default::default(),
                 origin: config::Origin::User,
                 sel: config::Selector::default(),
                 id: "calendar".into(),

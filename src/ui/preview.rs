@@ -285,6 +285,7 @@ pub fn run(output: Option<PathBuf>) -> iced::Result {
 
 fn widget(id: &str, kind: WidgetKind, anchor: Anchor) -> WidgetDef {
     WidgetDef {
+        family: Default::default(),
         origin: Origin::User,
         sel: Selector::default(),
         id: id.into(),

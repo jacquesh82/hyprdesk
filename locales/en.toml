@@ -4955,3 +4955,4 @@
 "on | off — accès clavier complet : Tab atteint chaque commande des Réglages, pas seulement les champs de saisie" = "on | off — Full Keyboard Access: Tab reaches every control in Settings, not only text fields"
 "  keyboard-access   bascule l'accès clavier complet : Tab atteint chaque commande des Réglages" = "  keyboard-access   toggles Full Keyboard Access: Tab reaches every control in Settings"
 "                    (raccourci keys.keyboard_access)" = "                    (keys.keyboard_access shortcut)"
+"{ctx} : family « {s} » inconnue (small, medium, large, xlarge)" = "{ctx}: unknown family “{s}” (small, medium, large, xlarge)"

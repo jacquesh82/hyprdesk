@@ -741,6 +741,7 @@ impl Settings {
             n += 1;
         }
         self.widgets.push(WidgetDef {
+            family: Default::default(),
             origin: Origin::Settings,
             sel: Selector::default(),
             id: id.clone(),
@@ -1992,6 +1993,10 @@ fn placement_fields(p: &Placement) -> Vec<String> {
     if p.if_missing != crate::config::IfMissing::Primary {
         f.push(format!("if_missing = {}", q(p.if_missing.as_str())));
     }
+    // Taille : écrite seulement si elle n'est pas la moyenne (HIG SYS-15).
+    if p.family != crate::config::WidgetFamily::Medium {
+        f.push(format!("family = {}", q(p.family.as_str())));
+    }
     f
 }
 
@@ -2344,6 +2349,87 @@ mod tests {
         assert_eq!(clock2.screen, WidgetScreen::All);
     }
 
+    /// Taille d'un widget (`family`) : moyenne par défaut, lue dans
+    /// hyprdesk.lua, refusée si inconnue, refusée hors des widgets qui
+    /// l'admettent, et posée par les réglages (hd.place) (HIG SYS-15).
+    #[test]
+    fn taille_des_widgets() {
+        use crate::config::WidgetFamily;
+        let load = |chunks: &[(String, &str, Origin)]| {
+            let c: Vec<(String, String, Origin)> = chunks
+                .iter()
+                .map(|(l, n, o)| (l.clone(), n.to_string(), *o))
+                .collect();
+            load_chunks(&c, Path::new("/cfg"))
+        };
+        let user = r#"hd.widget("clock") hd.widget("system", { family = "large" })"#;
+        let cfg = load(&[(user.into(), "hyprdesk.lua", Origin::User)])
+            .unwrap()
+            .config;
+        let clock = cfg.widgets.iter().find(|w| w.type_id == "clock").unwrap();
+        let system = cfg.widgets.iter().find(|w| w.type_id == "system").unwrap();
+        assert_eq!(
+            clock.family,
+            WidgetFamily::Medium,
+            "défaut : l'affichage actuel"
+        );
+        assert_eq!(system.family, WidgetFamily::Large);
+        assert!(
+            load(&[(
+                r#"hd.widget("clock", { family = "géant" })"#.into(),
+                "hyprdesk.lua",
+                Origin::User
+            )])
+            .is_err(),
+            "taille inconnue"
+        );
+        assert!(
+            load(&[(
+                r#"hd.widget("command", { exec = "true", family = "large" })"#.into(),
+                "hyprdesk.lua",
+                Origin::User
+            )])
+            .is_err(),
+            "le widget commande n'a qu'une taille"
+        );
+        // Réglages : l'horloge passe en petit → hd.place, relu.
+        let mut s = Settings::from_config(&cfg);
+        let mut p = clock.placement();
+        p.family = WidgetFamily::Small;
+        s.place_widget(&clock.id, p);
+        let lua = s.to_lua();
+        assert!(lua.contains("family = \"small\""), "{lua}");
+        let again = load(&[
+            (lua, "settings.lua", Origin::Settings),
+            (user.into(), "hyprdesk.lua", Origin::User),
+        ])
+        .unwrap()
+        .config;
+        let clock2 = again.widgets.iter().find(|w| w.type_id == "clock").unwrap();
+        assert_eq!(clock2.family, WidgetFamily::Small);
+        // Taille moyenne : rien d'écrit.
+        let mut s = Settings::from_config(&cfg);
+        s.place_widget(&clock.id, clock.placement());
+        assert!(!s.to_lua().contains("family"), "{}", s.to_lua());
+        // Widget des réglages : la taille fait l'aller-retour par hd.widget.
+        let mine = r#"hd.widget("calendar", { family = "xlarge" })"#;
+        let cfg = load(&[(mine.into(), "settings.lua", Origin::Settings)])
+            .unwrap()
+            .config;
+        let lua = Settings::from_config(&cfg).to_lua();
+        assert!(lua.contains("family = \"xlarge\""), "{lua}");
+        let back = load(&[(lua, "settings.lua", Origin::Settings)])
+            .unwrap()
+            .config;
+        assert_eq!(back.widgets[0].family, WidgetFamily::XLarge);
+        // hd.place ne pose pas de taille sur un widget qui n'en a qu'une.
+        let cmd = r#"hd.widget("command", { id = "c", exec = "true" }) hd.place("c", { family = "large" })"#;
+        let cfg = load(&[(cmd.into(), "hyprdesk.lua", Origin::User)])
+            .unwrap()
+            .config;
+        assert_eq!(cfg.widgets[0].family, WidgetFamily::Medium);
+    }
+
     #[test]
     fn aller_retour_lua() {
         let mut s = Settings {
@@ -2599,6 +2685,7 @@ mod tests {
         s.place_widget(
             "calendar",
             Placement {
+                family: Default::default(),
                 anchor: Anchor::Center,
                 x: 12.0,
                 y: -40.0,
@@ -2611,6 +2698,7 @@ mod tests {
         s.place_widget(
             "clock#0",
             Placement {
+                family: Default::default(),
                 anchor: Anchor::Top,
                 x: 0.0,
                 y: 8.0,
@@ -2645,6 +2733,7 @@ mod tests {
         moved.place_widget(
             "clock#0",
             Placement {
+                family: Default::default(),
                 anchor: Anchor::BottomLeft,
                 x: 4.0,
                 y: 4.0,
