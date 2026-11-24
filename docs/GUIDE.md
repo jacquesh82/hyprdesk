@@ -268,9 +268,12 @@ and disabled bindings are kept. A hand-written file is copied
 
 ## Tuning Hyprland from Settings
 
+- **Know where you are.** The drawer title names the package on show
+  (“Bar”, “Desktop”…); “Settings” stays as the overline.
 - **Find a setting.** The search field in the Settings header filters
-  settings as you type. As soon as it holds a query, a Clear button on the
-  right erases it and returns to the field.
+  settings as you type; the navigation column then keeps only the packages
+  with a match, each with its count. As soon as it holds a query, a Clear
+  button on the right erases it and returns to the field.
 - **Make the desktop yours.** Set wallpapers and slideshows per screen or
   workspace, add app and file shortcuts, and build a theme from an image.
   Drag modules to rearrange the bar, or use the dock to group windows by

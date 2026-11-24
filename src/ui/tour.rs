@@ -429,7 +429,8 @@ impl App {
         }
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.65, ..fg };
+        // Texte secondaire du tiroir : celle du thème (HIG LAY-08).
+        let dim = self.ink().dim;
         let go = |m: TourMsg| Msg::Panel(PanelMsg::Tour(m));
         card(
             row![
@@ -479,7 +480,8 @@ impl App {
         };
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.72, ..fg };
+        // Texte secondaire : celle du thème, sur le fond de la visite (HIG LAY-08).
+        let dim = self.ink().dim;
         let bg = color(
             th.bg,
             th.shown(crate::config::Place::Menus).opacity.max(0.97),

@@ -671,10 +671,9 @@ impl App {
         let th = &self.cfg.general.theme;
         let alpha = o.visibility.value(Instant::now());
         let fg = color(th.fg, alpha);
-        let dim = Color {
-            a: 0.62 * alpha,
-            ..fg
-        };
+        // Texte secondaire : celle du thème (4,5:1 sur son fond), à l'alpha du
+        // fondu (HIG LAY-08).
+        let dim = color(crate::theme::readable(th.fg, th.bg, th.accent).dim, alpha);
         let accent = color(th.accent, alpha);
         // Encre lisible sur l'accent, à l'alpha du fondu.
         let on_accent = {
@@ -880,10 +879,8 @@ impl App {
     ) -> Element<'_, Msg> {
         let th = &self.cfg.general.theme;
         let fg = color(th.fg, alpha);
-        let dim = Color {
-            a: 0.6 * alpha,
-            ..fg
-        };
+        // Texte secondaire : celle du thème, sur le fond des cartes (HIG LAY-08).
+        let dim = color(crate::theme::readable(th.fg, th.bg, th.accent).dim, alpha);
         let accent = color(th.accent, alpha);
         let card_bg = color(th.bg, 0.94 * alpha);
         let i = index;

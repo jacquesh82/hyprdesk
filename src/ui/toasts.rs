@@ -953,8 +953,11 @@ impl App {
     fn view_toast<'a>(&'a self, t: &'a Toast) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
         let convex = self.convex_options().is_some();
-        let fg = color(if convex { self.bar_palette().fg } else { th.fg }, 1.0);
-        let dim = Color { a: DIM, ..fg };
+        let ink = if convex { self.bar_palette().fg } else { th.fg };
+        let fg = color(ink, 1.0);
+        // Texte secondaire : celle du thème, garantie à 4,5:1 sur le fond de
+        // la bulle (HIG LAY-08).
+        let dim = color(crate::theme::readable(ink, th.bg, th.accent).dim, 1.0);
         let bg = color(
             th.bg,
             th.shown(crate::config::Place::Menus).opacity.max(0.97),

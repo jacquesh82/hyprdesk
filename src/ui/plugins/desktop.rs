@@ -135,6 +135,8 @@ impl App {
         let p_places = self.panel.as_ref().map_or(0, |p| p.desktop.window_places);
         let hyprbars_found = self.panel.as_ref().and_then(|p| p.desktop.hyprbars.clone());
         let g = &self.cfg.general;
+        // Aides, états et comptes : la couleur secondaire du thème (HIG LAY-08).
+        let dim = self.ink().dim;
         let ws_mode = match self.settings.workspace_mode(ws) {
             None => WsMode::Default,
             Some(Mode::Opaque) => WsMode::Opaque,
@@ -199,7 +201,7 @@ impl App {
                 "float_launched",
                 toggler(g.float_launched).on_toggle(|v| wrap(Msg::FloatLaunched(v))),
             ),
-            text("Bureau affiché, les fenêtres du workspace flottent, organisées sur l'écran ; une fenêtre que vous déplacez garde sa place (par workspace et par application) et n'est plus réorganisée. Elles reprennent leur disposition quand on masque le bureau.").font(self.font).size(crate::ui::tokens::ts(12.0)),
+            text("Bureau affiché, les fenêtres du workspace flottent, organisées sur l'écran ; une fenêtre que vous déplacez garde sa place (par workspace et par application) et n'est plus réorganisée. Elles reprennent leur disposition quand on masque le bureau.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
             row![
                 text(match p_places {
                     0 => crate::i18n::tr("Aucune place de fenêtre choisie pour l'instant.").to_string(),
@@ -207,6 +209,7 @@ impl App {
                 })
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0))
+                .color(dim)
                 .width(Length::Fill),
                 button(text("Oublier ces places").font(self.font).size(crate::ui::tokens::ts(12.0)))
                     .padding([4, 10])
@@ -226,7 +229,8 @@ impl App {
                 Some(None) => crate::i18n::tr("Hyprbars n'est pas installé : ./scripts/install.sh l'installe (étape Hyprbars), ou à la main hyprpm update puis hyprpm add https://github.com/hyprwm/hyprland-plugins (ou réglez hyprbars_path).").to_string(),
             })
             .font(self.font)
-            .size(crate::ui::tokens::ts(12.0)),
+            .size(crate::ui::tokens::ts(12.0))
+            .color(dim),
             self.section("Mode"),
             self.field(
                 "Mode par défaut",

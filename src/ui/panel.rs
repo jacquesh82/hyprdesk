@@ -595,7 +595,6 @@ impl App {
     /// Sous l'en-tête : confirmation de la remise (ce qu'elle touche), ou
     /// son résultat ; rien sinon.
     fn defaults_status(&self, p: &Panel) -> Option<Element<'_, Msg>> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
         let tab = p.tab;
         if p.defaults_ask == Some(tab) {
             let mut what = vec![crate::i18n::tr("ses réglages").to_string()];
@@ -613,7 +612,7 @@ impl App {
                     ))
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
-                    .color(Color { a: 0.8, ..fg }),
+                    .color(self.ink().dim),
                     row![
                         button(text("Confirmer").font(self.font).size(crate::ui::tokens::ts(12.0)))
                             .padding([4, 12])
@@ -634,7 +633,7 @@ impl App {
         match &p.defaults_done {
             Some((t, r)) if *t == tab => {
                 let (msg, c) = match r {
-                    Ok(m) => (m.clone(), Color { a: 0.75, ..fg }),
+                    Ok(m) => (m.clone(), self.ink().dim),
                     Err(e) => (e.clone(), crate::ui::tone::warning()),
                 };
                 Some(
@@ -766,12 +765,6 @@ impl App {
         let entry = |label: &'static str, icon: &'static str, tab: Tab| -> Element<'_, Msg> {
             let active = p.tab == tab;
             let n = count(tab);
-            // Recherche : les paquets sans correspondance s'effacent.
-            let fg = if searching && n == 0 {
-                Color { a: 0.35, ..fg }
-            } else {
-                fg
-            };
             let glyph: Element<'_, Msg> = super::icons::get(icon)
                 .map(|handle| {
                     iced::widget::svg(handle)
@@ -857,6 +850,8 @@ impl App {
         // Navigation par groupes ; le paquet choisi déploie ses onglets en
         // sous-entrées (tiroir large). Paquets coupés : absents (rallumables
         // dans Plugins) ; paquets avancés : seulement en configuration avancée.
+        // Recherche : la navigation ne garde que les paquets qui ont une
+        // correspondance, avec leur compte (HIG NAV-07).
         let mut nav = column![].spacing(2);
         let mut first = true;
         for g in plugins::GROUPS {
@@ -865,6 +860,7 @@ impl App {
                 .iter()
                 .filter_map(|id| plugins::BUILTIN.iter().find(|i| i.id == *id))
                 .filter(|i| self.cfg.plugin_on(i.id) && plugins::visible(i.id, adv))
+                .filter(|i| !searching || count(i.id) > 0)
                 .collect();
             if items.is_empty() {
                 continue;
@@ -1047,20 +1043,24 @@ impl App {
         .spacing(12)
         .align_y(Alignment::Center);
         let titles = column![
-            text("HYPRDESK")
+            // Le titre nomme le paquet visible, comme une fenêtre macOS nomme
+            // son volet (HIG PAT-16) ; « Réglages » reste en surligne.
+            text("Réglages")
                 .font(self.font)
                 .size(crate::ui::tokens::ts(11.0))
                 .color(self.ink().dim)
                 .font(self.title_font()),
-            text("Réglages")
+            text(plugins::find(p.tab).map_or("", |i| i.label))
                 .font(self.font)
                 .size(crate::ui::tokens::ts(27.0))
                 .font(self.title_font())
                 .color(fg),
+            // Aides, états et comptes : la couleur secondaire du thème,
+            // garantie à 4,5:1 sur le fond du tiroir (HIG LAY-08).
             text(crate::tr!("{mon}  ·  Bureau {ws}", mon = mon, ws = ws))
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0))
-                .color(Color { a: 0.65, ..fg }),
+                .color(dim),
         ]
         .spacing(5)
         .width(Length::Fill);
@@ -1104,7 +1104,7 @@ impl App {
                 text("Modifications enregistrées automatiquement")
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
-                    .color(Color { a: 0.6, ..fg }),
+                    .color(dim),
                 Space::new().width(Length::Fill),
                 self.defaults_button(p),
             ]
@@ -1202,16 +1202,10 @@ impl App {
         key: &str,
         control: impl Into<Element<'a, Msg>>,
     ) -> Element<'a, Msg> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
         let mut head = row![].spacing(10).align_y(Alignment::Center);
         let mut titled = false;
         if !label.is_empty() {
-            head = head.push(self.marked(
-                crate::i18n::tr(label),
-                14,
-                Color { a: 0.85, ..fg },
-                self.font,
-            ));
+            head = head.push(self.marked(crate::i18n::tr(label), 14, self.ink().dim, self.font));
             titled = true;
         }
         if !key.is_empty() && self.cfg.keys_user.contains(key) {
