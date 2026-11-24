@@ -84,3 +84,13 @@ Pas d'agent indépendant disponible ; relu après l'écriture du registre.
 - Qu'est-ce qui casse ? Un titre de plus élargit la zone amont de la barre : à 640 px, les modules d'aval perdent la place qu'il prend ; les scènes « bar-menu-shell », « bar-menu-window » et « bar-menu-workspaces » posent des ancres provisoires, à décaler. `PMsg::Submit` n'agit aujourd'hui que pour les menus Lua.
 - Que manque-t-il ? Le chemin exact qui ouvre la recherche des Réglages avec des mots, l'exigence de la visite guidée sur des Réglages ouverts, la destination de « Documentation ». Les trois sont des conditions d'arrêt : à lever en premier, avant d'écrire le code.
 - Le plan résout-il l'écart ? Oui si la recherche des Réglages s'ouvre depuis la barre : la barre a un menu « Aide » en dernier, avec le champ de recherche en tête et les entrées d'aide demandées. Sinon il s'arrête, et l'écart reste « à faire ».
+
+## Exécution (itération C11)
+
+Commit `c4a203e`, sur l’intégration `3f85984`. Le plan est appliqué, à trois écarts près :
+
+- « Documentation » : la recette d'installation ne copie pas le guide (seuls README et PLUGINS vont dans `/usr/share/doc/hyprdesk/`). Conformément à la condition d'arrêt, l'entrée reste affichée ; elle est active quand `GUIDE.fr.md` ou `GUIDE.md` y est installé, dans la langue de l'interface (`menus.rs`, `guide_in`).
+- Le champ de recherche prend le clavier à l'ouverture (`popover.rs`, `popover_shown` et le remplacement dans la même carte) : sans cela, il faudrait cliquer dedans avant de taper. La règle vaut pour tout menu qui commence par un champ en clair ; un champ masqué (mot de passe) d'un menu Lua ne change pas.
+- « Raccourcis clavier » (page `keys` des Réglages) rejoint la visite guidée et la documentation.
+
+Constat à part, hors du périmètre : à 640 px, dans la scène d'aperçu « bar » (horloge centrée, cinq modules d'aval), le titre « Aide » passe sous l'horloge. La zone amont y entrait déjà en collision avec l'horloge centrée (y « Espaces » était rogné) : la scène « bar-menu-help », où les modules passent dans le débordement, montre les quatre titres entiers aux trois largeurs.
