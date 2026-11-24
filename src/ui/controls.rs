@@ -391,33 +391,41 @@ impl App {
         {
             let mode = self.monitor_mode(monitor);
             let mut modes = row![].spacing(3);
-            for (label, state, command) in [
+            // Chaque segment nomme ce que le mode montre, d'un nom (HIG
+            // SEL-06) ; son info-bulle, le nom entier du mode (HIG SEL-05).
+            for (label, name, state, command) in [
                 (
-                    "Masqué",
+                    "Fenêtres",
+                    "Fenêtres seules",
                     DesktopMode::NoDesktop,
                     crate::control::Command::Hide,
                 ),
                 (
                     "Lanceur",
+                    "Lanceur seul",
                     DesktopMode::LauncherOnly,
                     crate::control::Command::LauncherOnly,
                 ),
                 (
-                    "Complet",
+                    "Bureau",
+                    "Bureau complet",
                     DesktopMode::FullDesktop,
                     crate::control::Command::Show,
                 ),
             ] {
                 let active = mode == state;
-                // Un segment, une info-bulle : son libellé (HIG SEL-05).
-                let label = crate::i18n::tr(label);
+                let (label, name) = (crate::i18n::tr(label), crate::i18n::tr(name));
                 modes = modes.push(
                     tooltip(
                         button(
+                            // Segments de largeur égale, libellé centré
+                            // (HIG SEL-13).
                             text(label)
                                 .font(self.font)
                                 .size(crate::ui::tokens::ts(12.0))
-                                .color(fg),
+                                .color(fg)
+                                .width(Length::Fill)
+                                .align_x(iced::alignment::Horizontal::Center),
                         )
                         .padding([8, 6])
                         .width(Length::Fill)
@@ -441,7 +449,7 @@ impl App {
                                 ..Default::default()
                             }
                         }),
-                        text(label)
+                        text(name)
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0))
                             .color(fg),

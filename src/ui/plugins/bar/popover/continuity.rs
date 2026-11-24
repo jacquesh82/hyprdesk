@@ -1491,18 +1491,40 @@ impl App {
         }
         let desktop = self.monitor_mode(monitor);
         let mut modes = row![].spacing(4);
-        for (label, state, command) in [
-            ("Masqué", DesktopMode::NoDesktop, Command::Hide),
-            ("Lanceur", DesktopMode::LauncherOnly, Command::LauncherOnly),
-            ("Complet", DesktopMode::FullDesktop, Command::Show),
+        // Chaque segment nomme ce que le mode montre, d'un nom (HIG SEL-06) ;
+        // son info-bulle, le nom entier du mode (HIG SEL-05).
+        for (label, name, state, command) in [
+            (
+                "Fenêtres",
+                "Fenêtres seules",
+                DesktopMode::NoDesktop,
+                Command::Hide,
+            ),
+            (
+                "Lanceur",
+                "Lanceur seul",
+                DesktopMode::LauncherOnly,
+                Command::LauncherOnly,
+            ),
+            (
+                "Bureau",
+                "Bureau complet",
+                DesktopMode::FullDesktop,
+                Command::Show,
+            ),
         ] {
             let active = desktop == state;
-            let content = self.dash_label(tr(label), 10.0, if active { pal.ink } else { pal.fg });
+            // Segments de largeur égale, libellé centré, comme le widget
+            // `controls` (HIG SEL-13).
+            let content = self
+                .dash_label(tr(label), 10.0, if active { pal.ink } else { pal.fg })
+                .width(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Center);
             let action = Msg::On(monitor.into(), Box::new(Msg::Control(command)));
             let button = self
                 .dash_button(pal, content.into(), Some(&action), active, None)
-                .padding([3, 7]);
-            // Un segment, une info-bulle : son libellé (HIG SEL-05).
+                .padding([3, 7])
+                .width(Length::Fill);
             modes = modes.push(self.dash_tooltip(
                 pal,
                 crate::ui::focus::press(
@@ -1510,7 +1532,7 @@ impl App {
                     Some(action),
                     if active { pal.ink } else { pal.fg },
                 ),
-                tr(label),
+                tr(name),
             ));
         }
         self.dash_card(
