@@ -21,6 +21,7 @@
 | 2026-11-23 | A1 | PAT-06, PAT-08, PAT-11, STA-01 traités ; il en reste 45 dans ce couloir |
 | 2026-11-24 | A2 | FON-01, FON-03 traités ; il en reste 43 dans ce couloir |
 | 2026-11-24 | A3 | ICO-07 traité ; il en reste 42 dans ce couloir |
+| 2026-11-24 | A4 | LAY-04, SYS-14, ICO-03 traités ; il en reste 39 dans ce couloir |
 
 ### Couloir B
 
@@ -81,9 +82,9 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 
 | Écart | Objet | Nature | Effort | Confiance | Statut | Commit | Remarque |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| LAY-04 | Lists and tables — corps des notifications | ÉCART | S | moyenne | à faire | — | — |
-| SYS-14 | Barre Island : icône de l'app | ÉCART | S | haute | à faire | — | — |
-| ICO-03 | Bulle de notification | ABSENT | S | haute | à faire | — | bulle faite avec SYS-01 (4d5193d) ; reste le repli sur l'icône de la classe quand `n.icon` est vide |
+| LAY-04 | Lists and tables — corps des notifications | ÉCART | S | moyenne | fait | fd091e2 | `card_text` (`src/ui/toasts.rs`, constantes `TITLE_CHARS` = 42 et `BODY_CHARS` = 74) borne le titre et le corps des cartes de la barre et du volet Notifications de Panorama (`panes.rs`), sans saut de ligne, comme le centre Continuité. Preuve exacte. Test : `une_carte_borne_titre_et_corps`. |
+| SYS-14 | Barre Island : icône de l'app | ÉCART | S | haute | fait | fd091e2 | La prise de main Island (`WidgetKind::Clock`, `src/ui/plugins/bar/surface.rs`) affiche la cloche du jeu (`icons::glyph("notifications")`), monochrome, à la place de l'icône de l'application ; capture `bar-island-notif` vérifiée. Preuve exacte. |
+| ICO-03 | Bulle de notification | ABSENT | S | haute | fait | fd091e2 | `notif_icon` (`src/ui/toasts.rs`) prend l'icône envoyée par l'application, sinon celle de son application : `class_icon_name` cherche, parmi les applications installées, l'entrée dont l'identifiant ou la classe correspond au `desktop-entry` ; cette icône est demandée à l'arrivée (`want_notif_icons`), sous Silence aussi ; la cloche reste le dernier repli et le centre Continuité passe par la même fonction. Dépasse la colonne Correction : le nom de l'application sert de classe quand `desktop-entry` manque. Preuve exacte. Test : `une_notification_sans_icone_prend_celle_de_son_application`. |
 | PAT-04 | Durée du Silence | ABSENT | S | haute | à faire | — | — |
 | SYS-05 | Aperçus masquables | ABSENT | S | haute | à faire | — | — |
 | SYS-17 | Actions destructrices | ABSENT | S | moyenne | à faire | — | — |
