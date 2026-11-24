@@ -39,6 +39,7 @@
 | 2026-11-24 | A19 | FON-04, FON-05, FON-06 traités ; il en reste 16 dans ce couloir |
 | 2026-11-24 | A20 | SYS-08 traité ; il en reste 15 dans ce couloir |
 | 2026-11-24 | A21 | SYS-09, SYS-16 traités ; il en reste 13 dans ce couloir |
+| 2026-11-24 | A22 | FON-07, FON-08 traités (travail interrompu repris et mis au point) ; il en reste 11 dans ce couloir |
 
 ### Couloir B
 
@@ -241,8 +242,8 @@ Référence verte : `58cddff` (porte complète `scripts/verify.sh` passée le 24
 | ICO-01 | Icônes d'application (lanceur, dock, aperçu, commutateur, sélecteur d'activité, menu de fenêtre) | ÉCART | M | haute | à faire | — | — |
 | TYP-19 | Typographie — rôle infobulle | ABSENT | S | moyenne | à faire | — | — |
 | ICO-04 | Icônes d'application (dock, lanceur, aperçu) | ABSENT | M | moyenne | à faire | — | — |
-| FON-07 | Couverture de « Mouvement réduit » | PISTE | S | haute | à faire | — | — |
-| FON-08 | Deux interrupteurs de réduction du mouvement | PISTE | S | haute | à faire | — | — |
+| FON-07 | Couverture de « Mouvement réduit » | PISTE | S | haute | fait | c8fe020 | en mouvement réduit, `motion_duration()` borne les fondus de survol et de fermeture du tiroir à 90 ms, le dock ne grossit plus au survol et l'indicateur de lancement ne pulse plus (`src/ui/plugins/dock/surface.rs`, `magnifies`), la transition « Glissé » du bureau devient un fondu ; dépassement : la remontée du bureau, non citée ; preuve inexacte pour l'aimant de Convex, déjà raccourci à 90 ms par `bar_duration` (MLG-271) ; changé avec FON-08 |
+| FON-08 | Deux interrupteurs de réduction du mouvement | PISTE | S | haute | fait | c8fe020 | `fx::with_reduced_motion` : `theme.reduced_motion` coupe glissements et agrandissements de Hyprland (fenêtres, calques, rotation des bordures) et passe les workspaces en fondu de 0,2 s, les fondus restant, par-dessus les réglages du paquet Animations ; posé à chaud (`animations::effective`) et dans `animations.lua` (`genfiles::fx_of`), même paquet coupé ; une note le dit dans Réglages → Animations ; changé avec FON-07 |
 | ICO-13 | Taille des glyphes hors barre | PISTE | S | haute | à faire | — | — |
 | SEL-13 | Largeur des segments « Affichage du bureau » | PISTE | S | haute | à faire | — | — |
 | TYP-05 | Typographie — graisse des titres | PISTE | S | moyenne | fait | fac3c33 | `title_weight` vaut 600 par défaut (`src/theme_engine/design.rs`), test `titres_en_semibold_par_defaut` ; `App::page_title_font` (`src/ui/mod.rs`) garde Bold, au moins, pour le titre de page du tiroir (`src/ui/panel.rs`, 27 px). Un pack qui règle `title_weight` garde la main sur les autres titres, et sur le titre de page s'il graisse davantage. `DESIGN.md` le dit. Captures à 100 % : « Profile » et « Settings » passent en semibold, « Performance » reste Bold, la barre garde sa disposition. Relecture à froid sans agent (propriétaires partagés `design.rs` et `panel.rs`) : le diff fait ce que demande l'écart ; il respecte `DESIGN.md` (aucune famille ni taille en jeu) ; un test couvre le défaut et le pack. Non touchés, hors correction : le Bold explicite du dialogue polkit (son titre, `polkit.rs`), la lettre d'une icône de Panorama (`panes.rs`) et les programmes à part (verrouillage, greeter, fenêtre myMFA). |
