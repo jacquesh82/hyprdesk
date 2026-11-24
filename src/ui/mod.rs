@@ -4844,6 +4844,17 @@ impl App {
                         key,
                         popover::Kind::Workspaces,
                     )),
+                    // Menu « hyprdesk » (HIG MENU-01) : rien à lire, le contenu
+                    // est fixe.
+                    popover::Request::Shell => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Menu {
+                            entries: plugins::bar::menus::entries(),
+                            source: popover::MenuSource::Shell,
+                        },
+                    )),
                     popover::Request::Brightness => Task::done(Msg::PopoverReady(
                         request,
                         bar_id,

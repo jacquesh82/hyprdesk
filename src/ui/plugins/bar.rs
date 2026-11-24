@@ -3,6 +3,7 @@
 //!
 //! - `surface` : la barre posée sur chaque écran (zones, modules, actions) ;
 //! - `layout` : mesure des modules, centrage et débordement ;
+//! - `menus` : menus du shell, toujours en tête de la barre ;
 //! - `motion` : mouvement local pendant le geste ;
 //! - `style` : rendus complets choisis par `hd.bar({ style = … })` ;
 //! - `popover` : menus déroulants qui descendent sous un module ;
@@ -11,6 +12,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 pub(in crate::ui) mod layout;
+pub(in crate::ui) mod menus;
 pub(in crate::ui) mod motion;
 pub(in crate::ui) mod popover;
 pub(in crate::ui) mod style;

@@ -281,6 +281,23 @@ and disabled bindings are kept. A hand-written file is copied
   Hyprland to a card (`hyprland_gpu`). hyprdesk renders on the same card by
   default, and its renderer and worker threads can be changed there.
 
+### Bar menus
+
+The bar starts with three menus, in every style: **hyprdesk**, **Window** and
+**Workspaces**. They belong to the bar, not to the module catalogue: always
+first, never folded into “More commands”, and Settings → Bar does not move
+them.
+
+- **hyprdesk** gathers the shell commands: About hyprdesk, Settings…, Lock,
+  Workspaces, Organise windows…, then Sleep…, Restart… and Shut down…
+  Restart and Shut down ask for confirmation.
+- **Window** is the menu of the active window, the same as the one on its
+  title in the bar. Without an active window it stays visible and inactive.
+- **Workspaces** is the workspace card of the screen.
+
+These commands also remain where they already were: the window title, the
+control center, the workspace card.
+
 ### Bar styles
 
 The bar has two styles. Continuité keeps its Unix-style menu bar and separate

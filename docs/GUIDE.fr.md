@@ -294,6 +294,24 @@ application : `hyprdesk binds generate --write`.
   (`hyprland_gpu`). hyprdesk dessine sur la même carte par défaut ; son
   moteur de rendu et ses fils d'exécution se règlent au même endroit.
 
+### Menus de la barre
+
+La barre commence par trois menus, dans tous ses styles : **hyprdesk**,
+**Fenêtre** et **Espaces**. Ils font partie de la barre et non du catalogue
+des modules : toujours en tête, jamais dans « Autres commandes », et la page
+Réglages → Barre ne les déplace pas.
+
+- **hyprdesk** rassemble les commandes du shell : À propos de hyprdesk,
+  Réglages…, Verrouiller, Espaces de travail, Organiser les fenêtres…, puis
+  Mise en veille…, Redémarrer… et Éteindre… Redémarrer et éteindre demandent
+  une confirmation.
+- **Fenêtre** est le menu de la fenêtre active, le même que celui de son
+  titre dans la barre. Sans fenêtre active, il reste affiché et inactif.
+- **Espaces** est la carte des espaces de travail de l'écran.
+
+Ces commandes restent aussi à leur emplacement d'origine : titre de la
+fenêtre, centre de contrôle, carte des espaces.
+
 ### Styles de barre
 
 La barre propose deux styles. Continuité conserve sa barre Unix et son dock

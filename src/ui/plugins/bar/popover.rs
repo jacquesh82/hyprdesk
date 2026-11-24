@@ -50,6 +50,8 @@ pub enum Request {
     },
     /// Menu de la fenêtre active, sur son titre (MLG-311).
     Window,
+    /// Menu du shell « hyprdesk », toujours en tête de la barre (HIG MENU-01).
+    Shell,
 }
 
 #[cfg(test)]
@@ -299,6 +301,8 @@ pub enum MenuSource {
     Window {
         address: String,
     },
+    /// Menu « hyprdesk » : les commandes du shell (`bar::menus`).
+    Shell,
 }
 
 #[derive(Debug, Clone)]
@@ -1074,7 +1078,9 @@ impl App {
                             Msg::Repoll,
                         )
                     }
-                    MenuSource::Tray { .. } | MenuSource::Window { .. } => Task::none(),
+                    MenuSource::Tray { .. } | MenuSource::Window { .. } | MenuSource::Shell => {
+                        Task::none()
+                    }
                 };
                 Task::batch([t, self.close_popover()])
             }
@@ -1140,6 +1146,8 @@ impl App {
                         },
                         |_| Msg::Noop,
                     ),
+                    // Menu « hyprdesk » (HIG MENU-01).
+                    MenuSource::Shell => super::menus::act(self, action),
                 };
                 Task::batch([t, self.close_popover()])
             }

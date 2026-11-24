@@ -499,6 +499,8 @@ impl App {
         } else {
             &bar.zones
         };
+        // Les index du bandeau comptent d'abord les titres de menus (HIG MENU-01).
+        let titles = super::menus::titles().len();
         zones
             .iter()
             .flatten()
@@ -506,7 +508,7 @@ impl App {
             .filter(|(i, _)| {
                 self.bar_hidden
                     .get(&id)
-                    .is_some_and(|hidden| hidden.contains(i))
+                    .is_some_and(|hidden| hidden.contains(&(i + titles)))
             })
             .map(|(_, item)| item.clone())
             .collect()
@@ -1211,6 +1213,11 @@ impl App {
                 style,
                 crate::config::BarStyle::Convexe | crate::config::BarStyle::Island
             ) {
+            // Aperçu d'un module : compté sur les modules seuls ; les titres de
+            // menus (HIG MENU-01), en tête, le décalent d'autant.
+            let preview = self
+                .bar_preview
+                .map(|(i, pressed)| (i + super::menus::titles().len(), pressed));
             let mut slots: Vec<_> = zones
                 .iter()
                 .enumerate()
@@ -1262,7 +1269,7 @@ impl App {
                             } else {
                                 content
                             };
-                            let content = if self.bar_preview == Some((index, true)) {
+                            let content = if preview == Some((index, true)) {
                                 motion::surface(
                                     content,
                                     0.97,
@@ -1286,6 +1293,22 @@ impl App {
                     },
                 )
                 .collect();
+            // Menus du shell (HIG MENU-01) : toujours en tête de la zone amont,
+            // jamais débordés, hors réglage. L'aperçu d'un module est compté
+            // sur les modules seuls : les titres le décalent d'autant.
+            let titles = self.bar_menu_titles(id, s);
+            let n = titles.len();
+            slots.extend(
+                titles
+                    .into_iter()
+                    .map(|content| crate::ui::plugins::bar::layout::Slot {
+                        zone: 0,
+                        priority: crate::ui::plugins::bar::layout::PINNED,
+                        flexible: false,
+                        content,
+                    }),
+            );
+            slots.rotate_right(n);
             if edit {
                 for (zone, items) in zones.iter().enumerate() {
                     let z = zone + zone_offset;
@@ -1331,6 +1354,8 @@ impl App {
                         )
                 })
                 .collect();
+            // Les titres de menus ne prennent pas le fond du rail.
+            eligible.splice(0..0, std::iter::repeat_n(false, n));
             if edit {
                 eligible.extend([false; 3]);
             }
@@ -1400,7 +1425,7 @@ impl App {
                     }),
                     continuity,
                 ),
-                self.bar_preview
+                preview
                     .filter(|_| style != crate::config::BarStyle::Island)
                     .map(|(i, _)| i),
                 eligible,
@@ -1409,14 +1434,14 @@ impl App {
             )
         } else {
             row![
-                container(self.bar_zone(id, s, &zones[0], edit.then_some(zone_offset)))
+                container(self.bar_zone(id, s, &zones[0], true, edit.then_some(zone_offset)))
                     .width(Length::Fill)
                     .align_x(Alignment::Start)
                     .clip(true),
-                container(self.bar_zone(id, s, &zones[1], edit.then_some(1 + zone_offset)))
+                container(self.bar_zone(id, s, &zones[1], false, edit.then_some(1 + zone_offset)))
                     .align_x(Alignment::Center)
                     .clip(true),
-                container(self.bar_zone(id, s, &zones[2], edit.then_some(2 + zone_offset)))
+                container(self.bar_zone(id, s, &zones[2], false, edit.then_some(2 + zone_offset)))
                     .width(Length::Fill)
                     .align_x(Alignment::End)
                     .clip(true),
@@ -1670,26 +1695,33 @@ impl App {
         id: Id,
         s: &'a BarSurface,
         items: &'a [BarItem],
+        leading: bool,
         edit: Option<usize>,
     ) -> Element<'a, Msg> {
         let compact = self.bar_compact(&s.monitor);
         let Some(z) = edit else {
-            let content = row(items.iter().map(|it| {
+            // Menus du shell (HIG MENU-01) : d'abord, dans la zone amont.
+            let titles = if leading {
+                self.bar_menu_titles(id, s)
+            } else {
+                Vec::new()
+            };
+            let unrailed = std::iter::repeat_n(false, titles.len());
+            let content = row(titles.into_iter().chain(items.iter().map(|it| {
                 motion::anchor(
                     self.bar_item(id, s, it),
                     id,
                     bar_item_key(it).into(),
                     self.bar_duration(140),
                 )
-            }))
+            })))
             .spacing(if compact { 0 } else { 2 })
             .align_y(Alignment::Center);
             return motion::rail(
                 content,
                 None,
-                items
-                    .iter()
-                    .map(|it| {
+                unrailed
+                    .chain(items.iter().map(|it| {
                         !matches!(
                             it,
                             BarItem::Workspaces
@@ -1697,7 +1729,7 @@ impl App {
                                 | BarItem::Desktop
                                 | BarItem::Tray
                         )
-                    })
+                    }))
                     .collect(),
                 crate::ui::plugins::bar::style::rail_look(
                     self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default(),
@@ -1723,6 +1755,10 @@ impl App {
                 .into()
         };
         let mut r = row![].spacing(0).align_y(Alignment::Center);
+        if leading {
+            // Les menus du shell restent en tête : ils ne se déplacent pas.
+            r = r.push(row(self.bar_menu_titles(id, s)).spacing(if compact { 0 } else { 2 }));
+        }
         for (i, it) in items.iter().enumerate() {
             r = r.push(marker((z, i)));
             let dragged = drag.is_some_and(|(from, _)| from == (z, i));
@@ -1881,6 +1917,58 @@ impl App {
         item: &'a BarItem,
     ) -> Element<'a, Msg> {
         self.bar_item_alpha(bar_id, bar, item, 1.0)
+    }
+
+    /// Titres des menus du shell (HIG MENU-01), dans l'ordre de la barre :
+    /// toujours en tête de la zone amont, hors catalogue et hors débordement.
+    fn bar_menu_titles<'a>(&'a self, id: Id, s: &'a BarSurface) -> Vec<Element<'a, Msg>> {
+        let pal = self.bar_palette();
+        let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
+        let t = crate::ui::plugins::bar::style::durations(self);
+        let shape = self.cfg.bar.as_ref().map(|b| b.shape).unwrap_or_default();
+        let size = shape
+            .font_size
+            .unwrap_or((s.height as f32 * 0.38).clamp(11.0, 18.0));
+        super::menus::titles()
+            .into_iter()
+            .map(|(key, label, request)| {
+                let open = self.bar_menu_open(id, key);
+                let fg = if open && style == crate::config::BarStyle::Continuite {
+                    crate::ui::plugins::bar::style::continuite::selected_ink(&pal, 1.0)
+                } else {
+                    color(pal.fg, 0.92)
+                };
+                // Sans fenêtre active, « Fenêtre » n'a rien à montrer : le
+                // titre reste, inactif (désactiver plutôt que retirer).
+                let actionable = !matches!(request, Request::Window)
+                    || self
+                        .active_window
+                        .as_ref()
+                        .is_some_and(|(_, t)| !t.is_empty());
+                let title = text(truncate(label, 16))
+                    .wrapping(iced::widget::text::Wrapping::None)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(size))
+                    .color(fg)
+                    .font(self.ui_font(iced::font::Weight::Normal));
+                motion::anchor(
+                    self.module(
+                        s,
+                        1.0,
+                        title.into(),
+                        actionable.then(|| Msg::OpenPopover(id, key.into(), request)),
+                        None,
+                        None,
+                        None,
+                        None,
+                        open,
+                    ),
+                    id,
+                    key.into(),
+                    self.bar_duration(t.hover),
+                )
+            })
+            .collect()
     }
 
     pub(in crate::ui) fn bar_item_alpha<'a>(
