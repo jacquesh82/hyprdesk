@@ -38,7 +38,7 @@ Aucune primitive nouvelle. Le module `menus.rs` ne contient que des données (en
 - Étape 1 : faite (itération C5). Le groupe de puissance ne porte pas d'icône, faute d'icône sûre pour la mise en veille (un groupe en porte à toutes ses lignes ou à aucune).
 - Étape 2 : faite (itération C5). Sans fenêtre active, « Fenêtre » reste affiché et inactif.
 - Documentation faite (itération C5) : `docs/GUIDE.fr.md`, `docs/GUIDE.md`, `DESIGN.md`, `locales/en.toml`.
-- Étape 3 : à faire.
+- Étape 3 : faite (itération C6). Scène `bar-menu-shell` : le menu « hyprdesk » ouvert sous son titre, ses icônes résolues tout de suite (les scènes d'aperçu n'exécutent pas les tâches) ; capturée aux trois largeurs par `scripts/verify.sh --visual`. L'écart est `fait`.
 
 ## Changements (étape 1)
 

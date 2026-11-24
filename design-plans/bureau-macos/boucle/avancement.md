@@ -44,6 +44,7 @@
 | 2026-11-24 | C3 | ICO-02, ICO-09 traités ; il en reste 37 dans ce couloir |
 | 2026-11-24 | C4 | MENU-12, MENU-15 traités ; il en reste 35 dans ce couloir |
 | 2026-11-24 | C5 | MENU-01 (étapes 1 et 2 sur 3) traitées ; il en reste 35 dans ce couloir |
+| 2026-11-24 | C6 | MENU-01 (étape 3 sur 3) traité ; il en reste 34 dans ce couloir |
 
 Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` le 23 novembre 2026 à 23 h 17 : code de sortie 0 ; précédente référence : `4d5193d`).
 
@@ -122,7 +123,7 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | MENU-15 | Icônes des actions `.desktop` | ÉCART | S | moyenne | fait | cd5a220 | Preuve exacte (`action_lines`, `src/ui/context.rs`). Le groupe des actions ne porte d'icônes que si chacune en déclare une (`action_icon` : un nom, jamais un chemin) ; sinon aucune n'en a et le groupe se sépare de « Ouvrir » (`place_actions`), dans le menu de l'icône du bureau comme dans ceux du dock et de la grille, qui listent les mêmes actions. Plus aucune icône de secours `application-x-executable-symbolic`. Test `actions_tous_ou_aucune_icone`. Au-delà de la colonne Correction, que la règle « tous ou aucune » du même groupe impose : les actions sans icônes forment un groupe à part au lieu de rester avec « Ouvrir », qui a la sienne. |
 | MENU-03 | Sous-menus d'un niveau | ABSENT | M | haute | à faire | — | — |
 | MENU-05 | Menu Aide | ABSENT | M | haute | à faire | — | — |
-| MENU-01 | Barre des menus : inventaire des commandes du shell | ABSENT | L | haute | en cours | 94006b1 | Plan en trois étapes (`boucle/plans/MENU-01.md`). Étapes 1 et 2 faites : « hyprdesk » toujours en tête de la zone amont (hors `BarItem`, priorité `layout::PINNED`), puis « Fenêtre » et « Espaces » comme menus titrés ; sans fenêtre active, « Fenêtre » reste affiché et inactif. Dépasse la colonne Correction : « À propos de hyprdesk » ouvre le menu (règle du menu d'application) ; le groupe de puissance est sans icône, faute d'icône sûre pour la mise en veille. Il reste l'étape 3 : scène d'aperçu du menu ouvert, puis `fait`. |
+| MENU-01 | Barre des menus : inventaire des commandes du shell | ABSENT | L | haute | fait | 41aa821 | Plan en trois étapes (`boucle/plans/MENU-01.md`), toutes faites. Étapes 1 et 2 (C5) : « hyprdesk » toujours en tête de la zone amont (hors `BarItem`, priorité `layout::PINNED`), puis « Fenêtre » et « Espaces » comme menus titrés ; sans fenêtre active, « Fenêtre » reste affiché et inactif. Dépasse la colonne Correction : « À propos de hyprdesk » ouvre le menu (règle du menu d'application) ; le groupe de puissance est sans icône, faute d'icône sûre pour la mise en veille. Étape 3 (C6) : scène d'aperçu `bar-menu-shell`, le menu ouvert sous son titre, capturée aux trois largeurs par `scripts/verify.sh --visual`. |
 | MENU-06 | Menus contextuels d'une surface à l'autre | PISTE | S | moyenne | à faire | — | — |
 | MENU-07 | Titre de la fenêtre active dans la barre | PISTE | S | haute | à faire | — | — |
 | MENU-09 | Ordre des entrées du menu du dock | PISTE | S | moyenne | à faire | — | — |
