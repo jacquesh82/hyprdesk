@@ -40,6 +40,7 @@
 | 2026-11-24 | C1 | MENU-02, ENT-05, DAT-08 traités (travail de l'itération interrompue par la panne de quota, repris et mis au point) ; il en reste 40 dans ce couloir |
 | 2026-11-24 | C2 | ENT-04 traité ; il en reste 39 dans ce couloir |
 | 2026-11-24 | C3 | ICO-02, ICO-09 traités ; il en reste 37 dans ce couloir |
+| 2026-11-24 | C4 | MENU-12, MENU-15 traités ; il en reste 35 dans ce couloir |
 
 Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` le 23 novembre 2026 à 23 h 17 : code de sortie 0 ; précédente référence : `4d5193d`).
 
@@ -114,15 +115,15 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 
 | Écart | Objet | Nature | Effort | Confiance | Statut | Commit | Remarque |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| MENU-04 | Commandes accessibles seulement par clic droit | ÉCART | S | haute | à faire | — | — |
-| MENU-15 | Icônes des actions `.desktop` | ÉCART | S | moyenne | à faire | — | — |
+| MENU-04 | Commandes accessibles seulement par clic droit | ÉCART | S | haute | à faire | — | Attend MENU-01 (barre des menus, L), comme le demande sa ligne du plan : à traiter juste après, pas avant. |
+| MENU-15 | Icônes des actions `.desktop` | ÉCART | S | moyenne | fait | cd5a220 | Preuve exacte (`action_lines`, `src/ui/context.rs`). Le groupe des actions ne porte d'icônes que si chacune en déclare une (`action_icon` : un nom, jamais un chemin) ; sinon aucune n'en a et le groupe se sépare de « Ouvrir » (`place_actions`), dans le menu de l'icône du bureau comme dans ceux du dock et de la grille, qui listent les mêmes actions. Plus aucune icône de secours `application-x-executable-symbolic`. Test `actions_tous_ou_aucune_icone`. Au-delà de la colonne Correction, que la règle « tous ou aucune » du même groupe impose : les actions sans icônes forment un groupe à part au lieu de rester avec « Ouvrir », qui a la sienne. |
 | MENU-03 | Sous-menus d'un niveau | ABSENT | M | haute | à faire | — | — |
 | MENU-05 | Menu Aide | ABSENT | M | haute | à faire | — | — |
 | MENU-01 | Barre des menus : inventaire des commandes du shell | ABSENT | L | haute | à faire | — | — |
 | MENU-06 | Menus contextuels d'une surface à l'autre | PISTE | S | moyenne | à faire | — | — |
 | MENU-07 | Titre de la fenêtre active dans la barre | PISTE | S | haute | à faire | — | — |
 | MENU-09 | Ordre des entrées du menu du dock | PISTE | S | moyenne | à faire | — | — |
-| MENU-12 | Menu contextuel d'une icône du bureau | PISTE | S | haute | à faire | — | — |
+| MENU-12 | Menu contextuel d'une icône du bureau | PISTE | S | haute | fait | cd5a220 | Preuve exacte (`icon_lines`, `src/ui/context.rs`). « Propriétés » et « Réglages des icônes… » passent au dernier groupe, avant « Retirer du bureau » et « Mettre à la corbeille » (toujours en dernier et en rouge) ; le groupe central retient Renommer…, Partager…, Copier le chemin, Définir comme fond d'écran, Épingler au dock, cinq au plus. Trois groupes toujours (`menu_d_un_fichier`). Test `proprietes_au_dernier_groupe`. |
 | MENU-19 | Rangée « Organiser les fenêtres… » | PISTE | S | haute | à faire | — | — |
 | ENT-07 | Menus contextuels (modules de barre, notifications, espaces de l'aperçu) | PISTE | M | haute | à faire | — | — |
 | ENT-08 | Réduire la fenêtre active au clavier | ABSENT | S | haute | à faire | — | — |
