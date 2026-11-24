@@ -40,6 +40,10 @@ Les SVG ne changent pas (vectoriels) ; seules les matricielles gagnent en nettet
 - Relecture ciblée (classes, clés `app:`, bureau séparément), jamais à chaque `Update::Monitors`, échelle comparée arrondie.
 - `with_cache` : clé (thème, taille, échelle, nom), rien de périmé ; une absence est recherchée à nouveau (coût connu, inchangé).
 
+## État
+
+Fait (5ca6d79). Relecture du diff par un agent indépendant : relecture au changement de taille du dock, de son grossissement ou du bureau ajoutée ; test de `class_icon_px`. Reste hors lot : l'aperçu pose l'échelle 1.
+
 ## Portée
 
 - Hérite : toutes les surfaces qui posent une icône d'application.
