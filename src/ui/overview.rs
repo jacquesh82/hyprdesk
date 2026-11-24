@@ -30,6 +30,13 @@ const TITLE_H: f32 = 72.0;
 const HINTS_H: f32 = 64.0;
 /// Rangée d'astuce au-dessus de l'aide (HIG DAT-07), réservée tant qu'elle est là.
 const TIP_H: f32 = 48.0;
+/// Distance au-delà de laquelle la fenêtre saisie suit le curseur en
+/// pastille (HIG DAT-19) ; le clic reste distingué au seuil commun
+/// (`super::DRAG_THRESHOLD`), au relâchement.
+const DRAG_IMAGE_THRESHOLD: f32 = 3.0;
+/// Opacité propre de la pastille glissée (HIG DAT-16) : translucide, le
+/// contenu dessous reste lisible.
+const DRAG_IMAGE_OPACITY: f32 = 0.72;
 
 /// Champ de saisie du renommage (un seul à la fois).
 const RENAME_ID: &str = "hyprdesk-overview-rename";
@@ -796,7 +803,6 @@ impl App {
             }
         };
         let bg = color(th.bg, 0.66 * alpha);
-        let card_bg = color(th.bg, 0.94 * alpha);
         let surface = self.overview_surface(o);
         let cards = self.overview_layout(surface);
         let dragging = o
@@ -809,7 +815,7 @@ impl App {
                     .copied()
                     .unwrap_or(p.start)
                     .distance(p.start)
-                    > super::DRAG_THRESHOLD
+                    > DRAG_IMAGE_THRESHOLD
             })
             .cloned();
 
@@ -989,6 +995,7 @@ impl App {
                 .copied()
                 .unwrap_or(IconImg::None);
             let label = win.map(|w| truncate(&w.title, 26)).unwrap_or_default();
+            let th_bg = th.bg;
             let chip = container(
                 row![
                     self.img_element(img, 18.0, alpha)
@@ -1003,7 +1010,7 @@ impl App {
             )
             .padding([8, 12])
             .style(move |_| container::Style {
-                background: Some(card_bg.into()),
+                background: Some(color(th_bg, DRAG_IMAGE_OPACITY * alpha).into()),
                 border: Border::default()
                     .rounded(super::design::SMALL_RADIUS)
                     .width(1)
@@ -1025,6 +1032,13 @@ impl App {
                         right: 0.0,
                         bottom: 0.0,
                     }),
+            );
+            // Main fermée pendant tout le glisser (HIG DAT-17) : une couche
+            // au-dessus de tout, sans gestionnaire, qui ne prend que le
+            // curseur (le relâchement est global, `Msg::Released`).
+            layers = layers.push(
+                mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
+                    .interaction(iced::mouse::Interaction::Grabbing),
             );
         }
         layers.into()
@@ -1485,6 +1499,14 @@ mod tests {
         assert_eq!(app.overview_aim(1, r1.center()), Some(Aim::Space));
         assert_eq!(app.overview_aim(0, r1.center()), None, "hors de sa carte");
         assert_eq!(app.overview_aim(7, r0.center()), None, "carte inconnue");
+    }
+
+    /// La pastille paraît avant que le geste cesse d'être un clic (HIG
+    /// DAT-19), et elle laisse voir ce qu'elle survole (HIG DAT-16).
+    #[test]
+    fn la_pastille_precede_le_clic_et_reste_translucide() {
+        const { assert!(DRAG_IMAGE_THRESHOLD < super::super::DRAG_THRESHOLD) };
+        const { assert!(DRAG_IMAGE_OPACITY > 0.5 && DRAG_IMAGE_OPACITY < 0.9) };
     }
 
     /// L'astuce de l'aperçu (HIG DAT-07) a sa place : les cartes remontent
