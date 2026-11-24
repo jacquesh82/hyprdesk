@@ -168,6 +168,17 @@ mod tests {
         }
     }
 
+    /// HIG PRES-09 : le bouton de confirmation porte le verbe de l'entrée.
+    #[test]
+    fn la_confirmation_porte_le_verbe_de_l_entree() {
+        assert_eq!(
+            confirm_label("Éteindre…"),
+            crate::i18n::tr("Éteindre").trim_end_matches(['…', '.'])
+        );
+        assert_eq!(confirm_label("Redémarrer"), crate::i18n::tr("Redémarrer"));
+        assert_eq!(confirm_label(" … "), crate::i18n::tr("Confirmer"));
+    }
+
     /// HIG PRES-02 : une carte qui change de taille interpole sa hauteur ;
     /// la surface garde la plus grande des deux, puis se resserre.
     #[test]
@@ -1087,6 +1098,22 @@ fn attached_placement(
             from_height: height,
         },
     )
+}
+
+/// Bouton qui valide une entrée à confirmer : le verbe de l'entrée
+/// (« Éteindre », « Redémarrer »), pas « Confirmer » (HIG PRES-09). Libellé
+/// traduit, sans ses points de suspension.
+fn confirm_label(label: &str) -> String {
+    let verb = crate::i18n::tr(label)
+        .trim()
+        .trim_end_matches(['…', '.'])
+        .trim_end()
+        .to_string();
+    if verb.is_empty() {
+        crate::i18n::tr("Confirmer").to_string()
+    } else {
+        verb
+    }
 }
 
 /// Détail sous le libellé (deux lignes) plutôt qu'aligné à droite, quand
@@ -2506,7 +2533,7 @@ impl App {
                 } => {
                     let lead: Element<'_, Msg> = icon
                         .as_deref()
-                        .and_then(|name| self.icon_named(name, 16.0, fg))
+                        .and_then(|name| self.icon_named(name, crate::ui::tokens::glyph(16.0), fg))
                         .unwrap_or_else(|| Space::new().into());
                     let live = *enabled && !children.is_empty();
                     let st = crate::ui::menu::RowState {
@@ -2544,7 +2571,11 @@ impl App {
                 } => {
                     let lead: Element<'_, Msg> = match (checked, icon) {
                         (Some(true), _) => self
-                            .icon_named("object-select-symbolic", 14.0, fg)
+                            .icon_named(
+                                "object-select-symbolic",
+                                crate::ui::tokens::glyph(14.0),
+                                fg,
+                            )
                             .unwrap_or_else(|| {
                                 text("•")
                                     .font(self.font)
@@ -2552,7 +2583,7 @@ impl App {
                                     .into()
                             }),
                         (_, Some(name)) => self
-                            .icon_named(name, 16.0, fg)
+                            .icon_named(name, crate::ui::tokens::glyph(16.0), fg)
                             .unwrap_or_else(|| Space::new().into()),
                         _ => Space::new().into(),
                     };
@@ -2606,7 +2637,7 @@ impl App {
                                     }
                                 }),
                                 button(
-                                    text("Confirmer")
+                                    text(confirm_label(label))
                                         .font(self.font)
                                         .size(crate::ui::tokens::ts(12.0))
                                         .font(font)
@@ -2774,7 +2805,7 @@ impl App {
         let font = self.ui_font(iced::font::Weight::Medium);
         column![
             row![
-                self.icon_named(icon, 16.0, fg)
+                self.icon_named(icon, crate::ui::tokens::glyph(16.0), fg)
                     .unwrap_or_else(|| Space::new().into()),
                 slider(0.0..=1.5f32, v.min(1.5), set)
                     .step(0.01f32)
@@ -2837,7 +2868,7 @@ impl App {
         );
         column(list.iter().map(|d| {
             let lead = if d.default {
-                self.icon_named("object-select-symbolic", 14.0, fg)
+                self.icon_named("object-select-symbolic", crate::ui::tokens::glyph(14.0), fg)
                     .unwrap_or_else(|| Space::new().into())
             } else {
                 Space::new().into()

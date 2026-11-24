@@ -258,6 +258,13 @@ pub fn text_growth() -> f32 {
     ts(design::REF_BODY) / design::REF_BODY
 }
 
+/// Côté d'un glyphe posé à côté d'un texte de corps (HIG ICO-13) : écrit
+/// pour du texte à 100 %, il grandit avec ce texte — rôle du thème, écran,
+/// réglage de l'utilisateur —, comme les glyphes de la barre.
+pub fn glyph(reference: f32) -> f32 {
+    reference * text_growth()
+}
+
 /// Échelle du texte réglée par l'utilisateur.
 fn user_text_scale() -> f32 {
     f32::from_bits(USER_TEXT_SCALE.load(Ordering::Relaxed))
@@ -955,6 +962,9 @@ mod tests {
         assert!((text_growth() - 1.0).abs() < 1e-5, "croissance au repos");
         set_user(false, false, false, 2.0);
         assert!((text_growth() - 2.0).abs() < 1e-5, "croissance à 200 %");
+        // HIG ICO-13 : un glyphe voisin d'un texte grandit avec lui.
+        assert!((glyph(16.0) - 32.0).abs() < 1e-4, "glyphe à 200 %");
         set_user(false, false, false, 1.0);
+        assert!((glyph(16.0) - 16.0).abs() < 1e-4, "glyphe au repos");
     }
 }

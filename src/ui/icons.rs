@@ -89,13 +89,15 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             owned = wifi(0);
             &owned
         }
-        "network-wireless-offline" | "network-wireless-disabled" => {
+        // Hors ligne (HIG ICO-08) : les arcs du Wi-Fi, barrés comme les
+        // autres variantes « indisponible ».
+        "network-wireless-offline" | "network-wireless-disabled" | "network-offline" => {
             owned = format!("{}<path d=\"M4 4l16 16\"/>", wifi(0));
             &owned
         }
         // Bureau masqué (no-desktop) : l'écran, barré.
         "hyprdesk-desktop-off" => {
-            r#"<rect x="3" y="4" width="18" height="13" rx="3"/><path d="M8 21h8M12 17v4M4 5l16 11"/>"#
+            r#"<rect x="3" y="4" width="18" height="13" rx="3"/><path d="M8 21h8M12 17v4M4 4l16 16"/>"#
         }
         "user-desktop" | "computer" => {
             r#"<rect x="3" y="4" width="18" height="13" rx="3"/><path d="M8 21h8M12 17v4"/>"#
@@ -120,16 +122,16 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "audio-volume-high" => {
             r#"<path d="m11 4-5 4H3v8h3l5 4ZM15 8a6 6 0 0 1 0 8M18 4a11 11 0 0 1 0 16"/>"#
         }
-        "audio-volume-medium" | "audio-volume-low" => {
-            r#"<path d="m11 4-5 4H3v8h3l5 4ZM16 8a6 6 0 0 1 0 8"/>"#
-        }
+        "audio-volume-medium" => r#"<path d="m11 4-5 4H3v8h3l5 4ZM16 8a6 6 0 0 1 0 8"/>"#,
+        // Volume bas : une seule petite onde (HIG ICO-08).
+        "audio-volume-low" => r#"<path d="m11 4-5 4H3v8h3l5 4ZM15 10a3 3 0 0 1 0 4"/>"#,
         "audio-input-microphone" => {
             r#"<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>"#
         }
         "microphone-sensitivity-muted" => {
             r#"<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M4 4l16 16"/>"#
         }
-        "audio-volume-muted" => r#"<path d="m11 4-5 4H3v8h3l5 4ZM16 9l6 6m0-6-6 6"/>"#,
+        "audio-volume-muted" => r#"<path d="m11 4-5 4H3v8h3l5 4ZM16 8a6 6 0 0 1 0 8M4 4l16 16"/>"#,
         "media-playback-start" => r#"<path d="m8 4 12 8-12 8Z"/>"#,
         "media-playback-pause" => r#"<path d="M8 4v16M16 4v16"/>"#,
         "media-playback-stop" => r#"<rect x="6" y="6" width="12" height="12" rx="1.5"/>"#,
@@ -229,9 +231,6 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         }
         "network-wired" => {
             r#"<rect x="5" y="3" width="14" height="10" rx="2"/><path d="M12 13v5M3 21v-3h18v3M8 7h8"/>"#
-        }
-        "network-offline" => {
-            r#"<path d="M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8 17l8 6m0-6-8 6"/>"#
         }
         "bluetooth" => r#"<path d="m7 7 10 10-5 4V3l5 4L7 17"/>"#,
         // Appareil connecté : deux points de part et d'autre.
@@ -626,6 +625,26 @@ mod tests {
         ] {
             assert!(get(n).is_some(), "{n}");
         }
+    }
+
+    /// HIG ICO-08 : une variante « indisponible » porte la même barre que les
+    /// autres ; volume bas et moyen ne se confondent pas.
+    #[test]
+    fn variantes_indisponibles_barrees_de_meme() {
+        let src = |n: &str| match get(n).map(|h| h.data().clone()) {
+            Some(iced::advanced::svg::Data::Bytes(b)) => String::from_utf8(b.to_vec()).unwrap(),
+            other => panic!("{n} : {other:?}"),
+        };
+        for n in [
+            "audio-volume-muted",
+            "network-offline",
+            "network-wireless-offline",
+            "hyprdesk-desktop-off",
+            "notifications-disabled",
+        ] {
+            assert!(src(n).contains("M4 4l16 16"), "{n}");
+        }
+        assert_ne!(src("audio-volume-low"), src("audio-volume-medium"));
     }
 
     /// HIG ICO-06 : les commandes des menus du bureau, de la fenêtre et du

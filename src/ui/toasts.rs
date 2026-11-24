@@ -1408,7 +1408,8 @@ impl App {
     ) -> Element<'a, Msg> {
         self.icon_named(name, size, tint).unwrap_or_else(|| {
             container(
-                self.icon_named(ICON, 18.0, tint)
+                // Bornée à la place de l'icône attendue : le texte ne bouge pas.
+                self.icon_named(ICON, crate::ui::tokens::glyph(18.0).min(size), tint)
                     .unwrap_or_else(|| iced::widget::Space::new().width(18).into()),
             )
             .width(size)

@@ -99,7 +99,7 @@ impl App {
                         } else {
                             "user-desktop-symbolic"
                         },
-                        16.0,
+                        crate::ui::tokens::glyph(16.0),
                         fg,
                     )
                     .unwrap_or_else(|| Space::new().into()),
@@ -121,8 +121,11 @@ impl App {
         col.push(
             self.pop_row(
                 alpha,
-                self.icon_named("workspace-switcher", 16.0, fg)
-                    .unwrap_or_else(|| Space::new().width(16).height(16).into()),
+                self.icon_named("workspace-switcher", crate::ui::tokens::glyph(16.0), fg)
+                    .unwrap_or_else(|| {
+                        let side = crate::ui::tokens::glyph(16.0);
+                        Space::new().width(side).height(side).into()
+                    }),
                 crate::i18n::tr("Organiser les fenêtres…").to_string(),
                 None,
                 true,

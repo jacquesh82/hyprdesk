@@ -291,18 +291,24 @@ impl App {
         } else {
             icon
         };
-        name.and_then(|n| self.icon_named(n, if checked { 14.0 } else { 16.0 }, tint))
-            .unwrap_or_else(|| {
-                if checked {
-                    text("•")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .color(tint)
-                        .into()
-                } else {
-                    Space::new().into()
-                }
-            })
+        name.and_then(|n| {
+            self.icon_named(
+                n,
+                crate::ui::tokens::glyph(if checked { 14.0 } else { 16.0 }),
+                tint,
+            )
+        })
+        .unwrap_or_else(|| {
+            if checked {
+                text("•")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(tint)
+                    .into()
+            } else {
+                Space::new().into()
+            }
+        })
     }
 
     /// Ligne de menu : tête (icône), libellé, détail à droite (ou dessous
@@ -363,9 +369,14 @@ impl App {
         };
         let fg = row_text(ink, st);
         button(
-            row![container(lead).width(18).align_x(Alignment::Center), body]
-                .spacing(8)
-                .align_y(Alignment::Center),
+            row![
+                container(lead)
+                    .width(crate::ui::tokens::glyph(18.0))
+                    .align_x(Alignment::Center),
+                body
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
         )
         .width(Length::Fill)
         .height(if long { ROW_TALL } else { ROW })
@@ -384,13 +395,14 @@ impl App {
     /// (rouge si destructive, estompé si indisponible).
     pub(in crate::ui) fn menu_chevron<'a>(&self, ink: Ink, st: RowState) -> Element<'a, Msg> {
         let tint = row_text(ink, st);
-        self.icon_named(CHEVRON, 12.0, tint).unwrap_or_else(|| {
-            text("›")
-                .font(self.font)
-                .size(crate::ui::tokens::ts(15.0))
-                .color(tint)
-                .into()
-        })
+        self.icon_named(CHEVRON, crate::ui::tokens::glyph(12.0), tint)
+            .unwrap_or_else(|| {
+                text("›")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(15.0))
+                    .color(tint)
+                    .into()
+            })
     }
 
     /// Lignes d'un menu construit dans le code ; `selected` : entrée choisie
