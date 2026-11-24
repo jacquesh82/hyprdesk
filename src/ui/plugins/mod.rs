@@ -497,7 +497,7 @@ impl App {
         } else {
             crate::ui::icons::glyph("window-close", 14.0, fg).expect("glyphe de fermeture")
         };
-        button(content)
+        let b = button(content)
             .padding(if armed { [3, 10] } else { [4, 8] })
             .on_press(msg)
             .style(move |_, status| button::Style {
@@ -514,8 +514,19 @@ impl App {
                 text_color: if armed { iced::Color::BLACK } else { fg },
                 border: iced::Border::default().rounded(999),
                 ..Default::default()
-            })
+            });
+        // Glyphe seul : une infobulle nomme l'action (HIG LAY-12) ; armé, le
+        // bouton porte déjà sa question.
+        if armed {
+            b.into()
+        } else {
+            iced::widget::tooltip(
+                b,
+                crate::i18n::text("Supprimer").font(self.font),
+                iced::widget::tooltip::Position::Bottom,
+            )
             .into()
+        }
     }
 
     /// L'onglet `tab` du paquet `pkg` est affiché.

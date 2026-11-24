@@ -449,9 +449,12 @@ impl App {
             .iter()
             .find(|c| Some(&c.value) == now.as_ref())
             .cloned();
+        // Option non posée dans hyprland.lua : Hyprland garde sa valeur par
+        // défaut, que la liste annonce (HIG SEL-14).
         pick_list(choices, sel, move |c: Choice| {
             wrap(Msg::Set(store, path.clone(), Some(c.value)))
         })
+        .placeholder(crate::i18n::tr("Par défaut"))
         .font(self.font)
         .width(280)
         .into()
@@ -773,17 +776,22 @@ impl App {
                         .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
                     // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07).
-                    button(
-                        crate::ui::icons::glyph(
-                            "window-close",
-                            crate::ui::tokens::ts(14.0),
-                            self.ink().fg,
+                    // Bouton à glyphe seul : son infobulle nomme l'action (HIG LAY-12).
+                    iced::widget::tooltip(
+                        button(
+                            crate::ui::icons::glyph(
+                                "window-close",
+                                crate::ui::tokens::ts(14.0),
+                                self.ink().fg,
+                            )
+                            .expect("glyphe de fermeture"),
                         )
-                        .expect("glyphe de fermeture"),
-                    )
-                    .padding([2, 10])
-                    .style(button::text)
-                    .on_press(wrap(Msg::Env(i, None))),
+                        .padding([2, 10])
+                        .style(button::text)
+                        .on_press(wrap(Msg::Env(i, None))),
+                        text("Retirer").font(self.font),
+                        iced::widget::tooltip::Position::Bottom,
+                    ),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -837,6 +845,8 @@ impl App {
                 "Thème",
                 "",
                 pick_list(themes, theme, |t| wrap(Msg::CursorTheme(t)))
+                    // Ni variable ni réglage : le thème par défaut (HIG SEL-14).
+                    .placeholder(crate::i18n::tr("Par défaut"))
                     .font(self.font)
                     .width(320),
             ),

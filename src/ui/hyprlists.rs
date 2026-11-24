@@ -5,7 +5,9 @@
 //! quel. Les éléments incomplets (sans nom, sans workspace…) restent dans
 //! les Réglages mais ne sont pas écrits (`hyprset::complete`).
 
-use iced::widget::{Space, button, column, container, pick_list, row, text_input, toggler};
+use iced::widget::{
+    Space, button, column, container, pick_list, row, text_input, toggler, tooltip,
+};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::hyprset::{Msg, wrap};
@@ -411,25 +413,37 @@ impl App {
         .spacing(12)
         .align_y(Alignment::Center);
         if movable.0 || movable.1 {
-            head = head
-                .push(
-                    button(text("↑").font(self.font).size(crate::ui::tokens::ts(13.0)))
-                        .padding([2, 8])
-                        .style(button::text)
-                        .on_press_maybe(movable.0.then(|| wrap(Msg::SpecMove(list, i, -1)))),
+            // Boutons à glyphe seul : une infobulle nomme l'action (HIG LAY-12).
+            let arrow = |up: bool, msg: Option<UiMsg>| -> Element<'_, UiMsg> {
+                tooltip(
+                    button(
+                        text(if up { "↑" } else { "↓" })
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([2, 8])
+                    .style(button::text)
+                    .on_press_maybe(msg),
+                    text(if up { "Monter" } else { "Descendre" }).font(self.font),
+                    iced::widget::tooltip::Position::Bottom,
                 )
-                .push(
-                    button(text("↓").font(self.font).size(crate::ui::tokens::ts(13.0)))
-                        .padding([2, 8])
-                        .style(button::text)
-                        .on_press_maybe(movable.1.then(|| wrap(Msg::SpecMove(list, i, 1)))),
-                );
+                .into()
+            };
+            head = head
+                .push(arrow(
+                    true,
+                    movable.0.then(|| wrap(Msg::SpecMove(list, i, -1))),
+                ))
+                .push(arrow(
+                    false,
+                    movable.1.then(|| wrap(Msg::SpecMove(list, i, 1))),
+                ));
         }
         // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07). Il supprime
         // l'élément : sans bordure, 24 px le séparent de « ↓ » (12 px d'écart
         // commun, 12 px de plus), hors du clic raté (HIG ACC-10).
         head = head.push(
-            container(
+            container(tooltip(
                 button(
                     crate::ui::icons::glyph(
                         "window-close",
@@ -441,7 +455,9 @@ impl App {
                 .padding([2, 10])
                 .style(button::text)
                 .on_press(wrap(Msg::SpecDel(list, i))),
-            )
+                text("Retirer").font(self.font),
+                iced::widget::tooltip::Position::Bottom,
+            ))
             .padding(iced::Padding {
                 left: 12.0,
                 ..iced::Padding::ZERO
@@ -551,11 +567,13 @@ impl App {
                     .position(|(v, _)| *v == now)
                     .map(|j| opts[j].clone());
                 let o2 = opts.clone();
+                // Sans valeur posée : un texte de substitution (HIG SEL-14).
                 pick_list(opts, sel, move |l: String| {
                     let j = o2.iter().position(|o| *o == l).unwrap_or(0);
                     let v = choices[j].0;
                     set((!v.is_empty()).then(|| J::String(v.into())))
                 })
+                .placeholder(crate::i18n::tr("Choisir…"))
                 .font(self.font)
                 .width(320)
                 .into()
@@ -575,6 +593,7 @@ impl App {
                     let j = o2.iter().position(|o| *o == l).unwrap_or(0);
                     set(Some(J::from(choices[j].0)))
                 })
+                .placeholder(crate::i18n::tr("Choisir…"))
                 .font(self.font)
                 .width(180)
                 .into()
@@ -989,17 +1008,21 @@ impl App {
                     .font(self.font)
                     .width(140),
                     // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07).
-                    button(
-                        crate::ui::icons::glyph(
-                            "window-close",
-                            crate::ui::tokens::ts(14.0),
-                            self.ink().fg,
+                    tooltip(
+                        button(
+                            crate::ui::icons::glyph(
+                                "window-close",
+                                crate::ui::tokens::ts(14.0),
+                                self.ink().fg,
+                            )
+                            .expect("glyphe de fermeture"),
                         )
-                        .expect("glyphe de fermeture"),
-                    )
-                    .padding([2, 10])
-                    .style(button::text)
-                    .on_press(wrap(Msg::Perm(i, None, true))),
+                        .padding([2, 10])
+                        .style(button::text)
+                        .on_press(wrap(Msg::Perm(i, None, true))),
+                        text("Retirer").font(self.font),
+                        iced::widget::tooltip::Position::Bottom,
+                    ),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),

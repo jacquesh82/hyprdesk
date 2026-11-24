@@ -999,7 +999,8 @@ impl App {
                 .color(dim)
                 .width(Length::Fill),
             )
-            .push(
+            // Bouton à glyphe seul : son infobulle nomme l'action (HIG LAY-12).
+            .push(iced::widget::tooltip(
                 button(
                     // Fermeture : le glyphe du jeu, comme les menus (HIG ICO-07).
                     crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(14.0), dim)
@@ -1012,7 +1013,9 @@ impl App {
                 .height(crate::ui::tokens::ts(BUTTON_TARGET))
                 .style(button::text)
                 .on_press(Msg::Toasts(TMsg::Close(id))),
-            );
+                text(crate::i18n::tr("Fermer")).font(self.font),
+                iced::widget::tooltip::Position::Left,
+            ));
         let mut col = column![
             head,
             text(t.n.summary.clone())
