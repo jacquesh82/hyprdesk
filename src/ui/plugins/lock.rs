@@ -6,7 +6,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, progress_bar, row, slider, toggler};
+use iced::widget::{button, column, pick_list, progress_bar, row, toggler};
 use iced::{Alignment, Color, Element, Task};
 
 use crate::lock::enroll::{self, Progress, Reader};
@@ -208,16 +208,20 @@ impl App {
             self.field(
                 "Assombrissement",
                 "lock_dim",
-                row![
-                    slider(0.0..=0.9f32, l.dim, |v| wrap(Msg::Dim(v)))
-                        .step(0.05f32)
-                        .on_release(wrap(Msg::DimCommit))
-                        .width(260),
-                    text(format!("{:.0} %", l.dim * 100.0))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+                // En pour cent, comme la valeur affichée : le domaine du
+                // réglage (0 à 0,9) est celui du voile.
+                self.slider(
+                    &SliderSpec::new(
+                        "lock_screen_dim",
+                        (0.0, 90.0),
+                        5.0,
+                        |v| wrap(Msg::Dim((v / 100.0) as f32)),
+                        wrap(Msg::DimCommit),
+                    ),
+                    (f64::from(l.dim) * 100.0).round(),
+                    |v| format!("{:.0} %", v),
+                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                ),
             ),
             text(origin).font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
             self.section("Contenus"),

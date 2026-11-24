@@ -3,11 +3,11 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, row, slider, toggler};
+use iced::widget::{Space, button, column, row, toggler};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
 use super::super::etats::Etat;
-use super::super::panel::{Panel, PanelMsg};
+use super::super::panel::{Panel, PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::resolve::resolve;
@@ -28,6 +28,20 @@ pub const TABS: &[super::SubTab] = &[("bureau", "Sur ce bureau"), ("disponibles"
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Widgets(m)))
+}
+
+/// Valeur d'un décalage de widget, en pixels signés.
+fn en_px_signes(v: f64) -> String {
+    format!("{v:+.0} px")
+}
+
+/// Valeur de la taille du texte d'un widget : « auto » tant qu'elle n'est pas fixée.
+fn en_taille(v: f64) -> String {
+    if v <= 0.0 {
+        "auto".to_string()
+    } else {
+        format!("{v:.0} px")
+    }
 }
 
 /// État propre à ce paquet, porté par le tiroir des réglages.
@@ -309,54 +323,50 @@ impl App {
                     self.field(
                         "Décalage horizontal",
                         "",
-                        row![
-                            slider(-800.0..=800.0f32, pl.x.clamp(-800.0, 800.0), |v| {
-                                wrap(Msg::WidgetX(v))
-                            })
-                            .step(2.0f32)
-                            .on_release(UiMsg::Panel(PanelMsg::Commit))
-                            .width(300),
-                            text(format!("{:+.0} px", pl.x))
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12),
+                        self.slider(
+                            &SliderSpec::new(
+                                "widget_x",
+                                (-800.0, 800.0),
+                                2.0,
+                                |v| wrap(Msg::WidgetX(v as f32)),
+                                UiMsg::Panel(PanelMsg::Commit),
+                            ),
+                            f64::from(pl.x.clamp(-800.0, 800.0)),
+                            en_px_signes,
+                            SliderLook::fixed(13.0, 300, Alignment::Start),
+                        ),
                     ),
                     self.field(
                         "Décalage vertical",
                         "",
-                        row![
-                            slider(-800.0..=800.0f32, pl.y.clamp(-800.0, 800.0), |v| {
-                                wrap(Msg::WidgetY(v))
-                            })
-                            .step(2.0f32)
-                            .on_release(UiMsg::Panel(PanelMsg::Commit))
-                            .width(300),
-                            text(format!("{:+.0} px", pl.y))
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12),
+                        self.slider(
+                            &SliderSpec::new(
+                                "widget_y",
+                                (-800.0, 800.0),
+                                2.0,
+                                |v| wrap(Msg::WidgetY(v as f32)),
+                                UiMsg::Panel(PanelMsg::Commit),
+                            ),
+                            f64::from(pl.y.clamp(-800.0, 800.0)),
+                            en_px_signes,
+                            SliderLook::fixed(13.0, 300, Alignment::Start),
+                        ),
                     ),
                     self.field(
                         "Taille du texte",
                         "",
-                        row![
-                            slider(0.0..=160.0f32, pl.size.clamp(0.0, 160.0), |v| wrap(
-                                Msg::WidgetSize(v)
-                            ))
-                            .step(1.0f32)
-                            .on_release(UiMsg::Panel(PanelMsg::Commit))
-                            .width(300),
-                            text(if pl.size <= 0.0 {
-                                "auto".to_string()
-                            } else {
-                                format!("{:.0} px", pl.size)
-                            })
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12),
+                        self.slider(
+                            &SliderSpec::new(
+                                "widget_size",
+                                (0.0, 160.0),
+                                1.0,
+                                |v| wrap(Msg::WidgetSize(v as f32)),
+                                UiMsg::Panel(PanelMsg::Commit),
+                            ),
+                            f64::from(pl.size.clamp(0.0, 160.0)),
+                            en_taille,
+                            SliderLook::fixed(13.0, 300, Alignment::Start),
+                        ),
                     ),
                     self.field(
                         "Fond en carte",

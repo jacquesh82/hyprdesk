@@ -13,6 +13,7 @@ use iced::widget::{Space, button, column, container, pick_list, row, slider, tex
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::color_picker::{Picker, PickerMsg, well};
+use super::panel::{SliderLook, SliderSpec};
 use super::{App, Msg as UiMsg, color};
 use crate::config::Rgba;
 use crate::i18n::text;
@@ -861,19 +862,18 @@ impl App {
             self.field(
                 "Taille",
                 "",
-                row![
-                    slider(16.0f32..=96.0, size as f32, |x| wrap(Msg::CursorSize(
-                        x as f64
-                    )))
-                    .step(2.0_f32)
-                    .on_release(wrap(Msg::CursorCommit))
-                    .width(240),
-                    text(format!("{size:.0}"))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
+                self.slider(
+                    &SliderSpec::new(
+                        "cursor_size",
+                        (16.0, 96.0),
+                        2.0,
+                        |x| wrap(Msg::CursorSize(x)),
+                        wrap(Msg::CursorCommit),
+                    ),
+                    size,
+                    |x| format!("{x:.0}"),
+                    SliderLook::fixed(13.0, 240, Alignment::Center),
+                ),
             ),
             self.small(
                 crate::i18n::tr(

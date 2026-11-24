@@ -15,7 +15,7 @@ pub mod modules;
 pub(in crate::ui) mod surface;
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, row, slider, toggler};
+use iced::widget::{Space, button, column, row, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::etats::Etat;
@@ -62,6 +62,20 @@ pub const TABS: &[SubTab] = &[
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Panorama(m)))
+}
+
+/// Valeur du curseur d'intensité du voile, en pour cents.
+fn en_pour_cent(v: f64) -> String {
+    format!("{} %", v.round() as u8)
+}
+
+/// Valeur de la durée du fondu du voile : « instantané » à zéro, sinon des secondes.
+fn en_fondu(v: f64) -> String {
+    if v <= 0.0 {
+        crate::i18n::tr("instantané").to_string()
+    } else {
+        format!("{:.1} s", v / 1000.0)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -675,25 +689,25 @@ impl App {
         if !v.on {
             return col.into();
         }
-        let value = |s: String| text(s).font(self.font).size(crate::ui::tokens::ts(14.0));
-        col = col.push(
-            self.field(
-                "Intensité",
-                "",
-                row![
-                    slider(
-                        crate::panorama::config::VideoDim::LEVELS,
-                        v.level,
-                        |n| wrap(Msg::DimLevel(n))
-                    )
-                    .on_release(wrap(Msg::DimCommit))
-                    .width(260),
-                    value(format!("{} %", v.level)),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
+        col = col.push(self.field(
+            "Intensité",
+            "",
+            self.slider(
+                &SliderSpec::new(
+                    "panorama_dim_level",
+                    (
+                        f64::from(*crate::panorama::config::VideoDim::LEVELS.start()),
+                        f64::from(*crate::panorama::config::VideoDim::LEVELS.end()),
+                    ),
+                    1.0,
+                    |n| wrap(Msg::DimLevel(n.round() as u8)),
+                    wrap(Msg::DimCommit),
+                ),
+                f64::from(v.level),
+                en_pour_cent,
+                SliderLook::fixed(14.0, 260, Alignment::Center),
             ),
-        );
+        ));
         let scope = Some(if v.scope == "background" {
             "background"
         } else {
@@ -735,23 +749,18 @@ impl App {
             self.field(
                 "Durée du fondu",
                 "",
-                row![
-                    slider(
-                        0..=crate::panorama::config::VideoDim::FADE_MAX,
-                        v.fade,
-                        |n| { wrap(Msg::DimFade(n)) }
-                    )
-                    .step(100u32)
-                    .on_release(wrap(Msg::DimCommit))
-                    .width(260),
-                    value(if v.fade == 0 {
-                        crate::i18n::tr("instantané").to_string()
-                    } else {
-                        format!("{:.1} s", v.fade as f32 / 1000.0)
-                    }),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
+                self.slider(
+                    &SliderSpec::new(
+                        "panorama_dim_fade",
+                        (0.0, f64::from(crate::panorama::config::VideoDim::FADE_MAX)),
+                        100.0,
+                        |n| wrap(Msg::DimFade(n.round() as u32)),
+                        wrap(Msg::DimCommit),
+                    ),
+                    f64::from(v.fade),
+                    en_fondu,
+                    SliderLook::fixed(14.0, 260, Alignment::Center),
+                ),
             ),
             self.field(
                 "Souris sur le Panorama",

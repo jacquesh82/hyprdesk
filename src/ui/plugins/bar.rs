@@ -21,7 +21,7 @@ pub(in crate::ui) mod window;
 
 use crate::i18n::text;
 use iced::widget::{
-    Space, button, column, container, mouse_area, pick_list, radio, row, slider, toggler, tooltip,
+    Space, button, column, container, mouse_area, pick_list, radio, row, toggler, tooltip,
 };
 use iced::{Alignment, Border, Color, Element, Length, Task, mouse};
 
@@ -52,13 +52,17 @@ pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Bar(m)))
 }
 
-/// Valeur d'un curseur de la barre en pixels, en millisecondes.
+/// Valeur d'un curseur de la barre en pixels, en millisecondes, en pour cent.
 fn en_px(v: f64) -> String {
     format!("{} px", v.round() as u16)
 }
 
 fn en_ms(v: f64) -> String {
     format!("{} ms", v.round() as u16)
+}
+
+fn en_pour_cent(v: f64) -> String {
+    format!("{} %", v.round() as i32)
 }
 
 /// Les curseurs de la forme de la barre (HIG SEL-08) : leur pose emporte la
@@ -1372,15 +1376,18 @@ impl App {
                 "Opacité du fond",
                 "",
                 row![
-                    slider(0..=100u32, (o * 100.0).round() as u32, |v| wrap(
-                        Msg::Opacity(Some(v as f32 / 100.0))
-                    ))
-                    .on_release(wrap(Msg::Commit))
-                    .width(Length::Fill),
-                    text(format!("{} %", (o * 100.0).round() as i32))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .width(48),
+                    self.slider(
+                        &SliderSpec::new(
+                            "bar_colors_opacity",
+                            (0.0, 100.0),
+                            1.0,
+                            |v| wrap(Msg::Opacity(Some(v.round() as u32 as f32 / 100.0))),
+                            wrap(Msg::Commit),
+                        ),
+                        f64::from((o * 100.0).round()),
+                        en_pour_cent,
+                        SliderLook::fill(13.0, 48, Alignment::Center).spacing(10),
+                    ),
                     if b.colors.opacity.is_some() {
                         Element::from(
                             button(

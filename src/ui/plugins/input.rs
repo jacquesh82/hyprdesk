@@ -7,10 +7,10 @@
 
 use crate::i18n::text;
 use crate::inputs::Inputs;
-use iced::widget::{column, pick_list, radio, row, slider, text_input, toggler};
+use iced::widget::{column, pick_list, radio, text_input, toggler};
 use iced::{Alignment, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg};
 use super::{PluginInfo, PluginMsg};
 
@@ -34,6 +34,11 @@ pub const TABS: &[super::SubTab] = &[
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Input(m)))
+}
+
+/// Valeur du curseur « Vitesse de répétition », en frappes par seconde.
+fn en_par_seconde(v: f64) -> String {
+    crate::tr!("{n} / s", n = v.round() as i64)
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -180,27 +185,26 @@ impl App {
                 );
             }
             let c = cur.clone();
-            col = col.push(
-                self.field(
-                    "Vitesse",
-                    "",
-                    row![
-                        slider(-1.0..=1.0, cur.sensitivity as f32, move |v| {
+            col = col.push(self.field(
+                "Vitesse",
+                "",
+                self.slider(
+                    &SliderSpec::new(
+                        "input_sensitivity",
+                        (-1.0, 1.0),
+                        0.05,
+                        move |v| {
                             let mut n = c.clone();
-                            n.sensitivity = v as f64;
+                            n.sensitivity = v;
                             wrap(Msg::Preview(Box::new(n)))
-                        })
-                        .step(0.05_f32)
-                        .on_release(wrap(Msg::Commit))
-                        .width(260),
-                        text(format!("{:+.2}", cur.sensitivity))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+                        },
+                        wrap(Msg::Commit),
+                    ),
+                    cur.sensitivity,
+                    |v| format!("{:+.2}", v),
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
                 ),
-            );
+            ));
             let accel = |label: &'static str, v: &'static str| {
                 let c = cur.clone();
                 radio(
@@ -303,27 +307,26 @@ impl App {
                 toggler(cur.tp_clickfinger).on_toggle(toggle(&cur, |i, v| i.tp_clickfinger = v)),
             ));
             let c = cur.clone();
-            col = col.push(
-                self.field(
-                    "Vitesse de défilement",
-                    "",
-                    row![
-                        slider(0.1..=3.0, cur.tp_scroll_factor as f32, move |v| {
+            col = col.push(self.field(
+                "Vitesse de défilement",
+                "",
+                self.slider(
+                    &SliderSpec::new(
+                        "input_tp_scroll_factor",
+                        (0.1, 3.0),
+                        0.1,
+                        move |v| {
                             let mut n = c.clone();
-                            n.tp_scroll_factor = v as f64;
+                            n.tp_scroll_factor = v;
                             wrap(Msg::Preview(Box::new(n)))
-                        })
-                        .step(0.1_f32)
-                        .on_release(wrap(Msg::Commit))
-                        .width(260),
-                        text(format!("× {:.1}", cur.tp_scroll_factor))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+                        },
+                        wrap(Msg::Commit),
+                    ),
+                    cur.tp_scroll_factor,
+                    |v| format!("× {:.1}", v),
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
                 ),
-            );
+            ));
         } else {
             // Clavier.
             col = col.push(self.section("Disposition"));
@@ -399,49 +402,47 @@ impl App {
             );
             col = col.push(self.section("Répétition des touches"));
             let c1 = cur.clone();
-            col = col.push(
-                self.field(
-                    "Délai avant répétition",
-                    "",
-                    row![
-                        slider(150.0..=1000.0, cur.repeat_delay as f32, move |v| {
+            col = col.push(self.field(
+                "Délai avant répétition",
+                "",
+                self.slider(
+                    &SliderSpec::new(
+                        "input_repeat_delay",
+                        (150.0, 1000.0),
+                        10.0,
+                        move |v| {
                             let mut n = c1.clone();
                             n.repeat_delay = (v / 10.0).round() as i64 * 10;
                             wrap(Msg::Preview(Box::new(n)))
-                        })
-                        .step(10.0_f32)
-                        .on_release(wrap(Msg::Commit))
-                        .width(260),
-                        text(format!("{} ms", cur.repeat_delay))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+                        },
+                        wrap(Msg::Commit),
+                    ),
+                    cur.repeat_delay as f64,
+                    |v| format!("{} ms", v as i64),
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
                 ),
-            );
+            ));
             let c2 = cur.clone();
-            col = col.push(
-                self.field(
-                    "Vitesse de répétition",
-                    "",
-                    row![
-                        slider(5.0..=80.0, cur.repeat_rate as f32, move |v| {
+            col = col.push(self.field(
+                "Vitesse de répétition",
+                "",
+                self.slider(
+                    &SliderSpec::new(
+                        "input_repeat_rate",
+                        (5.0, 80.0),
+                        1.0,
+                        move |v| {
                             let mut n = c2.clone();
                             n.repeat_rate = v.round() as i64;
                             wrap(Msg::Preview(Box::new(n)))
-                        })
-                        .step(1.0_f32)
-                        .on_release(wrap(Msg::Commit))
-                        .width(260),
-                        text(crate::tr!("{n} / s", n = cur.repeat_rate))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+                        },
+                        wrap(Msg::Commit),
+                    ),
+                    cur.repeat_rate as f64,
+                    en_par_seconde,
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
                 ),
-            );
+            ));
             col = col.push(self.field(
                 "Verr. Num. actif au démarrage",
                 "",

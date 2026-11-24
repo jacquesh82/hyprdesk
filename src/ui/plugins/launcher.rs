@@ -220,7 +220,7 @@ impl App {
                 "Voile derrière",
                 "apps_backdrop_dim",
                 (0.0, 80.0),
-                f64::from(shape.backdrop_dim) * 100.0,
+                (f64::from(shape.backdrop_dim) * 100.0).round(),
                 |v| format!("{} %", v.round() as u32),
                 |s, v| s.backdrop_dim = v / 100.0
             ),

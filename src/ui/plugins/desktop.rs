@@ -3,11 +3,11 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, pick_list, radio, row, slider, toggler};
+use iced::widget::{Space, button, column, container, pick_list, radio, row, toggler};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::etats::Etat;
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::{Mode, ShowOn};
@@ -255,14 +255,18 @@ impl App {
             self.adv("Opacité du voile (verre)", self.field(
                 "",
                 "glass_opacity",
-                row![
-                    slider(0.0..=1.0, g.glass_opacity, |v| wrap(Msg::GlassOpacity(v)))
-                        .step(0.05f32)
-                        .on_release(UiMsg::Panel(PanelMsg::Commit))
-                        .width(260),
-                    text(format!("{:.0} %", g.glass_opacity * 100.0)).font(self.font).size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+                self.slider(
+                    &SliderSpec::new(
+                        "desktop_glass_opacity",
+                        (0.0, 100.0),
+                        5.0,
+                        |v| wrap(Msg::GlassOpacity((v / 100.0) as f32)),
+                        UiMsg::Panel(PanelMsg::Commit),
+                    ),
+                    (f64::from(g.glass_opacity) * 100.0).round(),
+                    |v| format!("{:.0} %", v),
+                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                ),
             )),
         ]
         .spacing(14)
@@ -309,16 +313,18 @@ impl App {
             self.field(
                 "Taille du texte",
                 "font_size",
-                row![
-                    slider(11.0..=22.0, g.font_size, |v| wrap(Msg::FontSize(v)))
-                        .step(0.5_f32)
-                        .on_release(UiMsg::Panel(PanelMsg::Commit))
-                        .width(260),
-                    text(format!("{} px", g.font_size))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                ]
-                .spacing(12)
+                self.slider(
+                    &SliderSpec::new(
+                        "font_size",
+                        (11.0, 22.0),
+                        0.5,
+                        |v| wrap(Msg::FontSize(v as f32)),
+                        UiMsg::Panel(PanelMsg::Commit),
+                    ),
+                    f64::from(g.font_size),
+                    |v| format!("{} px", v),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
+                ),
             ),
         ]
         .spacing(14)
