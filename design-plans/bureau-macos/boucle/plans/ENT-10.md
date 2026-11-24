@@ -92,3 +92,16 @@ Relu après la correction du registre, à `61c39a1`.
 - Qu'est-ce qui casse ? Trois défauts de la première version, corrigés ci-dessus : une classe Hyprland rassemble plusieurs processus — tuer « foot » tue tous les terminaux —, d'où le nombre de fenêtres dans la confirmation ; la liste n'était pas bornée ; la boîte pouvait s'ouvrir sur le commutateur, deux prises exclusives l'une sur l'autre. Reste : `ALT + SUPER + Escape` n'a pas été vérifié contre les liaisons de hyprland.lua — un conflit sera signalé par `keymap::analyse`, comme pour tout raccourci, et le raccourci n'agira alors que bureau affiché.
 - Que manque-t-il ? L'appel Lua exact qui tue une fenêtre désignée : première condition d'arrêt, à lire avant d'écrire. L'état « ne répond pas » : hors périmètre, Hyprland ne le dit pas.
 - Le plan résout-il l'écart ? Oui : une boîte qui liste les applications et force leur fermeture, en deux temps, et son raccourci.
+
+## Relecture du diff (itération C20, agent indépendant)
+
+Travail de l'itération interrompue par la panne de quota, repris par `reprise-C.patch` et mis au point. Défauts relevés et corrigés :
+
+- Entrée maintenue confirmait ce que le premier appui venait d'armer : la répétition d'Entrée devient `Msg::EnterRepeat`, sans effet dans la boîte, un appui ordinaire ailleurs.
+- La fenêtre d'aperçu du Panorama appartient au démon : la tuer tuait hyprdesk. Elle n'est ni listée ni visée.
+- Une fenêtre déjà disparue (processus partagé, tué avec la précédente) n'est plus visée : `hypr::kill_windows` relit les fenêtres avant chaque destruction.
+- Le commutateur ouvert par-dessus la boîte la referme, comme l'inverse.
+- La ligne affiche le nom de l'entrée `.desktop` (classe en repli), borné à 24 caractères dans la confirmation ; sans image, la pastille de repli du dock.
+- L'application active passe en tête sans déranger l'ordre des autres.
+
+Laissé tel quel : l'ordre « Annuler », puis la commande danger à droite — celui de la HIG pour une boîte (le bouton d'action à droite), qui diffère de « Effacer l'historique ».
