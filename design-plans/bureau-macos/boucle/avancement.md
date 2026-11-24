@@ -97,6 +97,7 @@
 | 2026-11-24 | D1 | TYP-08 traité ; il en reste 19 dans ce couloir |
 | 2026-11-24 | D2 | TYP-06, TYP-14 traités ; il en reste 17 dans ce couloir |
 | 2026-11-24 | D3 | TYP-10, TYP-12 traités ; il en reste 15 dans ce couloir |
+| 2026-11-24 | D4 | TYP-05 traité ; il en reste 14 dans ce couloir |
 
 Référence verte : `58cddff` (porte complète `scripts/verify.sh` passée le 24 novembre 2026 à 20 h 50 après rebasage du lot 2 de ENT-02 sur l'intégration `57f0c29` : code de sortie 0 ; précédente référence : `06a2180`, le 24 novembre 2026 à 19 h 15).
 
@@ -242,7 +243,7 @@ Référence verte : `58cddff` (porte complète `scripts/verify.sh` passée le 24
 | FON-08 | Deux interrupteurs de réduction du mouvement | PISTE | S | haute | à faire | — | — |
 | ICO-13 | Taille des glyphes hors barre | PISTE | S | haute | à faire | — | — |
 | SEL-13 | Largeur des segments « Affichage du bureau » | PISTE | S | haute | à faire | — | — |
-| TYP-05 | Typographie — graisse des titres | PISTE | S | moyenne | à faire | — | — |
+| TYP-05 | Typographie — graisse des titres | PISTE | S | moyenne | fait | fac3c33 | `title_weight` vaut 600 par défaut (`src/theme_engine/design.rs`), test `titres_en_semibold_par_defaut` ; `App::page_title_font` (`src/ui/mod.rs`) garde Bold, au moins, pour le titre de page du tiroir (`src/ui/panel.rs`, 27 px). Un pack qui règle `title_weight` garde la main sur les autres titres, et sur le titre de page s'il graisse davantage. `DESIGN.md` le dit. Captures à 100 % : « Profile » et « Settings » passent en semibold, « Performance » reste Bold, la barre garde sa disposition. Relecture à froid sans agent (propriétaires partagés `design.rs` et `panel.rs`) : le diff fait ce que demande l'écart ; il respecte `DESIGN.md` (aucune famille ni taille en jeu) ; un test couvre le défaut et le pack. Non touchés, hors correction : le Bold explicite du dialogue polkit (son titre, `polkit.rs`), la lettre d'une icône de Panorama (`panes.rs`) et les programmes à part (verrouillage, greeter, fenêtre myMFA). |
 | TYP-09 | Typographie — barre et échelle de texte | PISTE | S | moyenne | à faire | — | — |
 | TYP-10 | Écriture — boutons du conflit de raccourcis | PISTE | S | haute | fait | 77cd1b2 | « hyprdesk le prend » devient « Donner à hyprdesk » (en « Give to hyprdesk »), aux deux endroits de `plugins/keys.rs` et au conflit du lanceur (`plugins/launcher.rs`, hors preuve) ; « Désactiver plutôt » devient « Désactiver le raccourci » (« Disable the shortcut »). « Rendre » devient « Rendre la combinaison » (« Give the combination back ») et non « Rendre à l'application » : celui qui tient la combinaison est souvent une ligne de hyprland.lua, pas une application. Pas de capture : aucune scène d'aperçu ne montre un conflit. |
 | TYP-12 | Écriture — fin de parcours | PISTE | S | haute | fait | 77cd1b2 | « Terminé » partout où un parcours s'achève : la visite guidée (`tour.rs`) et l'assistant de premier démarrage (`wizard.rs`, hors preuve), qui portaient « Terminer ». Preuve inexacte : le « Terminer » de Panorama (`plugins/panorama/surface/dashboard.rs`) termine un processus de sa liste, ce n'est pas une fin de parcours ; il reste. |
