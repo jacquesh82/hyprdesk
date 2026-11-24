@@ -193,6 +193,12 @@ désactivation. Il s'éteint seul à son échéance, et sa tuile dit jusqu'à qu
 (« Silence · jusqu'à 18:00 »). En ligne de commande :
 `hyprdesk notifications dnd on [1h|soir]`.
 
+À la fin du Silence — à son échéance comme quand vous le coupez — une bulle de
+hyprdesk résume ce qu'il a retenu : « 3 notifications pendant le Silence », et
+« de 2 applications » quand elles viennent de plusieurs. Un clic sur cette bulle
+ouvre la liste des notifications et la referme ; sans notification retenue, rien
+ne s'affiche.
+
 La première notification d'une application demande, dans sa bulle, l'autorisation
 de vous en envoyer : « Refuser » ou « Autoriser », au-dessus de son contenu. La
 bulle reste jusqu'à votre réponse ou à sa fermeture ; fermée sans réponse, rien

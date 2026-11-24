@@ -195,6 +195,11 @@ turns itself off at its deadline, and its tile says until when ("Silence ·
 until 18:00"). From the command line: `hyprdesk notifications dnd on
 [1h|soir]`.
 
+When Silence ends — at its deadline or when you turn it off — a hyprdesk bubble
+sums up what it held: "3 notifications during Do Not Disturb", and "from 2
+apps" when they come from several. A click on that bubble opens the
+notifications list and closes it; with nothing held, nothing appears.
+
 The first notification from an application asks, in its bubble, for the
 permission to send you notifications: "Decline" or "Allow", above its content.
 The bubble stays until you answer or close it; closed without an answer,

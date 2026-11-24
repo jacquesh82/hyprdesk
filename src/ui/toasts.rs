@@ -48,6 +48,9 @@ const GAP: f32 = 8.0;
 const SHADOW: f32 = 18.0;
 /// Cloche de repli, quand l'application n'a pas donné d'icône (jeu de hyprdesk).
 pub(super) const ICON: &str = "preferences-system-notifications-symbolic";
+/// Identifiant du résumé du Silence (HIG PAT-20) : le serveur numérote les
+/// notifications reçues à partir de 1, celui-ci n'est jamais le leur.
+const SUMMARY_ID: u32 = 0;
 /// Côté de l'icône de l'application dans une bulle.
 const APP_ICON: f32 = 36.0;
 /// Côté de l'icône de l'application dans une carte du centre.
@@ -190,6 +193,10 @@ pub struct Toast {
     /// Style de remise « Alertes » de l'application (HIG SYS-03) : la bulle
     /// reste jusqu'à sa fermeture, comme une critique.
     pub alert: bool,
+    /// Résumé du Silence (HIG PAT-20) : bulle de hyprdesk, d'aucune
+    /// application, qui propose les notifications retenues. Sa carte mène à
+    /// leur liste ; rien ne se signale à une application.
+    pub summary: bool,
 }
 
 /// Ce que devient, pour l'interface, une notification reçue d'une application
@@ -366,6 +373,9 @@ pub enum TMsg {
     Shown(Id),
     /// La fin programmée du Silence est atteinte (HIG PAT-04).
     Expire,
+    /// Clic sur le résumé du Silence : ouvrir les notifications retenues (HIG
+    /// PAT-20).
+    Summary,
     /// Une liste de l'historique s'ouvre : tout est lu (HIG SYS-02).
     Read,
 }
@@ -388,6 +398,10 @@ pub struct Toasts {
     /// ouvertes : chacune, celle de la première notification critique de son
     /// application.
     pub explain: Vec<Explain>,
+    /// Notifications retenues par le Silence (HIG PAT-20) : les identifiants
+    /// de celles allées à l'historique sans bulle parce qu'il est allumé. Le
+    /// résumé les propose quand il s'éteint ; mémoire seule, jamais écrit.
+    pub held: Vec<u32>,
     visibility: Option<super::Fade>,
     previous: Vec<Toast>,
     convex: bool,
@@ -476,15 +490,48 @@ impl Toasts {
         self.history.iter().filter(|n| n.unread).count()
     }
 
-    /// Bascule le Silence et le garde d'une session à l'autre.
+    /// Bascule le Silence et le garde d'une session à l'autre. Unique point
+    /// de passage de l'allumage et de l'extinction : à l'allumage, plus rien
+    /// n'est retenu et un résumé vivant s'efface ; à l'extinction, le résumé
+    /// des retenues se pose (HIG PAT-20).
     fn set_silence(&mut self, on: bool, until: Option<i64>) {
         self.dnd = on;
         self.dnd_until = on.then_some(until).flatten();
         if on {
+            self.held.clear();
+            self.list.retain(|t| !t.summary);
             crate::notifications::Silence { until }.save();
         } else {
             crate::notifications::Silence::off();
+            self.summary();
         }
+    }
+
+    /// Résumé du Silence (HIG PAT-20) : le Silence s'éteint sur des
+    /// notifications retenues — une bulle de hyprdesk les propose, en tête des
+    /// bulles, et les retenues sont oubliées. Sans retenue, rien.
+    fn summary(&mut self) {
+        let Some(n) = resume_notification(&self.held, &self.history) else {
+            self.held.clear();
+            return;
+        };
+        self.held.clear();
+        self.list.retain(|t| !t.summary);
+        self.list.insert(
+            0,
+            Toast {
+                n,
+                since: Instant::now(),
+                request: None,
+                alert: false,
+                summary: true,
+            },
+        );
+    }
+
+    /// La bulle `id` est le résumé du Silence (HIG PAT-20).
+    fn is_summary(&self, id: u32) -> bool {
+        self.list.iter().any(|t| t.summary && t.n.id == id)
     }
 
     /// Éteint un Silence dont l'échéance est passée, à l'horloge murale.
@@ -603,11 +650,58 @@ impl Toasts {
                 self.set_silence(true, until);
             }
             (Some("dnd"), None, _) => self.set_silence(!self.dnd, None),
-            (Some("clear"), None, _) => self.history.clear(),
+            // Un historique effacé n'a plus rien à proposer (HIG PAT-20).
+            (Some("clear"), None, _) => {
+                self.history.clear();
+                self.held.clear();
+            }
             _ => return,
         }
         self.publish();
     }
+}
+
+/// Notification du résumé du Silence (HIG PAT-20) : celles des retenues
+/// `held` qui sont encore dans l'historique, dénombrées ; leur corps nomme le
+/// nombre de leurs applications quand il y en a plusieurs. `None` sans
+/// aucune. Sans action ni historique (`transient`).
+pub(super) fn resume_notification(held: &[u32], history: &[Notification]) -> Option<Notification> {
+    let kept: Vec<&Notification> = held
+        .iter()
+        .filter_map(|id| history.iter().find(|h| h.id == *id))
+        .collect();
+    if kept.is_empty() {
+        return None;
+    }
+    let mut apps: Vec<String> = Vec::new();
+    for h in &kept {
+        let app = card_app(h);
+        if !apps.contains(&app) {
+            apps.push(app);
+        }
+    }
+    let n = kept.len();
+    let title = if n == 1 {
+        crate::i18n::tr("1 notification pendant le Silence").to_string()
+    } else {
+        crate::tr!("{n} notifications pendant le Silence", n = n)
+    };
+    let body = (apps.len() > 1).then(|| crate::tr!("de {n} applications", n = apps.len()));
+    let mut hints = std::collections::HashMap::new();
+    hints.insert(
+        "transient".to_string(),
+        zbus::zvariant::OwnedValue::from(true),
+    );
+    Some(crate::notifications::build(
+        SUMMARY_ID,
+        "hyprdesk",
+        "",
+        &title,
+        body.as_deref().unwrap_or_default(),
+        &[],
+        &hints,
+        -1,
+    ))
 }
 
 /// Surcroît de la carte d'une bulle qui montre un corps et des actions : les
@@ -715,6 +809,29 @@ impl App {
         })
     }
 
+    /// Carte « Notifications » de la barre de l'écran actif — à défaut, de la
+    /// première barre ; rien sans barre. Le résumé du Silence y mène (HIG
+    /// PAT-20).
+    fn open_notifications(&mut self) -> Task<Msg> {
+        let focused = self
+            .monitors
+            .iter()
+            .find(|m| m.focused)
+            .map(|m| m.name.clone());
+        self.bar_surfaces
+            .iter()
+            .find(|(_, s)| Some(&s.monitor) == focused.as_ref())
+            .or_else(|| self.bar_surfaces.iter().next())
+            .map(|(id, _)| *id)
+            .map_or_else(Task::none, |bar| {
+                self.open_popover(
+                    bar,
+                    "notifications".into(),
+                    crate::ui::plugins::bar::popover::Kind::Notifications,
+                )
+            })
+    }
+
     /// La notification de la vue étendue `id` (HIG SYS-13) : sa bulle vivante,
     /// sinon son entrée d'historique — la bulle s'est effacée depuis
     /// l'ouverture de la vue, qui continue de la montrer.
@@ -760,9 +877,14 @@ impl App {
                 self.toasts.publish();
                 Task::none()
             }
+            // Le Silence qui expire pose peut-être son résumé (HIG PAT-20) :
+            // la couche des bulles suit.
             TMsg::Expire => {
-                self.toasts.silence_expire();
-                Task::none()
+                if self.toasts.silence_expire() {
+                    self.sync_toasts()
+                } else {
+                    Task::none()
+                }
             }
             // Une liste de l'historique s'ouvre : tout est lu (HIG SYS-02).
             TMsg::Read => {
@@ -775,8 +897,14 @@ impl App {
                 Task::none()
             }
             TMsg::Event(Event::Shown(n)) => {
-                // Le Silence a peut-être expiré pendant une veille.
-                self.toasts.silence_expire();
+                // Le Silence a peut-être expiré pendant une veille : son
+                // résumé (HIG PAT-20) se pose, que cette notification montre
+                // une bulle ou non.
+                let resume = if self.toasts.silence_expire() {
+                    self.sync_toasts()
+                } else {
+                    Task::none()
+                };
                 // Une explication sans sa bulle (fermée) ne s'applique plus à rien.
                 self.toasts
                     .explain
@@ -793,7 +921,7 @@ impl App {
                 match self.toasts.reception(&key) {
                     Reception::Refused => {
                         send(Cmd::Dismiss(n.id, Reason::Expired));
-                        return Task::none();
+                        return resume;
                     }
                     Reception::Asked => request = Some(key.clone()),
                     Reception::Delivered(delivery) => {
@@ -831,6 +959,21 @@ impl App {
                     // critique.
                     n.urgency == Urgency::Critical
                 };
+                // Retenue du Silence (HIG PAT-20) : allée à l'historique sans
+                // bulle parce qu'il est allumé — une de plus à proposer quand
+                // il s'éteint. Ni la basse urgence ni le style « Aucune », qui
+                // sont un choix ; ni une critique qu'on lui a refusée ; ni une
+                // `transient`, qui ne laisse rien à rouvrir.
+                if self.toasts.dnd
+                    && !passes
+                    && request.is_none()
+                    && !n.transient
+                    && n.urgency == Urgency::Normal
+                    && !silent
+                    && !self.toasts.held.contains(&n.id)
+                {
+                    self.toasts.held.push(n.id);
+                }
                 // Basse urgence (HIG PAT-06), style « Aucune » de l'application
                 // (HIG SYS-03) ou ne pas déranger : dans l'historique
                 // seulement, sauf critique dont l'application passe le
@@ -842,7 +985,7 @@ impl App {
                     if request.is_some() {
                         send(Cmd::Dismiss(n.id, Reason::Expired));
                     }
-                    return app_icon;
+                    return Task::batch([resume, app_icon]);
                 }
                 // Urgence critique : son repère doit être prêt dès la première image.
                 let alert = if n.urgency == Urgency::Critical {
@@ -855,6 +998,7 @@ impl App {
                     since: Instant::now(),
                     request,
                     alert: stays,
+                    summary: false,
                 };
                 match self.toasts.list.iter_mut().find(|o| o.n.id == t.n.id) {
                     Some(o) => *o = t,
@@ -868,7 +1012,10 @@ impl App {
                 self.sync_toasts()
             }
             TMsg::Invoke(id, key) => {
-                send(Cmd::Invoke(id, key));
+                // Le résumé du Silence (HIG PAT-20) n'est d'aucune application.
+                if !self.toasts.is_summary(id) {
+                    send(Cmd::Invoke(id, key));
+                }
                 let resident = self
                     .toasts
                     .list
@@ -924,8 +1071,20 @@ impl App {
                     .unwrap_or_default();
                 self.open_notification_menu(win, &monitor, id)
             }
+            // Résumé du Silence (HIG PAT-20) : sa carte mène aux notifications
+            // retenues — la liste de la barre s'ouvre, qui lit tout (HIG
+            // SYS-02) — et la bulle se ferme. Sans barre, elle se ferme seule.
+            TMsg::Summary => {
+                self.toasts.list.retain(|t| !t.summary);
+                let open = self.open_notifications();
+                Task::batch([open, self.sync_toasts()])
+            }
             TMsg::Close(id) => {
-                send(Cmd::Dismiss(id, Reason::Dismissed));
+                // Le résumé du Silence (HIG PAT-20) n'est d'aucune
+                // application : rien à lui signaler.
+                if !self.toasts.is_summary(id) {
+                    send(Cmd::Dismiss(id, Reason::Dismissed));
+                }
                 self.toasts.list.retain(|t| t.n.id != id);
                 // La vue étendue de cette bulle (HIG SYS-13) se referme avec
                 // elle.
@@ -984,7 +1143,10 @@ impl App {
                     return Task::none();
                 }
                 for id in &expired {
-                    send(Cmd::Dismiss(*id, Reason::Expired));
+                    // Le résumé du Silence (HIG PAT-20) n'est d'aucune application.
+                    if !self.toasts.is_summary(*id) {
+                        send(Cmd::Dismiss(*id, Reason::Expired));
+                    }
                 }
                 self.toasts.list.retain(|t| !expired.contains(&t.n.id));
                 self.sync_toasts()
@@ -1270,8 +1432,13 @@ impl App {
             Color { a: 0.12, ..fg }
         };
         let id = t.n.id;
-        // Icône de l'application, en grand au bord gauche de la carte.
-        let glyph: Element<'_, Msg> = self.notif_icon(&t.n, APP_ICON, dim);
+        // Icône de l'application, en grand au bord gauche de la carte. Le
+        // résumé du Silence (HIG PAT-20) est de hyprdesk : la cloche.
+        let glyph: Element<'_, Msg> = if t.summary {
+            self.icon_or_bell("", APP_ICON, dim)
+        } else {
+            self.notif_icon(&t.n, APP_ICON, dim)
+        };
         let mut head = row![].spacing(8).align_y(Alignment::Center);
         if critical {
             head = head.push(
@@ -1375,34 +1542,66 @@ impl App {
                     .on_press(Msg::Toasts(TMsg::Refuse(id))),
                 );
         }
+        // Regard d'une carte : fond, filet et ombre du thème ; sous Convexe,
+        // rien — la niche peint.
+        let look = move |edge: Color| -> container::Style {
+            if convex {
+                container::Style {
+                    text_color: Some(fg),
+                    ..Default::default()
+                }
+            } else {
+                container::Style {
+                    background: Some(bg.into()),
+                    border: Border::default()
+                        .rounded(super::design::SMALL_RADIUS * 1.4)
+                        .width(1)
+                        .color(edge),
+                    shadow: Shadow {
+                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
+                        offset: Vector::new(0.0, 6.0),
+                        blur_radius: 18.0,
+                    },
+                    text_color: Some(fg),
+                    ..Default::default()
+                }
+            }
+        };
+        // Résumé du Silence (HIG PAT-20) : la carte entière est le bouton qui
+        // mène aux notifications retenues ; au survol, son filet se renforce.
+        if t.summary {
+            let content = container(row![glyph, col].spacing(12).align_y(Alignment::Start))
+                .width(Length::Fill)
+                .height(Length::Fill);
+            return button(content)
+                .padding([10, 14])
+                .width(Layout::of(&self.cfg.general).width)
+                .height(card_height(t, explained))
+                .clip(true)
+                .style(move |_: &iced::Theme, status: button::Status| {
+                    let s = look(if matches!(status, button::Status::Hovered) {
+                        Color { a: 0.4, ..fg }
+                    } else {
+                        edge
+                    });
+                    button::Style {
+                        background: s.background,
+                        text_color: s.text_color.unwrap_or(fg),
+                        border: s.border,
+                        shadow: s.shadow,
+                        ..Default::default()
+                    }
+                })
+                .on_press(Msg::Toasts(TMsg::Summary))
+                .into();
+        }
+        let at_rest = look(edge);
         let card = container(row![glyph, col].spacing(12).align_y(Alignment::Start))
             .padding([10, 14])
             .width(Layout::of(&self.cfg.general).width)
             .height(card_height(t, explained))
             .clip(true)
-            .style(move |_| {
-                if convex {
-                    container::Style {
-                        text_color: Some(fg),
-                        ..Default::default()
-                    }
-                } else {
-                    container::Style {
-                        background: Some(bg.into()),
-                        border: Border::default()
-                            .rounded(super::design::SMALL_RADIUS * 1.4)
-                            .width(1)
-                            .color(edge),
-                        shadow: Shadow {
-                            color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
-                            offset: Vector::new(0.0, 6.0),
-                            blur_radius: 18.0,
-                        },
-                        text_color: Some(fg),
-                        ..Default::default()
-                    }
-                }
-            });
+            .style(move |_| at_rest);
         // Clic sur la carte : action par défaut (si l'application en propose une).
         if t.n.actions.iter().any(|(k, _)| k == "default") {
             mouse_area(card)
@@ -1846,6 +2045,7 @@ mod tests {
             since: Instant::now(),
             request: None,
             alert: false,
+            summary: false,
         }
     }
 
@@ -1905,6 +2105,7 @@ mod tests {
             since: Instant::now(),
             request: None,
             alert: false,
+            summary: false,
         };
         let sans = corps(&["default".into(), "Ouvrir".into()]);
         let avec = corps(&[
@@ -1940,6 +2141,7 @@ mod tests {
             since: Instant::now(),
             request: None,
             alert: false,
+            summary: false,
         };
         let deux = [bulle(1), bulle(2)];
         assert_eq!(
@@ -1979,6 +2181,7 @@ mod tests {
             since: Instant::now(),
             request: None,
             alert: false,
+            summary: false,
         };
         let deux = [bulle(1), bulle(2)];
         assert_eq!(
@@ -1991,6 +2194,7 @@ mod tests {
             Toast {
                 request: Some("a".into()),
                 alert: false,
+                summary: false,
                 ..bulle(2)
             },
         ];
@@ -2601,6 +2805,7 @@ mod tests {
             since: Instant::now(),
             request: None,
             alert: false,
+            summary: false,
         }];
         let _ = app.open_popover(bar, "clock".into(), Kind::Activity(1));
         assert!(app.activity_open(1), "la vue de la bulle 1 est ouverte");
@@ -2629,6 +2834,7 @@ mod tests {
             since: Instant::now(),
             request: None,
             alert: false,
+            summary: false,
         }];
         let _ = app.toasts_update(TMsg::Close(2));
         assert!(app.activity_open(1), "fermer une autre bulle laisse la vue");
@@ -2886,6 +3092,178 @@ mod tests {
         // Le menu part avec sa carte.
         let _ = app.destroy_popover();
         assert!(app.icon_menu.is_none(), "carte fermée : plus de menu");
+    }
+
+    /// HIG PAT-20 : sous Silence, une notification ordinaire remise va à
+    /// l'historique sans bulle et est retenue, pour le résumé. Ni une
+    /// `transient`, ni une basse urgence, ni le style « Aucune » de son
+    /// application : un choix, non une retenue. Hors Silence, rien n'est
+    /// retenu.
+    #[test]
+    fn le_silence_retient_ce_qu_il_passe_sans_bulle() {
+        let _verrou = verrou_passage();
+        let accordee = |delivery| {
+            let key = cle();
+            Authorizations::load()
+                .set(
+                    &key,
+                    Authorization {
+                        granted: true,
+                        delivery,
+                    },
+                )
+                .save();
+            key
+        };
+        let (bannieres, aucune) = (accordee(Delivery::Banner), accordee(Delivery::Silent));
+        let mut app = application();
+        app.toasts.active = true;
+        let bulles = |app: &App| app.toasts.list.iter().map(|t| t.n.id).collect::<Vec<_>>();
+        // Hors Silence : sa bulle, rien de retenu.
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(1, &bannieres))));
+        assert_eq!(bulles(&app), vec![1]);
+        assert!(app.toasts.held.is_empty(), "hors Silence, rien de retenu");
+        app.toasts.dnd = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(2, &bannieres))));
+        assert_eq!(bulles(&app), vec![1], "sous Silence : pas de bulle");
+        assert_eq!(app.toasts.held, vec![2], "retenue");
+        let mut transitoire = recue(3, &bannieres);
+        transitoire.transient = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(transitoire)));
+        let mut basse = recue(4, &bannieres);
+        basse.urgency = Urgency::Low;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(basse)));
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(5, &aucune))));
+        assert_eq!(
+            app.toasts.held,
+            vec![2],
+            "transitoire, basse urgence et style « Aucune » : un choix, non une retenue"
+        );
+    }
+
+    /// HIG PAT-20 : le Silence qui s'éteint — à son échéance comme à la main
+    /// — pose une bulle qui résume ses retenues, puis les oublie ; sans
+    /// retenue, ou l'historique effacé, rien. Un clic sur sa carte ouvre la
+    /// liste des notifications, qui lit tout (HIG SYS-02), et ferme la bulle ;
+    /// à son délai ou par « Fermer », elle s'efface comme une bulle ordinaire.
+    #[test]
+    fn le_silence_qui_s_eteint_resume_ses_retenues() {
+        // Une barre sur un écran, pour la carte « Notifications ».
+        fn barre(app: &mut App) -> Id {
+            use crate::ui::plugins::bar::surface::BarSurface;
+            let bar = Id::unique();
+            app.monitors = vec![crate::hypr::Monitor {
+                dpms_off: false,
+                name: "A".into(),
+                width: 900,
+                height: 640,
+                x: 0.0,
+                y: 0.0,
+                scale: 1.0,
+                workspace: "1".into(),
+                base: String::new(),
+                focused: true,
+                reserved: (0.0, 44.0, 0.0, 0.0),
+            }];
+            app.bar_surfaces.insert(
+                bar,
+                BarSurface {
+                    monitor: "A".into(),
+                    ..Default::default()
+                },
+            );
+            bar
+        }
+        let mut app = application();
+        let bulles = |app: &App| app.toasts.list.iter().map(|t| t.n.id).collect::<Vec<_>>();
+        // Échéance sans retenue : rien.
+        (app.toasts.dnd, app.toasts.dnd_until) = (true, Some(0));
+        let _ = app.toasts_update(TMsg::Expire);
+        assert!(bulles(&app).is_empty(), "sans retenue, pas de résumé");
+        assert!(!app.toasts.dnd, "le Silence s'éteint quand même");
+        // Trois retenues, de deux applications ; puis l'échéance.
+        app.toasts.dnd = true;
+        for (id, de) in [(1, "a"), (2, "b"), (3, "a")] {
+            let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(id, de))));
+        }
+        assert!(
+            bulles(&app).is_empty(),
+            "sous Silence : pas de bulle, trois retenues"
+        );
+        assert_eq!(app.toasts.held, vec![1, 2, 3]);
+        app.toasts.dnd_until = Some(0);
+        let _ = app.toasts_update(TMsg::Expire);
+        let resume = |app: &App| app.toasts.list.iter().find(|t| t.summary).cloned();
+        let Some(t) = resume(&app) else {
+            panic!("le résumé se pose à l'échéance");
+        };
+        assert_eq!(t.n.id, 0, "bulle de hyprdesk : identifiant réservé");
+        assert!(
+            t.n.transient && t.n.actions.is_empty(),
+            "sans historique ni action"
+        );
+        assert_eq!(
+            t.n.summary,
+            crate::tr!("{n} notifications pendant le Silence", n = 3)
+        );
+        assert_eq!(t.n.body, crate::tr!("de {n} applications", n = 2));
+        assert!(
+            app.toasts.held.is_empty() && !app.toasts.dnd,
+            "les retenues sont oubliées"
+        );
+        assert_eq!(app.toasts.history.len(), 3, "le résumé ne remet rien");
+        // Un clic sur sa carte : la liste s'ouvre — tout est lu — et la bulle
+        // se ferme.
+        let _ = barre(&mut app);
+        let _ = app.toasts_update(TMsg::Summary);
+        assert!(
+            app.history_list_open(),
+            "la liste des notifications s'ouvre"
+        );
+        assert!(bulles(&app).is_empty(), "la bulle se ferme");
+        assert_eq!(app.toasts.unread(), 0, "la liste ouverte lit tout");
+        let _ = app.destroy_popover();
+        // À son délai, elle s'efface comme une bulle ordinaire.
+        app.toasts.dnd = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(4, "c"))));
+        app.toasts.dnd_until = Some(0);
+        let _ = app.toasts_update(TMsg::Expire);
+        assert!(resume(&app).is_some(), "le résumé se repose");
+        app.toasts.list[0].since = Instant::now() - Duration::from_secs(600);
+        let _ = app.toasts_update(TMsg::Tick);
+        assert!(bulles(&app).is_empty(), "le résumé suit le délai ordinaire");
+        // À la main (`dnd off`) : un seul résumé, au singulier et sans corps ;
+        // « Fermer » l'efface.
+        app.toasts.dnd = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(5, "c"))));
+        app.toasts.command("dnd off");
+        let Some(t) = resume(&app) else {
+            panic!("le résumé se pose à la main");
+        };
+        assert_eq!(
+            t.n.summary,
+            crate::i18n::tr("1 notification pendant le Silence")
+        );
+        assert!(t.n.body.is_empty(), "une seule application : pas de corps");
+        let _ = app.toasts_update(TMsg::Close(0));
+        assert!(bulles(&app).is_empty(), "« Fermer » efface le résumé");
+        // L'échéance passée pendant une veille : le résumé se pose avec la
+        // bulle de ce qui arrive.
+        app.toasts.dnd = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(6, "c"))));
+        app.toasts.dnd_until = Some(0);
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(7, "d"))));
+        assert_eq!(bulles(&app), vec![7, 0], "la bulle reçue, puis le résumé");
+        app.toasts.list.clear();
+        // Historique effacé sous Silence : plus rien à proposer.
+        app.toasts.dnd = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(8, "c"))));
+        app.toasts.command("clear");
+        app.toasts.command("dnd off");
+        assert!(
+            bulles(&app).is_empty(),
+            "un historique effacé n'a rien à proposer"
+        );
     }
 }
 

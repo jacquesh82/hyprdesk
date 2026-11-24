@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 174] = [
+const SCENES: [&str; 175] = [
     "desktop",
     "typography",
     "icons",
@@ -67,6 +67,8 @@ const SCENES: [&str; 174] = [
     "animations-effets",
     "polkit",
     "notifications",
+    // Résumé du Silence (HIG PAT-20).
+    "notifications-resume",
     "probleme",
     "recherche",
     "presse-papiers",
@@ -979,12 +981,12 @@ impl Preview {
             });
         }
         // Les bulles n'appartiennent qu'à leur scène.
-        if SCENES[self.scene] != "notifications" {
+        if !matches!(SCENES[self.scene], "notifications" | "notifications-resume") {
             self.app.toasts.list.clear();
             self.app.toasts.explain.clear();
         }
         // Bulles de notifications : une ordinaire, une critique avec actions.
-        if SCENES[self.scene] == "notifications" {
+        if matches!(SCENES[self.scene], "notifications" | "notifications-resume") {
             let mut crit = std::collections::HashMap::new();
             crit.insert("urgency".to_string(), zbus::zvariant::OwnedValue::from(2u8));
             // La seconde action est destructrice : bouton en rouge (HIG SYS-17).
@@ -1032,6 +1034,7 @@ impl Preview {
                     since: std::time::Instant::now(),
                     request: None,
                     alert: false,
+                    summary: false,
                 },
                 super::toasts::Toast {
                     n: crate::notifications::build(
@@ -1047,6 +1050,7 @@ impl Preview {
                     since: std::time::Instant::now(),
                     request: None,
                     alert: false,
+                    summary: false,
                 },
                 // Demande d'autorisation (HIG PAT-02) : la bulle de la première
                 // notification d'une application, « Refuser » et « Autoriser »
@@ -1065,6 +1069,7 @@ impl Preview {
                     since: std::time::Instant::now(),
                     request: Some("thunderbird".into()),
                     alert: false,
+                    summary: false,
                 },
             ];
             // Première critique de son application : sa bulle explique le
@@ -1073,6 +1078,42 @@ impl Preview {
                 key: "Batterie".into(),
                 id: 2,
             }];
+            // Résumé du Silence (HIG PAT-20) : sa scène garde l'unique résumé,
+            // en tête, au-dessus d'une bulle ordinaire ; son historique tient
+            // ses cinq retenues, de trois applications.
+            if SCENES[self.scene] == "notifications-resume" {
+                let bulle = self.app.toasts.list.swap_remove(1);
+                self.app.toasts.explain.clear();
+                self.app.toasts.history = [1, 2, 3, 4, 5]
+                    .into_iter()
+                    .map(|id| {
+                        crate::notifications::build(
+                            id,
+                            ["Firefox", "Thunderbird", "Batterie"][(id as usize) % 3],
+                            "",
+                            "s",
+                            "",
+                            &[],
+                            &Default::default(),
+                            -1,
+                        )
+                    })
+                    .collect();
+                self.app.toasts.list = vec![
+                    super::toasts::Toast {
+                        n: super::toasts::resume_notification(
+                            &[1, 2, 3, 4, 5],
+                            &self.app.toasts.history,
+                        )
+                        .expect("cinq retenues : un résumé"),
+                        since: std::time::Instant::now(),
+                        request: None,
+                        alert: false,
+                        summary: true,
+                    },
+                    bulle,
+                ];
+            }
         }
         // Fenêtre de détail d'un problème (mise à jour échouée, sans assistant).
         if SCENES[self.scene] == "probleme" {
@@ -2263,6 +2304,7 @@ impl Preview {
                         since: std::time::Instant::now(),
                         request: None,
                         alert: false,
+                        summary: false,
                     }];
                 }
             }
@@ -2907,6 +2949,7 @@ impl Preview {
                     since: Instant::now(),
                     request: None,
                     alert: false,
+                    summary: false,
                 });
             }
         }

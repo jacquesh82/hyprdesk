@@ -4007,7 +4007,8 @@ impl App {
                 control::Command::Ask(origin, text) => self.show_problem_from(&origin, text, true),
                 control::Command::Notifications(a) => {
                     self.toasts.command(&a);
-                    Task::none()
+                    // Le résumé du Silence (HIG PAT-20) se pose par `dnd off` : la couche suit.
+                    self.sync_toasts()
                 }
                 control::Command::Overview => {
                     let cmd = self.cfg.general.overview_command.trim().to_string();

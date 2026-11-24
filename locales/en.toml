@@ -4910,3 +4910,6 @@
 "Alertes" = "Alerts"
 "L’historique est vide." = "The history is empty."
 "Confirmer : effacer l’historique" = "Confirm: clear history"
+"1 notification pendant le Silence" = "1 notification during Do Not Disturb"
+"{n} notifications pendant le Silence" = "{n} notifications during Do Not Disturb"
+"de {n} applications" = "from {n} apps"

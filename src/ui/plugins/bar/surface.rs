@@ -2900,6 +2900,7 @@ Video
             since: std::time::Instant::now(),
             request: None,
             alert: false,
+            summary: false,
         };
         let calendrier = |style, toast| {
             matches!(
