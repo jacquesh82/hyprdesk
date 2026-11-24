@@ -447,7 +447,11 @@ and no second floating dock is created on these screens.
   default, suspending, hibernating, locking, turning off the laptop display,
   or ignoring the lid event. hyprdesk locks before suspending.
 - **Lock** sets up the lock screen and enrolls or deletes your fingerprints
-  with fprintd, without leaving hyprdesk.
+  with fprintd, without leaving hyprdesk. The background dimming is a floor:
+  over an image as over a colour, the veil rises on its own to a 4.5:1
+  contrast with the text, and deepens after 20 s without input, leaving the
+  text untouched. With **Reduce motion** (Theme → Accessibility), the content
+  no longer drifts.
 - **Hyprland configuration** flags errors, duplicate bindings or startup
   entries, and programs that overlap with built-in services. **Tidy
   everything** backs up `hyprland.lua` and applies the fixes marked safe.

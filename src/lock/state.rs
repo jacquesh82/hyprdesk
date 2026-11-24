@@ -42,6 +42,10 @@ pub struct LockState {
     /// par défaut).
     #[serde(default)]
     pub fingerprint: bool,
+    /// « Mouvement réduit » (`general.reduced_motion`) : le contenu ne dérive
+    /// pas (HIG ACC-05).
+    #[serde(default)]
+    pub reduced_motion: bool,
 }
 
 /// Part d'une scène étalée pour un écran : sa taille logique et son image.
@@ -74,6 +78,7 @@ impl Default for LockState {
             clock_position: center(),
             panel_opacity: panel(),
             fingerprint: g.lock.fingerprint,
+            reduced_motion: g.reduced_motion,
             span: false,
             outputs: Vec::new(),
             own_image: false,
@@ -132,6 +137,7 @@ pub fn from_config(cfg: &Config, monitor: &str, workspace: &str) -> LockState {
         clock_position: crate::design_options::choice(g, "lock.clock_position"),
         panel_opacity: crate::design_options::num(g, "lock.panel_opacity") as f32,
         fingerprint: l.fingerprint,
+        reduced_motion: g.reduced_motion,
         span,
         outputs: Vec::new(),
         own_image: own_is_set,
@@ -339,6 +345,7 @@ mod tests {
     fn etat_du_verrou() {
         let mut cfg = Config::default();
         cfg.general.lock.dim = 0.6;
+        cfg.general.reduced_motion = true;
         cfg.wallpapers.push(crate::config::WallpaperRule {
             origin: Default::default(),
             sel: Default::default(),
@@ -351,10 +358,14 @@ mod tests {
         assert_eq!(s.image, None);
         assert_eq!(s.background, [1, 2, 3, 255]);
         assert_eq!(s.dim, 0.6);
+        assert!(
+            s.reduced_motion,
+            "Mouvement réduit transmis au verrou (HIG ACC-05)"
+        );
         // Aller-retour JSON, champs manquants complétés.
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(serde_json::from_str::<LockState>(&json).unwrap(), s);
         let partial: LockState = serde_json::from_str(r#"{ "blur": false }"#).unwrap();
-        assert!(!partial.blur && partial.show_user);
+        assert!(!partial.blur && partial.show_user && !partial.reduced_motion);
     }
 }

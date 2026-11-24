@@ -462,7 +462,11 @@ lanceur sont partagées ; aucun second dock flottant n'est créé sur ces
   hibernation, verrouillage, extinction de l'écran du portable, ou rien.
   hyprdesk verrouille avant de mettre en veille.
 - **Verrouillage** règle l'écran de verrouillage, et enregistre ou supprime
-  vos empreintes avec fprintd sans quitter hyprdesk.
+  vos empreintes avec fprintd sans quitter hyprdesk. L'assombrissement du fond
+  est un plancher : sur une image comme sur une couleur, le voile monte seul
+  jusqu'à un contraste de 4,5:1 avec le texte, et se renforce après 20 s sans
+  saisie, sans toucher au texte. À « Mouvement réduit » (Thème →
+  Accessibilité), le contenu ne dérive plus.
 - **Configuration de Hyprland** signale les erreurs, les liaisons ou démarrages
   en double, et les programmes qui font doublon avec les services intégrés.
   « Tout ranger » sauvegarde `hyprland.lua` et applique les corrections sûres.

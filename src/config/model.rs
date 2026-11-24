@@ -259,7 +259,8 @@ impl LauncherGroup {
 pub struct LockCfg {
     /// Fond flouté.
     pub blur: bool,
-    /// Assombrissement du fond (0..1).
+    /// Plancher d'assombrissement du fond (0..1) : le voile monte seul jusqu'au
+    /// contraste du texte (HIG ACC-02).
     pub dim: f32,
     /// Image propre au verrouillage ; sinon le fond du bureau de l'écran principal.
     pub image: Option<std::path::PathBuf>,

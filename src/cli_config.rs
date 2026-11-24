@@ -688,7 +688,7 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.lock.blur),
         |s, v, c| { s.lock_blur = Some(parse_bool(v)?); Ok(()) },
         |s| s.lock_blur = None;
-    "lock_dim", "lock", "0..0.9 — assombrissement du fond verrouillé",
+    "lock_dim", "lock", "0..0.9 — plancher d'assombrissement du fond verrouillé ; le voile monte seul jusqu'au contraste du texte",
         |c| format!("{}", c.general.lock.dim),
         |s, v, c| { s.lock_dim = Some(number(v, 0.0f32, 0.9)?); Ok(()) },
         |s| s.lock_dim = None;

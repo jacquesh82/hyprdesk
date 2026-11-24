@@ -155,7 +155,7 @@
 "-- « hyprdesk ») : ils n'agissent plus sur les fenêtres cachées. Pour en" = "-- “hyprdesk”): they no longer act on hidden windows. To"
 "--config attend un fichier" = "--config expects a file"
 "0 % : barre transparente (seuls les modules restent) ; 100 % : opaque. Le flou d'arrière-plan se règle dans Thème → Transparence." = "0 %: transparent bar (only the modules remain); 100 %: opaque. Background blur is set in Theme → Transparency."
-"0..0.9 — assombrissement du fond verrouillé" = "0..0.9 — lock screen background dimming"
+"0..0.9 — plancher d'assombrissement du fond verrouillé ; le voile monte seul jusqu'au contraste du texte" = "0..0.9 — minimum dimming of the lock screen background; the veil rises on its own to the contrast of the text"
 "0..1 | theme — opacité du fond de la barre (0 : transparente)" = "0..1 | theme — bar background opacity (0: transparent)"
 "0..1 — opacité du voile en mode glass" = "0..1 — veil opacity in glass mode"
 "0..32 — marge entre la barre et le bord de l'écran (0 : collée)" = "0..32 — gap between the bar and the screen edge (0: flush)"

@@ -13,8 +13,9 @@
 //!   l'extérieur ; un verrou de fichier impossible à prendre n'empêche pas
 //!   de verrouiller.
 //!
-//! Anti-marquage : le contenu dérive lentement, et s'estompe après un moment
-//! sans saisie (l'extinction de l'écran reste l'affaire de hypridle).
+//! Anti-marquage : le contenu dérive lentement, sauf à « Mouvement réduit » ;
+//! après un moment sans saisie, seul le voile du fond se renforce (le texte
+//! garde son contraste ; l'extinction de l'écran reste l'affaire de hypridle).
 
 // Authentification : crate `hyprdesk-auth` (crates/), chemins inchangés.
 pub use hyprdesk_auth::{enroll, fprint, pam};
@@ -26,7 +27,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use crate::config::Rgba;
 use crate::i18n::text;
+use crate::theme;
 use iced::widget::{Space, button, column, container, image, row, stack, text_input};
 use iced::{Alignment, Border, Color, Element, Font, Length, Padding, Subscription, Task};
 use iced_sessionlock::to_session_message;
@@ -34,8 +37,15 @@ use iced_sessionlock::to_session_message;
 use state::LockState;
 use zeroize::{Zeroize, Zeroizing};
 
-/// Délai sans saisie avant d'estomper le contenu.
+/// Délai sans saisie avant de renforcer le voile du fond.
 const IDLE_DIM: Duration = Duration::from_secs(20);
+/// Plus petit contraste du texte posé sur le fond (HIG ACC-02 : 4,5:1
+/// jusqu'à 17 px ; l'horloge et la date, plus grandes, en ont plus).
+const TEXT_CONTRAST: f64 = 4.5;
+/// Opacité du texte secondaire : date, notes, pied d'écran.
+const SECONDARY: f32 = 0.65;
+/// Message d'erreur : la couleur du thème.
+const ERROR: Rgba = Rgba(0xff, 0x95, 0x80, 0xff);
 
 /// Attente imposée après `failures` échecs : rien jusqu'à deux, puis 2 s,
 /// 4 s, 8 s, 16 s, et 30 s au plus.
@@ -50,11 +60,11 @@ enum Msg {
     Input(String),
     Submit,
     Auth(pam::Outcome),
-    Background(Option<image::Handle>),
+    Background(Option<Background>),
     /// Trame suivante du fond vidéo commun (boucle ffmpeg).
     VideoBackground(crate::video::Tiles),
     /// Scène étalée : la part de chaque écran (nom, image).
-    Parts(Vec<(String, Option<image::Handle>)>),
+    Parts(Vec<(String, Option<Background>)>),
     /// Trame suivante du fond vidéo d'un écran (boucle ffmpeg).
     VideoPart(String, crate::video::Tiles),
     /// Taille d'une surface (associe la surface à son écran).
@@ -86,9 +96,9 @@ struct Lock {
     messages: Vec<String>,
     started: Instant,
     last_input: Instant,
-    background: Option<image::Handle>,
+    background: Option<Background>,
     /// Scène étalée : part de chaque écran, par nom.
-    parts: std::collections::HashMap<String, image::Handle>,
+    parts: std::collections::HashMap<String, Background>,
     /// Fond vidéo : trame courante en bandes (voir `video::Tiles` : sans
     /// elles, le fond clignote) — fond commun, et part de chaque écran.
     video_background: Option<crate::video::Tiles>,
@@ -114,21 +124,105 @@ fn rgba(c: [u8; 4], a: f32) -> Color {
     Color::from_rgba8(c[0], c[1], c[2], (c[3] as f32 / 255.0) * a)
 }
 
-/// Fond préparé hors du fil de l'interface : réduit, et flouté si demandé.
-fn load_background(path: PathBuf, blur: bool) -> Option<image::Handle> {
+fn tint(c: Rgba, alpha: f32) -> Color {
+    rgba([c.0, c.1, c.2, c.3], alpha)
+}
+
+fn opaque(c: [u8; 4]) -> Rgba {
+    Rgba(c[0], c[1], c[2], 0xff)
+}
+
+/// Ce que le voile du fond doit rendre lisible, et la couleur de ce voile
+/// (HIG ACC-02). Sous un texte clair, le voile est noir : l'obscurité fait le
+/// contraste. Sous un texte sombre (thème clair), il prend la couleur du fond
+/// du thème : c'est la lumière qui le fait.
+#[derive(Debug, Clone, Copy)]
+struct Ink {
+    veil: Rgba,
+    /// Texte secondaire : celui du thème, à [`SECONDARY`]. Le texte principal
+    /// en est plus contrasté : ce qui est garanti à l'un l'est à l'autre.
+    secondary: (Rgba, f32),
+    /// Message d'erreur : la couleur du thème, assez contrastée sur le voile.
+    error: Rgba,
+}
+
+impl Ink {
+    fn of(st: &LockState) -> Self {
+        let fg = opaque(st.fg);
+        let bg = opaque(st.background);
+        let black = Rgba(0, 0, 0, 0xff);
+        let veil = if theme::contrast(bg, fg) > theme::contrast(black, fg) {
+            bg
+        } else {
+            black
+        };
+        Ink {
+            veil,
+            secondary: (fg, SECONDARY),
+            error: theme::ensure_contrast(ERROR, veil, fg, TEXT_CONTRAST),
+        }
+    }
+
+    /// Le plus petit voile (0..1) sous lequel chaque pixel garde avec chaque
+    /// texte un contraste de [`TEXT_CONTRAST`] ; 0 si aucun n'y suffit.
+    fn veil_over(&self, pixels: &[Rgba]) -> f32 {
+        let (mut lo, mut hi) = (0.0f64, 1.0f64);
+        // Déjà lisible, ou voile qui ne peut rien : le plancher réglé seul.
+        if !self.readable_over(pixels, hi) || self.readable_over(pixels, lo) {
+            return 0.0;
+        }
+        for _ in 0..12 {
+            let mid = (lo + hi) / 2.0;
+            if self.readable_over(pixels, mid) {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        hi as f32
+    }
+
+    /// Sous ce voile, chaque pixel laisse chaque texte à son contraste.
+    fn readable_over(&self, pixels: &[Rgba], veil: f64) -> bool {
+        pixels.iter().all(|p| {
+            let bg = theme::mix(*p, self.veil, veil);
+            [self.secondary, (self.error, 1.0)].iter().all(|(c, a)| {
+                theme::contrast(theme::mix(bg, *c, f64::from(*a)), bg) >= TEXT_CONTRAST
+            })
+        })
+    }
+}
+
+/// Fond préparé hors du fil de l'interface : réduit, et flouté si demandé ;
+/// avec le voile minimal qui garde le texte lisible dessus (HIG ACC-02).
+#[derive(Debug, Clone)]
+struct Background {
+    handle: image::Handle,
+    veil: f32,
+}
+
+fn load_background(path: PathBuf, blur: bool, ink: Ink) -> Option<Background> {
     let img = ::image::open(&path).ok()?;
-    let img = if blur {
-        // Petit, puis flou : l'agrandissement à l'écran lisse le reste.
-        img.thumbnail(480, 480).blur(6.0)
+    // Petit, puis flou : l'agrandissement à l'écran lisse le reste.
+    let small = img.thumbnail(480, 480);
+    let shown = if blur {
+        small.blur(6.0)
     } else {
         img.thumbnail(3840, 3840)
     };
-    let rgba = img.to_rgba8();
-    Some(image::Handle::from_rgba(
-        rgba.width(),
-        rgba.height(),
-        rgba.into_raw(),
-    ))
+    // Mesuré sur l'image floutée même, ou sur une réduction de l'image nette :
+    // l'image telle qu'elle se lit à l'écran, par zones de la taille d'une lettre.
+    let measured = if blur { &shown } else { &small };
+    let veil = ink.veil_over(&pixels(&measured.to_rgba8()));
+    let rgba = shown.to_rgba8();
+    Some(Background {
+        handle: image::Handle::from_rgba(rgba.width(), rgba.height(), rgba.into_raw()),
+        veil,
+    })
+}
+
+fn pixels(img: &::image::RgbaImage) -> Vec<Rgba> {
+    img.pixels().map(|p| opaque(p.0)).collect()
 }
 
 /// Avatar : AccountsService, sinon `~/.face`.
@@ -255,6 +349,7 @@ impl Lock {
         };
         // Verrouillé tout de suite sur la couleur de fond ; l'image suit.
         let mut tasks = vec![iced::widget::operation::focus(INPUT_ID)];
+        let ink = Ink::of(&lock.st);
         // Scène étalée : la part de chaque écran ; sinon une seule image.
         // Les vidéos de fond ne passent pas par le décodage d'image : la
         // boucle ffmpeg les apporte (souscription).
@@ -272,7 +367,7 @@ impl Lock {
                     tokio::task::spawn_blocking(move || {
                         parts
                             .into_iter()
-                            .map(|(n, p)| (n, load_background(p, blur)))
+                            .map(|(n, p)| (n, load_background(p, blur, ink)))
                             .collect::<Vec<_>>()
                     })
                     .await
@@ -285,7 +380,7 @@ impl Lock {
             let blur = lock.st.blur;
             tasks.push(Task::perform(
                 async move {
-                    tokio::task::spawn_blocking(move || load_background(p, blur))
+                    tokio::task::spawn_blocking(move || load_background(p, blur, ink))
                         .await
                         .ok()
                         .flatten()
@@ -542,22 +637,23 @@ impl Lock {
     fn view(&self, id: iced::window::Id) -> Element<'_, Msg> {
         let st = &self.st;
         let idle = self.last_input.elapsed() >= IDLE_DIM;
-        // Anti-marquage : contenu estompé au repos, et lente dérive.
-        let a = if idle { 0.45 } else { 1.0 };
-        let fg = rgba(st.fg, a);
-        let dim = rgba(st.fg, 0.65 * a);
-        let accent = rgba(st.accent, a);
+        // Le texte garde toujours son opacité : au repos, seul le voile du fond
+        // se renforce (HIG ACC-03). `ink` dit ce que ce voile rend lisible.
+        let ink = Ink::of(st);
+        let fg = rgba(st.fg, 1.0);
+        let dim = rgba(st.fg, SECONDARY);
+        let accent = rgba(st.accent, 1.0);
         // Écran bandeau (Panorama : 2560×720, 1920×480…) : tout tient en
         // ligne, la hauteur ne suffit pas à la colonne.
         let strip = self
             .sizes
             .get(&id)
             .is_some_and(|s| is_strip(s.width, s.height));
-        let t = self.started.elapsed().as_secs_f32();
-        let tau = std::f32::consts::TAU;
-        let (dx, dy) = (
-            48.0 * (t / 97.0 * tau).sin(),
-            if strip { 10.0 } else { 32.0 } * (t / 131.0 * tau).sin(),
+        // Anti-marquage : lente dérive du contenu.
+        let (dx, dy) = drift(
+            self.started.elapsed().as_secs_f32(),
+            strip,
+            st.reduced_motion,
         );
 
         let now = chrono::Local::now();
@@ -597,7 +693,6 @@ impl Lock {
                     .width(size)
                     .height(size)
                     .border_radius(size / 2.0)
-                    .opacity(a)
             });
             let name = text(self.real_name.clone())
                 .font(self.title_font)
@@ -620,11 +715,8 @@ impl Lock {
                 .push(who)
                 .push(Space::new().height(if strip { 6 } else { 0 }));
         }
-        let field_border = if self.error.is_some() {
-            Color::from_rgb8(0xff, 0x95, 0x80)
-        } else {
-            accent
-        };
+        let error = Color::from_rgba8(ink.error.0, ink.error.1, ink.error.2, 1.0);
+        let field_border = if self.error.is_some() { error } else { accent };
         // Densité réglée du panneau de saisie (MLG-279).
         let bg = rgba(st.background, st.panel_opacity);
         let wait = self.wait_secs();
@@ -684,7 +776,7 @@ impl Lock {
                 })
                 .font(self.font)
                 .size(14)
-                .color(Color::from_rgb8(0xff, 0x95, 0x80)),
+                .color(error),
             );
         }
         if let Some(n) = wait {
@@ -767,7 +859,7 @@ impl Lock {
                     )
                     .padding([6, 10])
                     .style(move |_, _| button::Style {
-                        background: Some(Color { a: 0.15 * a, ..fg }.into()),
+                        background: Some(Color { a: 0.15, ..fg }.into()),
                         border: Border::default().rounded(10),
                         text_color: fg,
                         ..Default::default()
@@ -815,23 +907,35 @@ impl Lock {
         let part = name.and_then(|n| self.parts.get(n));
         if let Some(t) = video {
             layers.push(t.view(1.0));
-        } else if let Some(h) = part.or(self.background.as_ref()) {
+        } else if let Some(b) = part.or(self.background.as_ref()) {
             layers.push(
-                image(h.clone())
+                image(b.handle.clone())
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .content_fit(iced::ContentFit::Cover)
                     .into(),
             );
         }
-        // Voile : assombrissement réglé, plus fort au repos.
-        let veil = (st.dim + if idle { 0.25 } else { 0.0 }).clamp(0.0, 0.92);
+        // Voile : le plancher réglé (`lock.dim`), relevé jusqu'au contraste du
+        // texte quand le fond l'exige (HIG ACC-02) ; plus fort au repos. Les
+        // fonds vidéo changent de trame : le plancher seul.
+        let shown = match video {
+            Some(_) => None,
+            None => Some(part.or(self.background.as_ref())),
+        };
+        let required = match shown {
+            None => 0.0,
+            Some(Some(b)) => b.veil,
+            Some(None) => ink.veil_over(&[opaque(st.background)]),
+        };
+        let veil = (st.dim.clamp(0.0, 0.9).max(required) + if idle { 0.25 } else { 0.0 }).min(1.0);
+        let tint = tint(ink.veil, veil);
         layers.push(
             container(Space::new())
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .style(move |_| container::Style {
-                    background: Some(Color::from_rgba(0.0, 0.0, 0.0, veil).into()),
+                    background: Some(tint.into()),
                     ..Default::default()
                 })
                 .into(),
@@ -944,6 +1048,19 @@ fn video_part(
     };
     use iced::futures::StreamExt;
     crate::video::frames(recipe).map(move |f| Msg::VideoPart(name.clone(), f.tiles))
+}
+
+/// Dérive du contenu : ±48 px horizontalement sur 97 s, ±10 px (bandeau) ou
+/// ±32 px verticalement sur 131 s ; rien à « Mouvement réduit » (HIG ACC-05).
+fn drift(t: f32, strip: bool, reduced_motion: bool) -> (f32, f32) {
+    if reduced_motion {
+        return (0.0, 0.0);
+    }
+    let tau = std::f32::consts::TAU;
+    (
+        48.0 * (t / 97.0 * tau).sin(),
+        if strip { 10.0 } else { 32.0 } * (t / 131.0 * tau).sin(),
+    )
 }
 
 /// Surface d'écran bandeau (Panorama) : trop basse ou trop allongée pour
@@ -1127,6 +1244,87 @@ mod tests {
         assert_eq!(backoff(2), None);
         let s = |n| backoff(n).unwrap().as_secs();
         assert_eq!([s(3), s(4), s(5), s(6), s(7), s(20)], [2, 4, 8, 16, 30, 30]);
+    }
+
+    fn encre(fg: [u8; 4], background: [u8; 4]) -> Ink {
+        Ink::of(&LockState {
+            fg,
+            background,
+            ..Default::default()
+        })
+    }
+
+    /// Fond clair : le voile noir monte jusqu'à 4,5:1, pour le texte secondaire
+    /// comme pour l'erreur, sur chaque pixel ; fond sombre : le plancher
+    /// réglé suffit (HIG ACC-02).
+    #[test]
+    fn voile_releve_au_contraste_du_texte() {
+        let ink = encre([0xf2, 0xf4, 0xfc, 0xff], [0x13, 0x17, 0x24, 0xff]);
+        assert_eq!(ink.veil, Rgba(0, 0, 0, 0xff), "texte clair : voile noir");
+        assert_eq!(
+            ink.error, ERROR,
+            "l'erreur du thème se lit déjà sur le noir"
+        );
+        let (black, white) = (Rgba(0, 0, 0, 0xff), Rgba(255, 255, 255, 0xff));
+        let v = ink.veil_over(&[white]);
+        assert!((0.7..0.9).contains(&v), "fond blanc : voile {v}");
+        assert!(ink.readable_over(&[white], f64::from(v)));
+        assert!(
+            !ink.readable_over(&[white], f64::from(v) - 0.02),
+            "le voile trouvé est le plus petit"
+        );
+        let over = theme::mix(white, ink.veil, f64::from(v));
+        let (text, a) = ink.secondary;
+        assert!(theme::contrast(theme::mix(over, text, f64::from(a)), over) >= TEXT_CONTRAST);
+        assert!(
+            theme::contrast(over, text) >= TEXT_CONTRAST,
+            "texte principal"
+        );
+        // Un seul pixel clair impose son voile à tout l'écran.
+        assert_eq!(ink.veil_over(&[black, white]), v);
+        assert_eq!(ink.veil_over(&[black]), 0.0, "fond noir : rien à ajouter");
+        let img = ::image::RgbaImage::from_fn(64, 64, |x, _| ::image::Rgba([(x * 4) as u8; 4]));
+        let gradient = pixels(&img);
+        let g = ink.veil_over(&gradient);
+        assert!(g < v && ink.readable_over(&gradient, f64::from(g)));
+    }
+
+    /// Thème clair : le voile prend la couleur du fond du thème, et l'erreur du
+    /// thème s'assombrit jusqu'à se lire dessus.
+    #[test]
+    fn theme_clair_voile_clair() {
+        let bg = Rgba(0xf5, 0xf5, 0xf7, 0xff);
+        let ink = encre([0x1f, 0x23, 0x30, 0xff], [bg.0, bg.1, bg.2, bg.3]);
+        assert_eq!(ink.veil, bg, "texte sombre : voile de la couleur du fond");
+        assert_ne!(ink.error, ERROR);
+        assert!(theme::contrast(ink.error, bg) >= TEXT_CONTRAST);
+        // Fond noir : le voile clair monte ; texte sombre et erreur s'y lisent.
+        let black = [Rgba(0, 0, 0, 0xff)];
+        let v = ink.veil_over(&black);
+        assert!(v > 0.5, "fond noir sous texte sombre : voile {v}");
+        assert!(ink.readable_over(&black, f64::from(v)));
+        // Fond déjà clair : rien à ajouter.
+        assert_eq!(ink.veil_over(&[bg]), 0.0);
+        // Thème sombre sur un fond réglé clair : le voile reste noir, c'est le
+        // texte clair qu'il sert.
+        let sombre = encre([0xf2, 0xf4, 0xfc, 0xff], [bg.0, bg.1, bg.2, bg.3]);
+        assert_eq!(sombre.veil, Rgba(0, 0, 0, 0xff));
+    }
+
+    /// « Mouvement réduit » fige la dérive du contenu (HIG ACC-05).
+    #[test]
+    fn derive_figee_a_mouvement_reduit() {
+        assert_eq!(drift(24.25, false, true), (0.0, 0.0));
+        assert_eq!(drift(61.5, true, true), (0.0, 0.0));
+        assert_eq!(drift(0.0, false, false), (0.0, 0.0));
+        let (dx, dy) = drift(24.25, false, false);
+        assert!(
+            (dx - 48.0).abs() < 1e-3,
+            "extrémité horizontale à 97 s / 4 : {dx}"
+        );
+        assert!(dy.abs() > 20.0, "{dy}");
+        // En bandeau, la dérive verticale est plus courte.
+        assert!((drift(32.75, true, false).1 - 10.0).abs() < 1e-3);
     }
 
     /// Verrou déjà tenu (succès, rien à faire) distinct d'un verrou
