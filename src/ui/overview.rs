@@ -28,6 +28,8 @@ const GAP: f32 = 18.0;
 const MARGIN: f32 = 40.0;
 const TITLE_H: f32 = 72.0;
 const HINTS_H: f32 = 64.0;
+/// Rangée d'astuce au-dessus de l'aide (HIG DAT-07), réservée tant qu'elle est là.
+const TIP_H: f32 = 48.0;
 
 /// Champ de saisie du renommage (un seul à la fois).
 const RENAME_ID: &str = "hyprdesk-overview-rename";
@@ -48,6 +50,8 @@ pub struct Overview {
     /// Dernier clic sur un titre (double-clic : renommer).
     last_title: Option<(usize, Instant)>,
     pub visibility: Fade,
+    /// Astuce de cette ouverture (HIG DAT-07).
+    pub tip: Option<&'static crate::tips::Tip>,
 }
 
 /// Pressé dans une carte : fenêtre saisie (glisser-déposer d'un espace à
@@ -101,6 +105,8 @@ pub enum OMsg {
     RenameFocus,
     /// Espace après le dernier existant.
     NewWorkspace,
+    /// Astuce refermée.
+    TipClose,
 }
 
 /// Une carte, données tirées de l'état Hyprland courant.
@@ -128,6 +134,7 @@ impl Overview {
             press: None,
             last_title: None,
             visibility,
+            tip: None,
         }
     }
 }
@@ -154,12 +161,24 @@ impl App {
                 dur: self.bar_duration(180),
             },
         ));
+        // Astuce du glisser seulement s'il y a de quoi glisser : deux espaces
+        // au moins et une fenêtre (HIG DAT-07, éligibilité).
+        let utile = self.workspaces.len() >= 2 && self.workspaces.iter().any(|w| w.windows > 0);
+        let (tip, tip_saved) = if utile {
+            self.take_tip(crate::tips::Surface::Overview)
+        } else {
+            (None, Task::none())
+        };
+        if let Some(o) = self.overview.as_mut() {
+            o.tip = tip;
+        }
         let output = if monitor.is_empty() {
             OutputOption::Active
         } else {
             OutputOption::OutputName(monitor)
         };
         Task::batch([
+            tip_saved,
             Task::done(Msg::NewLayerShell {
                 settings: NewLayerShellSettings {
                     // Plein écran, par-dessus tout (calque overlay) : il
@@ -249,6 +268,16 @@ impl App {
 
     /// Cartes avec leur rectangle à l'écran : une seule définition pour la
     /// vue et pour la détection du dépôt d'une fenêtre glissée.
+    /// Bas réservé : l'aide, plus l'astuce tant qu'elle est là.
+    fn overview_hints_h(&self) -> f32 {
+        HINTS_H
+            + if self.overview.as_ref().is_some_and(|o| o.tip.is_some()) {
+                TIP_H
+            } else {
+                0.0
+            }
+    }
+
     fn overview_layout(&self, surface: Size) -> Vec<(Rectangle, WsCard)> {
         let cards = self.overview_cards();
         let n = cards.len();
@@ -259,7 +288,8 @@ impl App {
         let rows = n.div_ceil(cols);
         let (top, bottom) = self.overview_insets();
         let avail_w = (surface.width - 2.0 * MARGIN).max(120.0);
-        let avail_h = (surface.height - top - bottom - TITLE_H - HINTS_H - 2.0 * MARGIN).max(120.0);
+        let hints_h = self.overview_hints_h();
+        let avail_h = (surface.height - top - bottom - TITLE_H - hints_h - 2.0 * MARGIN).max(120.0);
         let cw = ((avail_w - GAP * (cols as f32 - 1.0)) / cols as f32).min(CARD_MAX_W);
         let ch = ((avail_h - GAP * (rows as f32 - 1.0)) / rows as f32).min(CARD_MAX_H);
         let grid_w = cw * cols as f32 + GAP * (cols as f32 - 1.0);
@@ -267,7 +297,7 @@ impl App {
         let x0 = ((surface.width - grid_w) / 2.0).max(MARGIN);
         let y0 = top
             + TITLE_H
-            + ((surface.height - top - bottom - TITLE_H - HINTS_H - grid_h) / 2.0)
+            + ((surface.height - top - bottom - TITLE_H - hints_h - grid_h) / 2.0)
                 .max(MARGIN / 2.0);
         cards
             .into_iter()
@@ -398,6 +428,12 @@ impl App {
 
     pub(super) fn overview_update(&mut self, m: OMsg) -> Task<Msg> {
         match m {
+            OMsg::TipClose => {
+                if let Some(o) = self.overview.as_mut() {
+                    o.tip = None;
+                }
+                Task::none()
+            }
             OMsg::Geos(list) => {
                 self.ws_geos = list;
                 Task::none()
@@ -596,7 +632,14 @@ impl App {
         if same {
             return Task::none();
         }
-        move_task(w.address.clone(), card.name.clone())
+        // Le glisser a servi : son astuce ne revient plus (HIG DAT-07).
+        if let Some(o) = self.overview.as_mut()
+            && o.tip.is_some_and(|t| t.id == "apercu-glisser")
+        {
+            o.tip = None;
+        }
+        let used = self.tip_used("apercu-glisser");
+        Task::batch([used, move_task(w.address.clone(), card.name.clone())])
     }
 
     /// Clavier de l'écran : Échap referme (annule d'abord le renommage),
@@ -887,7 +930,27 @@ impl App {
         .height(HINTS_H);
 
         let (inset_top, inset_bottom) = self.overview_insets();
-        let content = column![title, Space::new().height(Length::Fill), hints]
+        // Astuce de cette ouverture (HIG DAT-07), au-dessus de l'aide ; un
+        // clic dessus ne passe pas au fond.
+        let tip: Element<'_, Msg> = match o.tip {
+            Some(t) => container(
+                iced::widget::mouse_area(super::search::tip_row(
+                    self,
+                    t,
+                    fg,
+                    dim,
+                    Msg::Overview(OMsg::TipClose),
+                ))
+                .on_press(Msg::Noop),
+            )
+            .max_width(560)
+            .height(TIP_H)
+            .center_y(TIP_H)
+            .into(),
+            None => Space::new().into(),
+        };
+        let tip = container(tip).center_x(Length::Fill);
+        let content = column![title, Space::new().height(Length::Fill), tip, hints]
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(iced::Padding {
@@ -1422,5 +1485,64 @@ mod tests {
         assert_eq!(app.overview_aim(1, r1.center()), Some(Aim::Space));
         assert_eq!(app.overview_aim(0, r1.center()), None, "hors de sa carte");
         assert_eq!(app.overview_aim(7, r0.center()), None, "carte inconnue");
+    }
+
+    /// L'astuce de l'aperçu (HIG DAT-07) a sa place : les cartes remontent
+    /// tant qu'elle est là et retrouvent la leur quand elle est fermée.
+    #[test]
+    fn l_astuce_a_sa_place() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-apercu-tests/config.lua"),
+            true,
+        )
+        .0;
+        app.monitors = vec![crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 1440,
+            height: 900,
+            workspace: "Projet 1".into(),
+            base: String::new(),
+            focused: true,
+            scale: 1.0,
+            reserved: (0.0, 0.0, 0.0, 0.0),
+            x: 0.0,
+            y: 0.0,
+        }];
+        app.overview = Some(Overview::new(
+            Id::unique(),
+            "A".into(),
+            Fade {
+                from: 1.0,
+                to: 1.0,
+                start: Instant::now(),
+                dur: std::time::Duration::ZERO,
+            },
+        ));
+        app.workspaces = (1..=4)
+            .map(|id| crate::hypr::Workspace {
+                id,
+                name: format!("Projet {id}"),
+                monitor: "A".into(),
+                windows: 1,
+                fullscreen: false,
+            })
+            .collect();
+        let bas = |app: &App| {
+            app.overview_layout(Size::new(1440.0, 900.0))
+                .iter()
+                .map(|(r, _)| r.y + r.height)
+                .fold(0.0_f32, f32::max)
+        };
+        let libre = bas(&app);
+        let tip = crate::tips::TIPS
+            .iter()
+            .find(|t| t.id == "apercu-glisser")
+            .unwrap();
+        app.overview.as_mut().unwrap().tip = Some(tip);
+        assert!(bas(&app) < libre - 1.0, "les cartes laissent la place");
+        let _ = app.overview_update(OMsg::TipClose);
+        assert!(app.overview.as_ref().unwrap().tip.is_none());
+        assert!((bas(&app) - libre).abs() < 0.01);
     }
 }

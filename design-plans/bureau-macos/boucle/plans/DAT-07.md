@@ -29,7 +29,7 @@ Relu par un agent indépendant avant exécution. Corrections retenues : (1) le l
 ## Étapes
 
 1. **Fait.** Moteur `src/tips.rs` et ses tests (éligibilité, cadence de 24 h, `used`, union des écritures) ; astuces du lanceur (`:f`, `:r`, `:clip`) en bulle au bas de sa surface ; guides, `DESIGN.md`, `locales/en.toml`.
-2. Aperçu des espaces : astuce `apercu-glisser` (déjà au catalogue), place réservée dans `overview_layout` tant qu'elle est là, `used` marqué dans `overview_release` juste avant `move_task`, après le test `same`.
+2. **Fait.** Aperçu des espaces : astuce `apercu-glisser` (déjà au catalogue), place réservée dans `overview_layout` tant qu'elle est là, `used` marqué dans `overview_release` juste avant `move_task`, après le test `same` ; rangée de 48 px (`TIP_H`) au-dessus de l'aide, bouton Fermer (`OMsg::TipClose`) ; test `l_astuce_a_sa_place` ; proposée seulement avec deux espaces au moins et une fenêtre (diff relu par un agent indépendant).
 3. Dock et barre : astuce en pop-over près de l'élément (dock : bouton de la grille d'applications ; barre : menu hyprdesk), par la surface de popover de la barre ; l'astuce figée de `widgets.rs` (ligne « Astuce : réglages ouverts… ») passe au moteur.
 
 ## Réutilisation
