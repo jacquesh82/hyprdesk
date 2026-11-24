@@ -8,7 +8,7 @@ use crate::i18n::text;
 use iced::widget::{Space, button, column, container, mouse_area, pick_list, radio, row, toggler};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::hypr;
@@ -676,55 +676,47 @@ impl App {
                 })
                 .unwrap_or(1.0);
             let base = self.cfg.bar.as_ref().map_or(36, |b| b.height);
-            let (n1, n2, n3, n4) = (
+            let (n1, n3) = (
                 format!("screen.{}.bar_height", s.name),
-                format!("screen.{}.bar_height", s.name),
-                format!("screen.{}.text_scale", s.name),
                 format!("screen.{}.text_scale", s.name),
             );
             let shown_h = bar_h.unwrap_or(f64::from(base));
-            col = col.push(
-                self.field(
-                    "Barre sur cet écran",
-                    "",
-                    row![
-                        iced::widget::slider(24.0..=64.0, shown_h, move |v| {
+            col = col.push(self.field(
+                "Barre sur cet écran",
+                "",
+                self.slider(
+                    &SliderSpec::new(
+                        n1.clone(),
+                        (24.0, 64.0),
+                        1.0,
+                        // Après la pose, l'enregistrement du paquet : le
+                        // message de relâchement portait la valeur d'avant.
+                        move |v| {
                             twrap(TMsg::DesignOpt(n1.clone(), format!("{}", v.round()), false))
-                        })
-                        .step(1.0)
-                        .on_release(twrap(TMsg::DesignOpt(
-                            n2,
-                            format!("{}", shown_h.round()),
-                            true
-                        )))
-                        .width(220),
-                        text(format!("{} px", shown_h.round()))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+                        },
+                        twrap(TMsg::Commit),
+                    ),
+                    shown_h,
+                    |v| format!("{} px", v.round()),
+                    SliderLook::fixed(13.0, 220, Alignment::Center),
                 ),
-            );
-            col = col.push(
-                self.field(
-                    "Texte sur cet écran",
-                    "",
-                    row![
-                        iced::widget::slider(0.5..=2.0, text_scale, move |v| {
-                            twrap(TMsg::DesignOpt(n3.clone(), format!("{v:.2}"), false))
-                        })
-                        .step(0.05)
-                        .on_release(twrap(TMsg::DesignOpt(n4, format!("{text_scale:.2}"), true)))
-                        .width(220),
-                        text(format!("{:.0} %", text_scale * 100.0))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+            ));
+            col = col.push(self.field(
+                "Texte sur cet écran",
+                "",
+                self.slider(
+                    &SliderSpec::new(
+                        n3.clone(),
+                        (0.5, 2.0),
+                        0.05,
+                        move |v| twrap(TMsg::DesignOpt(n3.clone(), format!("{v:.2}"), false)),
+                        twrap(TMsg::Commit),
+                    ),
+                    text_scale,
+                    |v| format!("{:.0} %", v * 100.0),
+                    SliderLook::fixed(13.0, 220, Alignment::Center),
                 ),
-            );
+            ));
         }
         let rot = s.rotation();
         col = col.push(
@@ -919,17 +911,25 @@ impl App {
                                 .font(self.font)
                                 .size(crate::ui::tokens::ts(13.0))
                                 .width(80),
-                            iced::widget::slider(10.0..=50.0, z.size * 100.0, move |v| {
-                                wrap(Msg::PanoramaZone(Some(Zone {
-                                    size: (v / 100.0 * 20.0).round() / 20.0,
-                                    ..zs.clone()
-                                })))
-                            })
-                            .step(5.0_f32),
-                            text(format!("{:.0} %", z.size * 100.0))
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0))
-                                .width(48),
+                            // La pose enregistre à chaque changement : rien à
+                            // ajouter au relâchement ni après la saisie.
+                            self.slider(
+                                &SliderSpec::new(
+                                    "panorama_zone_size",
+                                    (10.0, 50.0),
+                                    5.0,
+                                    move |v| {
+                                        wrap(Msg::PanoramaZone(Some(Zone {
+                                            size: ((v / 100.0 * 20.0).round() / 20.0) as f32,
+                                            ..zs.clone()
+                                        })))
+                                    },
+                                    UiMsg::Noop,
+                                ),
+                                f64::from(z.size) * 100.0,
+                                |v| format!("{:.0} %", v),
+                                SliderLook::fill(12.0, 48, Alignment::Center).spacing(10),
+                            ),
                         ]
                         .spacing(10)
                         .align_y(Alignment::Center),

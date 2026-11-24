@@ -47,13 +47,13 @@ pub const INFO: PluginInfo = PluginInfo {
 /// Le curseur « Taille des icônes », de 24 à 96 px : sa valeur se saisit au
 /// clavier, de 1 px en 1 px (HIG SEL-08).
 pub(in crate::ui) fn size_spec() -> SliderSpec {
-    SliderSpec {
-        key: "launcher_size",
-        range: (24.0, 96.0),
-        step: 1.0,
-        pose: |v| wrap(Msg::Size(v.round() as u16)),
-        save: wrap(Msg::SizeCommit),
-    }
+    SliderSpec::new(
+        "launcher_size",
+        (24.0, 96.0),
+        1.0,
+        |v| wrap(Msg::Size(v.round() as u16)),
+        wrap(Msg::SizeCommit),
+    )
 }
 
 /// Onglets du paquet.

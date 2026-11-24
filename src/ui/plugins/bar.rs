@@ -52,6 +52,45 @@ pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Bar(m)))
 }
 
+/// Valeur d'un curseur de la barre en pixels, en millisecondes.
+fn en_px(v: f64) -> String {
+    format!("{} px", v.round() as u16)
+}
+
+fn en_ms(v: f64) -> String {
+    format!("{} ms", v.round() as u16)
+}
+
+/// Les curseurs de la forme de la barre (HIG SEL-08) : leur pose emporte la
+/// forme du rendu, modifiée d'un champ, comme son glissé.
+pub(in crate::ui) fn side_margin_spec(shape: crate::config::BarShape) -> SliderSpec {
+    SliderSpec::new(
+        "bar_side_margin",
+        (0.0, 200.0),
+        1.0,
+        move |v| {
+            let mut s = shape;
+            s.side_margin = v.round() as u16;
+            wrap(Msg::Shape(s, false))
+        },
+        wrap(Msg::Commit),
+    )
+}
+
+pub(in crate::ui) fn radius_spec(shape: crate::config::BarShape) -> SliderSpec {
+    SliderSpec::new(
+        "bar_radius",
+        (0.0, 32.0),
+        1.0,
+        move |v| {
+            let mut s = shape;
+            s.radius = Some(v.round() as u16);
+            wrap(Msg::Shape(s, false))
+        },
+        wrap(Msg::Commit),
+    )
+}
+
 #[derive(Debug, Clone)]
 pub enum Msg {
     Enable(bool),
@@ -178,40 +217,26 @@ impl App {
                 ),
             );
         }
-        col = col.push(
-            self.field(
-                "Marges sur les côtés",
-                crate::i18n::tr("0 = d'un bord à l'autre ; au-delà, la barre flotte"),
-                row![
-                    slider(0..=200u16, shape.side_margin.min(200), move |v| {
-                        set(&|s: &mut crate::config::BarShape| s.side_margin = v, false)
-                    })
-                    .on_release(wrap(Msg::Commit))
-                    .width(260),
-                    text(format!("{} px", shape.side_margin))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                ]
-                .spacing(12),
+        col = col.push(self.field(
+            "Marges sur les côtés",
+            crate::i18n::tr("0 = d'un bord à l'autre ; au-delà, la barre flotte"),
+            self.slider(
+                &side_margin_spec(shape),
+                f64::from(shape.side_margin.min(200)),
+                en_px,
+                SliderLook::fixed(13.0, 260, Alignment::Start),
             ),
-        );
-        col = col.push(
-            self.field(
-                "Rayon des coins",
-                "",
-                row![
-                    slider(0..=32u16, shape.radius.unwrap_or(11).min(32), move |v| {
-                        set(&|s: &mut crate::config::BarShape| s.radius = Some(v), false)
-                    })
-                    .on_release(wrap(Msg::Commit))
-                    .width(260),
-                    text(format!("{} px", shape.radius.unwrap_or(11)))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                ]
-                .spacing(12),
+        ));
+        col = col.push(self.field(
+            "Rayon des coins",
+            "",
+            self.slider(
+                &radius_spec(shape),
+                f64::from(shape.radius.unwrap_or(11).min(32)),
+                en_px,
+                SliderLook::fixed(13.0, 260, Alignment::Start),
             ),
-        );
+        ));
         let mut toggles = column![
             toggler(shape.visibility == BarVisibility::AutoHide)
                 .label(crate::i18n::tr(
@@ -507,47 +532,48 @@ impl App {
                     .vertical_spacing(8)
                 }));
             if b.style == crate::config::BarStyle::Convexe {
-                for (label, value, max, message, unit) in [
+                for (key, label, value, max, message, affiche) in [
                     (
+                        "bar_convex_frame",
                         "Épaisseur du cadre",
                         b.convex.frame_width,
                         20,
                         Msg::ConvexFrame as fn(u16) -> Msg,
-                        "px",
+                        en_px as fn(f64) -> String,
                     ),
                     (
+                        "bar_convex_radius",
                         "Arrondi intérieur",
                         b.convex.radius,
                         96,
                         Msg::ConvexRadius as fn(u16) -> Msg,
-                        "px",
+                        en_px as fn(f64) -> String,
                     ),
                     (
+                        "bar_convex_duration",
                         "Durée d'ouverture des panneaux",
                         b.convex.duration,
                         800,
                         Msg::ConvexDuration as fn(u16) -> Msg,
-                        "ms",
+                        en_ms as fn(f64) -> String,
                     ),
                 ] {
-                    col = col.push(
-                        self.field(
-                            label,
-                            "",
-                            row![
-                                container(
-                                    slider(0..=max, value.min(max), move |v| wrap(message(v)))
-                                        .on_release(wrap(Msg::Commit))
-                                )
-                                .width(Length::Fill)
-                                .max_width(260),
-                                text(format!("{value} {unit}"))
-                                    .font(self.font)
-                                    .size(crate::ui::tokens::ts(13.0)),
-                            ]
-                            .spacing(12),
+                    col = col.push(self.field(
+                        label,
+                        "",
+                        self.slider(
+                            &SliderSpec::new(
+                                key,
+                                (0.0, f64::from(max)),
+                                1.0,
+                                move |v| wrap(message(v.round() as u16)),
+                                wrap(Msg::Commit),
+                            ),
+                            f64::from(value.min(max)),
+                            affiche,
+                            SliderLook::fixed(13.0, 260, Alignment::Start),
                         ),
-                    );
+                    ));
                 }
                 col = col.push(self.field(
                     "Masquer automatiquement le dock",

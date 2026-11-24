@@ -145,34 +145,51 @@ pub(super) const PANEL_ID: &str = "hyprdesk-panel";
 /// Curseur des Réglages dont la valeur se saisit au clavier (HIG SEL-08) :
 /// ce qu'il faut pour poser la valeur tapée comme un glissé puis son
 /// relâchement. Un par site d'[`App::slider`].
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SliderSpec {
-    /// Clé du curseur : le champ ouvert est celui-là seul.
-    pub(in crate::ui) key: &'static str,
+    /// Clé du curseur : le champ ouvert est celui-là seul. Le plus souvent un
+    /// littéral ; le nom d'une option pour les curseurs d'options de design.
+    pub(in crate::ui) key: Arc<str>,
     /// Domaine du curseur (bornes) et pas de son incrément.
     pub(in crate::ui) range: (f64, f64),
     pub(in crate::ui) step: f64,
-    /// Pose la valeur, comme pendant un glissé.
-    pub(in crate::ui) pose: fn(f64) -> Msg,
-    /// Enregistre, comme au relâchement.
+    /// Pose la valeur, comme pendant un glissé. Une fermeture : le site dont
+    /// le message emporte une donnée du rendu (une forme, une étape, une
+    /// clé d'écran) la garde ici, comme son glissé la portait déjà.
+    pub(in crate::ui) pose: Arc<dyn Fn(f64) -> Msg + Send + Sync>,
+    /// Enregistre, comme au relâchement. Sans la valeur : posée juste avant,
+    /// elle ne doit pas être écrasée par celle d'avant la saisie.
     pub(in crate::ui) save: Msg,
 }
 
 impl SliderSpec {
-    pub(in crate::ui) const fn new(
-        key: &'static str,
+    pub(in crate::ui) fn new(
+        key: impl Into<Arc<str>>,
         range: (f64, f64),
         step: f64,
-        pose: fn(f64) -> Msg,
+        pose: impl Fn(f64) -> Msg + Send + Sync + 'static,
         save: Msg,
     ) -> Self {
         SliderSpec {
-            key,
+            key: key.into(),
             range,
             step,
-            pose,
+            pose: Arc::new(pose),
             save,
         }
+    }
+}
+
+/// La fermeture ne se montre pas : clé, domaine, pas et enregistrement.
+/// Écrit sans `debug_struct` : ses `.field("…")` sont pris pour des libellés
+/// à traduire par le relevé du catalogue.
+impl std::fmt::Debug for SliderSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SliderSpec({:?}, {:?}, {:?}, {:?})",
+            self.key, self.range, self.step, self.save
+        )
     }
 }
 
@@ -190,6 +207,9 @@ pub struct SliderLook {
     pub(in crate::ui) value_width: Length,
     /// Alignement du curseur et de sa valeur l'un à l'autre.
     pub(in crate::ui) align_y: Alignment,
+    /// Écart du curseur à sa valeur : 12 px, sauf le site qui en avait un
+    /// autre.
+    pub(in crate::ui) spacing: u16,
 }
 
 impl SliderLook {
@@ -201,6 +221,7 @@ impl SliderLook {
             width: Length::Fixed(width as f32),
             value_width: Length::Shrink,
             align_y,
+            spacing: 12,
         }
     }
 
@@ -212,7 +233,14 @@ impl SliderLook {
             width: Length::Fill,
             value_width: Length::Fixed(value_width as f32),
             align_y,
+            spacing: 12,
         }
+    }
+
+    /// L'écart que le site mettait déjà entre le curseur et sa valeur.
+    pub(in crate::ui) const fn spacing(mut self, spacing: u16) -> Self {
+        self.spacing = spacing;
+        self
     }
 }
 
@@ -813,7 +841,14 @@ impl App {
                 self.slider_close();
                 Task::none()
             }
-            PanelMsg::Plugin(m) => plugins::update(self, m),
+            // Un geste dans le paquet referme la valeur en cours de saisie
+            // (HIG SEL-08) : la pose garde la donnée du rendu à l'ouverture
+            // du champ (une forme, une étape), qu'un autre réglage bougé
+            // depuis pourrait rendre périmée.
+            PanelMsg::Plugin(m) => {
+                self.slider_close();
+                plugins::update(self, m)
+            }
             PanelMsg::Defaults(tab) => {
                 let Some(p) = self.panel.as_mut() else {
                     return Task::none();
@@ -1518,7 +1553,7 @@ impl App {
         look: SliderLook,
     ) -> Element<'a, Msg> {
         let (min, max) = spec.range;
-        let pose = spec.pose;
+        let pose = Arc::clone(&spec.pose);
         let slider = iced::widget::slider(min as f32..=max as f32, value as f32, move |v| {
             pose(f64::from(v))
         })
@@ -1574,7 +1609,7 @@ impl App {
             souple => souple,
         };
         row![slider, value]
-            .spacing(12)
+            .spacing(f32::from(look.spacing))
             .width(rangee)
             .align_y(look.align_y)
             .into()
@@ -2112,5 +2147,108 @@ mod tests {
         assert_eq!(app.cfg.general.fade_ms, 250, "posée comme un glissé");
         saisir(&mut app, "5000");
         assert_eq!(app.settings.fade_ms, Some(1000), "bornée au domaine");
+    }
+
+    /// Un curseur dont la pose emporte une donnée du rendu — la forme de la
+    /// barre, `bar.rs` (HIG SEL-08) : Entrée pose la forme à jour, ses autres
+    /// champs gardés ; un geste dans le paquet referme le champ, la forme
+    /// qu'il garde pouvant être périmée à Entrée.
+    #[test]
+    fn la_valeur_saisie_dun_curseur_a_forme_pose_la_forme_a_jour() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.open_panel();
+        let saisie = |app: &App| {
+            app.panel
+                .as_ref()
+                .and_then(|p| p.slider.as_ref())
+                .map(|e| e.draft.clone())
+        };
+        let ouvrir = |app: &mut App, marge: u16| {
+            let forme = crate::config::BarShape {
+                side_margin: marge,
+                radius: Some(7),
+                ..Default::default()
+            };
+            let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+                plugins::bar::side_margin_spec(forme),
+                f64::from(marge),
+            ))));
+        };
+        ouvrir(&mut app, 40);
+        assert_eq!(saisie(&app).as_deref(), Some("40"));
+        let _ = app.panel_update(PanelMsg::Plugin(PluginMsg::Bar(plugins::bar::Msg::Margin(
+            8,
+        ))));
+        assert_eq!(saisie(&app), None, "un geste du paquet referme le champ");
+        assert_eq!(
+            app.settings.bar.as_ref().map(|b| b.margin),
+            Some(8),
+            "le geste du paquet est traité"
+        );
+        // Entrée : la valeur tapée, le reste de la forme gardé.
+        ouvrir(&mut app, 40);
+        let _ = app.panel_update(PanelMsg::SliderDraft("150 px".into()));
+        let _ = app.panel_update(PanelMsg::SliderSubmit);
+        assert_eq!(saisie(&app), None, "Entrée valide referme");
+        let barre = app.settings.bar.clone().unwrap_or_default();
+        assert_eq!(barre.shape.side_margin, 150, "Entrée pose la valeur");
+        assert_eq!(
+            barre.shape.radius,
+            Some(7),
+            "le reste de la forme est gardé"
+        );
+        assert_eq!(barre.margin, 8, "la marge posée avant n'est pas reprise");
+    }
+
+    /// La clé d'un curseur peut être le nom d'une option (options de design
+    /// du thème, surcharge d'écran) : deux curseurs de noms différents ne
+    /// sont pas le même champ ouvert (HIG SEL-08).
+    #[test]
+    fn deux_curseurs_de_cle_differente_ne_sont_pas_le_meme_champ() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.open_panel();
+        // Même domaine, même messages : seule la clé les distingue.
+        let spec = |nom: &str| {
+            SliderSpec::new(
+                nom,
+                (0.0, 100.0),
+                1.0,
+                |v| {
+                    plugins::theme::wrap(plugins::theme::Msg::Opacity(
+                        crate::config::Place::Menus,
+                        v as f32 / 100.0,
+                    ))
+                },
+                plugins::theme::wrap(plugins::theme::Msg::Commit),
+            )
+        };
+        let hauteur = spec("screen.DP-1.bar_height");
+        let texte = spec("screen.DP-1.text_scale");
+        let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+            hauteur, 40.0,
+        ))));
+        let ouvert = |app: &App, clef: &str| {
+            app.panel
+                .as_ref()
+                .and_then(|p| p.slider.as_ref())
+                .is_some_and(|e| &*e.spec.key == clef)
+        };
+        assert!(ouvert(&app, "screen.DP-1.bar_height"));
+        assert!(!ouvert(&app, "screen.DP-1.text_scale"));
+        let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(texte, 1.5))));
+        assert!(ouvert(&app, "screen.DP-1.text_scale"));
+        assert!(!ouvert(&app, "screen.DP-1.bar_height"));
     }
 }

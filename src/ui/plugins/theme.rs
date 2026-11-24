@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, radio, row, slider, text_input, toggler};
+use iced::widget::{Space, button, column, container, radio, row, text_input, toggler};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::panel::{PanelMsg, SWATCHES, SliderLook, SliderSpec};
@@ -304,38 +304,38 @@ impl App {
                     .into()
                 }
                 (Kind::Int(lo, hi), OptValue::Num(v)) => {
-                    let (n, c) = (name.clone(), name.clone());
-                    row![
-                        slider(lo as f64..=hi as f64, v, move |x| {
-                            wrap(Msg::DesignOpt(n.clone(), format!("{}", x.round()), false))
-                        })
-                        .step(1.0)
-                        .on_release(wrap(Msg::DesignOpt(c, format!("{}", v.round()), true)))
-                        .width(220),
-                        text(format!("{}", v.round()))
-                            .font(font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center)
-                    .into()
+                    let (n, key) = (name.clone(), name.clone());
+                    self.slider(
+                        &SliderSpec::new(
+                            key,
+                            (lo as f64, hi as f64),
+                            1.0,
+                            move |x| {
+                                wrap(Msg::DesignOpt(n.clone(), format!("{}", x.round()), false))
+                            },
+                            // Après la pose, l'enregistrement du paquet : le
+                            // message de relâchement portait la valeur d'avant.
+                            wrap(Msg::Commit),
+                        ),
+                        v,
+                        |x| format!("{}", x.round()),
+                        SliderLook::fixed(13.0, 220, Alignment::Center),
+                    )
                 }
                 (Kind::Float(lo, hi), OptValue::Num(v)) => {
-                    let (n, c) = (name.clone(), name.clone());
-                    row![
-                        slider(lo..=hi, v, move |x| {
-                            wrap(Msg::DesignOpt(n.clone(), format!("{x:.2}"), false))
-                        })
-                        .step((hi - lo) / 100.0)
-                        .on_release(wrap(Msg::DesignOpt(c, format!("{v:.2}"), true)))
-                        .width(220),
-                        text(format!("{v:.2}"))
-                            .font(font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center)
-                    .into()
+                    let (n, key) = (name.clone(), name.clone());
+                    self.slider(
+                        &SliderSpec::new(
+                            key,
+                            (lo, hi),
+                            (hi - lo) / 100.0,
+                            move |x| wrap(Msg::DesignOpt(n.clone(), format!("{x:.2}"), false)),
+                            wrap(Msg::Commit),
+                        ),
+                        v,
+                        |x| format!("{x:.2}"),
+                        SliderLook::fixed(13.0, 220, Alignment::Center),
+                    )
                 }
                 (Kind::Text, OptValue::Str(cur)) => {
                     let (n, c) = (name.clone(), name.clone());
@@ -623,24 +623,22 @@ impl App {
         }
 
         // Effets de chaque endroit.
-        let percent = |v: f32| {
-            text(format!("{} %", (v * 100.0).round() as i32))
-                .font(font)
-                .size(crate::ui::tokens::ts(13.0))
-                .width(48)
-                .wrapping(iced::widget::text::Wrapping::None)
-        };
+        let percent = |v: f64| format!("{} %", v.round() as i32);
         let mut effects = column![].spacing(12);
         for place in Place::ALL {
             let e = th.effect(place);
-            let mut line = row![
-                slider(0..=100u32, (e.opacity * 100.0).round() as u32, move |v| {
-                    wrap(Msg::Opacity(place, v as f32 / 100.0))
-                })
-                .on_release(wrap(Msg::Commit))
-                .width(Length::Fill),
-                percent(e.opacity),
-            ]
+            let mut line = row![self.slider(
+                &SliderSpec::new(
+                    place.as_str(),
+                    (0.0, 100.0),
+                    1.0,
+                    move |v| wrap(Msg::Opacity(place, v.round() as u32 as f32 / 100.0)),
+                    wrap(Msg::Commit),
+                ),
+                f64::from((e.opacity * 100.0).round() as u32),
+                percent,
+                SliderLook::fill(13.0, 48, Alignment::Center),
+            ),]
             .spacing(12)
             .align_y(Alignment::Center);
             if place.blurrable() {

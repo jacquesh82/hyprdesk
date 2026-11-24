@@ -37,6 +37,15 @@ pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Launcher(m)))
 }
 
+/// Valeur d'un curseur de la forme du lanceur, en pixels ou en nombre seul.
+fn en_px(v: f64) -> String {
+    format!("{} px", v.round() as u16)
+}
+
+fn en_nombre(v: f64) -> String {
+    v.round().to_string()
+}
+
 /// Message de ce paquet, enveloppé pour l'application.
 #[derive(Debug, Clone)]
 pub enum Msg {
@@ -122,27 +131,35 @@ impl App {
             f(&mut s);
             wrap(Msg::AppsShape(s, commit))
         };
-        let commit = wrap(Msg::AppsShape(shape, true));
+        // L'enregistrement d'un curseur de la forme ne porte pas la forme :
+        // posée juste avant (glissé ou saisie), la voilà à jour.
         let slider_row =
             |label: &'static str,
-             range: std::ops::RangeInclusive<f32>,
-             value: f32,
-             shown: String,
+             key: &'static str,
+             range: (f64, f64),
+             value: f64,
+             affiche: fn(f64) -> String,
              apply: fn(&mut crate::config::LauncherShape, f32)| {
                 self.field(
                     label,
                     "",
-                    row![
-                        iced::widget::slider(range, value, move |v| set(
-                            &|s: &mut crate::config::LauncherShape| apply(s, v),
-                            false
-                        ))
-                        .on_release(commit.clone())
-                        .width(220),
-                        text(shown).font(font).size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+                    self.slider(
+                        &SliderSpec::new(
+                            key,
+                            range,
+                            1.0,
+                            move |v| {
+                                set(
+                                    &|s: &mut crate::config::LauncherShape| apply(s, v as f32),
+                                    false,
+                                )
+                            },
+                            UiMsg::Panel(PanelMsg::Commit),
+                        ),
+                        value,
+                        affiche,
+                        SliderLook::fixed(13.0, 220, Alignment::Center),
+                    ),
                 )
             };
         let radios = |label: &'static str,
@@ -167,38 +184,45 @@ impl App {
             self.section("Forme du lanceur"),
             slider_row(
                 "Largeur de la carte",
-                480.0..=1200.0,
-                f32::from(shape.width),
-                format!("{} px", shape.width),
+                "apps_width",
+                (480.0, 1200.0),
+                f64::from(shape.width),
+                en_px,
                 |s, v| s.width = v.round() as u16
             ),
             slider_row(
                 "Résultats visibles",
-                3.0..=16.0,
-                f32::from(shape.max_results),
-                shape.max_results.to_string(),
+                "apps_max_results",
+                (3.0, 16.0),
+                f64::from(shape.max_results),
+                en_nombre,
                 |s, v| s.max_results = v.round() as u8
             ),
             slider_row(
                 "Colonnes de la feuille",
-                4.0..=10.0,
-                f32::from(shape.columns),
-                shape.columns.to_string(),
+                "apps_columns",
+                (4.0, 10.0),
+                f64::from(shape.columns),
+                en_nombre,
                 |s, v| s.columns = v.round() as u8
             ),
             slider_row(
                 "Rayon des coins",
-                0.0..=48.0,
-                f32::from(shape.radius),
-                format!("{} px", shape.radius),
+                "apps_radius",
+                (0.0, 48.0),
+                f64::from(shape.radius),
+                en_px,
                 |s, v| s.radius = v.round() as u16
             ),
+            // En pour cent, comme la valeur affichée : le curseur avance de
+            // 1 %, au lieu de sauter de 0 à 80 %.
             slider_row(
                 "Voile derrière",
-                0.0..=0.8,
-                shape.backdrop_dim,
-                format!("{} %", (shape.backdrop_dim * 100.0).round()),
-                |s, v| s.backdrop_dim = v
+                "apps_backdrop_dim",
+                (0.0, 80.0),
+                f64::from(shape.backdrop_dim) * 100.0,
+                |v| format!("{} %", v.round() as u32),
+                |s, v| s.backdrop_dim = v / 100.0
             ),
             radios(
                 "Avant la saisie",

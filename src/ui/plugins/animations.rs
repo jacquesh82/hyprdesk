@@ -8,10 +8,10 @@
 use std::collections::BTreeMap;
 
 use crate::i18n::text;
-use iced::widget::{button, column, container, pick_list, row, slider, toggler};
+use iced::widget::{button, column, container, pick_list, row, toggler};
 use iced::{Alignment, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::Config;
@@ -313,20 +313,18 @@ impl App {
             // Seconde ligne : courbe et style.
             let mut second = row![].spacing(10);
             if a.enabled {
-                line = line.push(
-                    slider(1.0f32..=20.0, a.speed as f32, move |x| {
-                        wrap(Msg::Speed(name.into(), x as f64))
-                    })
-                    .step(0.5f32)
-                    .on_release(wrap(Msg::Commit))
-                    .width(Length::Fill),
-                );
-                line = line.push(
-                    text(format!("{}", a.speed))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .width(30),
-                );
+                line = line.push(self.slider(
+                    &SliderSpec::new(
+                        format!("anim_speed.{name}"),
+                        (1.0, 20.0),
+                        0.5,
+                        move |x| wrap(Msg::Speed(name.into(), x)),
+                        wrap(Msg::Commit),
+                    ),
+                    a.speed,
+                    |x| format!("{x}"),
+                    SliderLook::fill(13.0, 30, Alignment::Center),
+                ));
                 let sel = curves.iter().find(|c| c.value == a.curve).cloned();
                 second = second.push(
                     pick_list(curves.clone(), sel, {

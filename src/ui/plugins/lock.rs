@@ -11,7 +11,7 @@ use iced::{Alignment, Color, Element, Task};
 
 use crate::lock::enroll::{self, Progress, Reader};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 
@@ -103,6 +103,16 @@ pub fn load() -> Task<UiMsg> {
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Lock(m)))
+}
+
+/// Valeur d'un délai de veille, en minutes ; zéro : jamais.
+fn en_minutes(v: f64) -> String {
+    let n = v.round() as u32;
+    if n == 0 {
+        crate::i18n::tr("jamais").to_string()
+    } else {
+        crate::tr!("{n} min", n = n)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -525,26 +535,22 @@ impl App {
             ),
         ] {
             let minutes = secs.div_ceil(60);
-            let value = if minutes == 0 {
-                crate::i18n::tr("jamais").to_string()
-            } else {
-                crate::tr!("{n} min", n = minutes)
-            };
-            col = col.push(
-                self.field(
-                    label,
-                    key,
-                    row![
-                        slider(0..=120u32, minutes, move |m| wrap(Msg::IdleDelay(step, m)))
-                            .on_release(wrap(Msg::IdleCommit))
-                            .width(260),
-                        text(value)
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0)),
-                    ]
-                    .spacing(12),
+            col = col.push(self.field(
+                label,
+                key,
+                self.slider(
+                    &SliderSpec::new(
+                        key,
+                        (0.0, 120.0),
+                        1.0,
+                        move |v| wrap(Msg::IdleDelay(step, v.round() as u32)),
+                        wrap(Msg::IdleCommit),
+                    ),
+                    f64::from(minutes),
+                    en_minutes,
+                    SliderLook::fixed(14.0, 260, Alignment::Start),
                 ),
-            );
+            ));
         }
         // Écran éteint avant le verrouillage : averti, délais gardés (MLG-140).
         if let Some(w) = crate::idle::exposure(&self.cfg.general.idle) {
