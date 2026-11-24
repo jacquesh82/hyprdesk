@@ -270,7 +270,7 @@ impl App {
         iced::widget::Stack::with_children(layers).into()
     }
 
-    /// Icône d'une application, sinon son initiale sur une pastille d'accent.
+    /// Icône d'une application, sinon l'icône de remplacement de hyprdesk.
     pub(in crate::ui) fn app_icon<'a>(&'a self, i: usize, size: f32) -> Element<'a, Msg> {
         let (r, _) = self.launcher_palette();
         let a = &self.apps[i];
@@ -278,29 +278,13 @@ impl App {
             .as_deref()
             .and_then(|n| self.icon_named(n, size, color(r.fg, 1.0)))
             .unwrap_or_else(|| {
-                let tile = color(r.button, 1.0);
-                let on = color(r.on_button, 1.0);
-                container(
-                    text(
-                        a.name
-                            .chars()
-                            .next()
-                            .unwrap_or('?')
-                            .to_uppercase()
-                            .to_string(),
-                    )
-                    .font(self.title_font())
-                    .size(size * 0.45)
-                    .color(on),
+                crate::ui::icons::fallback_icon(
+                    &a.name,
+                    size,
+                    color(r.button, 1.0),
+                    color(r.on_button, 1.0),
+                    self.title_font(),
                 )
-                .center_x(size)
-                .center_y(size)
-                .style(move |_| container::Style {
-                    background: Some(tile.into()),
-                    border: Border::default().rounded(size * 0.28),
-                    ..Default::default()
-                })
-                .into()
             })
     }
 

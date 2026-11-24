@@ -101,7 +101,6 @@ const UI_ICONS: [&str; 10] = [
     "audio-volume-medium",
     "audio-volume-high",
 ];
-const ICON_SETTINGS: usize = 4;
 /// Décalage vertical du contenu au début d'une transition « glissement ».
 const SLIDE_PX: f32 = 48.0;
 
@@ -2535,9 +2534,16 @@ impl App {
                             )
                         })
                         .collect::<Vec<_>>();
+                    // Jeu de hyprdesk d'abord, comme `want_icon` : le thème ne
+                    // sert qu'aux noms que le jeu ne dessine pas.
                     let media = UI_ICONS
                         .iter()
-                        .map(|n| launch::lookup_icon(n, g.icon_theme.as_deref(), 24))
+                        .map(|n| {
+                            icons::get(n)
+                                .is_none()
+                                .then(|| launch::lookup_icon(n, g.icon_theme.as_deref(), 24))
+                                .flatten()
+                        })
                         .collect::<Vec<_>>();
                     (icons, media)
                 })
@@ -3506,6 +3512,20 @@ impl App {
             },
             move |(n, p)| Msg::IconResolved(gen_, n, p),
         )
+    }
+
+    /// Icône d'interface de `UI_ICONS` (index `idx`) : le glyphe de hyprdesk,
+    /// teinté `tint` comme toute commande ; à défaut seulement, l'icône du
+    /// thème, sans teinte, fondue de `alpha`.
+    fn ui_icon(&self, idx: usize, size: f32, alpha: f32, tint: Color) -> Option<Element<'_, Msg>> {
+        match UI_ICONS.get(idx).filter(|n| icons::get(n).is_some()) {
+            Some(name) => icons::glyph(name, size, tint),
+            None => self.img_element(
+                self.ui_imgs.get(idx).copied().unwrap_or(IconImg::None),
+                size,
+                alpha,
+            ),
+        }
     }
 
     fn img_element(&self, img: IconImg, size: f32, alpha: f32) -> Option<Element<'_, Msg>> {
@@ -6099,29 +6119,16 @@ impl App {
             alpha,
         ) {
             Some(e) => e,
-            None => {
-                let c = color(th.accent, alpha);
-                container(
-                    text(
-                        def.label
-                            .clone()
-                            .unwrap_or_default()
-                            .chars()
-                            .next()
-                            .unwrap_or('?')
-                            .to_string(),
-                    )
-                    .font(self.font)
-                    .size(size * 0.5),
-                )
-                .center(size)
-                .style(move |_| container::Style {
-                    background: Some(c.into()),
-                    border: Border::default().rounded(size / 4.0),
-                    ..Default::default()
-                })
-                .into()
-            }
+            None => icons::fallback_icon(
+                def.label.as_deref().unwrap_or_default(),
+                size,
+                color(th.accent, alpha),
+                Color {
+                    a: alpha,
+                    ..design::on_accent(color(th.accent, 1.0), color(th.fg, 1.0), color(th.bg, 1.0))
+                },
+                self.title_font(),
+            ),
         };
         let label = self
             .icons
@@ -6372,6 +6379,16 @@ mod regression_tests {
     fn app() -> App {
         App::boot_with(PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"), true).0
     }
+
+    /// Les commandes d'interface ont toutes leur glyphe au jeu de hyprdesk :
+    /// aucune ne vient du thème d'icônes, en couleur.
+    #[test]
+    fn icones_interface_du_jeu() {
+        for n in UI_ICONS {
+            assert!(icons::get(n).is_some(), "{n}");
+        }
+    }
+
     fn monitor(name: &str, focused: bool) -> Monitor {
         Monitor {
             dpms_off: false,

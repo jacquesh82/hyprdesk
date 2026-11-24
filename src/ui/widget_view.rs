@@ -9,7 +9,7 @@ use chrono::{Datelike, Local};
 use iced::widget::{Space, button, column, container, mouse_area, progress_bar, row};
 use iced::{Alignment, Background, Border, Color, Element, Length, mouse};
 
-use super::{App, IconImg, Msg, chrono_locale, color, format_now};
+use super::{App, Msg, chrono_locale, color, format_now};
 use crate::config::{Anchor, WidgetDef, WidgetKind};
 use crate::widgets;
 
@@ -126,12 +126,12 @@ impl App {
                 let size = if w.size > 0.0 { w.size } else { base };
                 match self.values.get(&w.id) {
                     Some(widgets::Value::Media(Some(mi))) => {
-                        // Icône du thème si elle existe, sinon un repli en ASCII
-                        // (les glyphes ⏮ ⏯ ⏭ manquent à la plupart des polices).
+                        // Glyphe de hyprdesk teinté comme les autres commandes ;
+                        // à défaut, un repli en ASCII (les glyphes ⏮ ⏯ ⏭ manquent
+                        // à la plupart des polices).
                         let ctl = |icon: usize, fallback: &'static str, method: &'static str| {
-                            let img = self.ui_imgs.get(icon).copied().unwrap_or(IconImg::None);
                             let label: Element<'_, Msg> =
-                                self.img_element(img, size * 1.3, t).unwrap_or_else(|| {
+                                self.ui_icon(icon, size * 1.3, t, fg).unwrap_or_else(|| {
                                     text(fallback)
                                         .font(self.font)
                                         .size(crate::ui::tokens::ts(size))

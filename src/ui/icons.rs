@@ -5,8 +5,10 @@
 //! pour que l'interface reste cohérente de bout en bout — un thème qui n'a
 //! pas la variante symbolique d'une icône ne doit pas y glisser sa version en
 //! couleur. Le thème ne sert qu'aux noms inconnus d'ici et aux icônes
-//! d'applications.
-use iced::widget::svg;
+//! d'applications — et, pour une application qui n'en a pas, à son icône de
+//! remplacement (`fallback_icon`).
+use iced::widget::{container, svg, text};
+use iced::{Border, Color, Font};
 
 /// Trait estompé : arcs Wi-Fi absents, par exemple (l'opacité survit à la teinte).
 const FAINT: &str = r#"stroke-opacity="0.3""#;
@@ -357,6 +359,41 @@ pub(crate) fn glyph<'a, Message>(
     })
 }
 
+/// Rayon de la tuile d'une icône de remplacement, en fraction de son côté.
+const FALLBACK_RADIUS: f32 = 0.25;
+
+/// Initiale d'une application sans icône : la première lettre de son nom,
+/// en majuscule.
+pub fn initial(name: &str) -> String {
+    name.chars()
+        .next()
+        .unwrap_or('?')
+        .to_uppercase()
+        .to_string()
+}
+
+/// Icône de remplacement d'une application sans icône : son initiale, en
+/// graisse de titre (`font`), sur une tuile carrée de `side` px à l'accent,
+/// encrée de `on` (une encre lisible sur cet accent). Un seul dessin, le
+/// même au dock, au lanceur et au bureau : l'application s'y reconnaît
+/// pareil.
+pub fn fallback_icon<'a, Message: 'a>(
+    name: &str,
+    side: f32,
+    accent: Color,
+    on: Color,
+    font: Font,
+) -> iced::Element<'a, Message> {
+    container(text(initial(name)).font(font).size(side * 0.5).color(on))
+        .center(side)
+        .style(move |_| container::Style {
+            background: Some(accent.into()),
+            border: Border::default().rounded(side * FALLBACK_RADIUS),
+            ..Default::default()
+        })
+        .into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,6 +464,30 @@ mod tests {
         }
         let absent: Option<iced::Element<'_, ()>> = glyph("nom-hors-jeu", 16.0, iced::Color::BLACK);
         assert!(absent.is_none());
+    }
+
+    /// Initiale d'une application sans icône.
+    #[test]
+    fn initiale_de_replacement() {
+        assert_eq!(initial("firefox"), "F");
+        assert_eq!(initial("été"), "É");
+        assert_eq!(initial(""), "?");
+    }
+
+    /// Dock, lanceur et bureau passent par l'unique fonction d'icône de
+    /// remplacement : aucune surface ne la redessine sur place.
+    #[test]
+    fn icone_de_replacement_partagee() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for f in [
+            "src/ui/mod.rs",
+            "src/ui/plugins/dock/surface.rs",
+            "src/ui/plugins/launcher/grid.rs",
+        ] {
+            let src = std::fs::read_to_string(root.join(f)).unwrap();
+            assert!(src.contains("fallback_icon("), "{f} : dessin propre");
+            assert!(!src.contains(".to_uppercase()"), "{f} : initiale propre");
+        }
     }
 
     #[test]

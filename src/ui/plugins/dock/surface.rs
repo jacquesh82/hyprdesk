@@ -446,14 +446,11 @@ impl App {
         let g = &self.cfg.general;
         let l = &g.launcher;
         let vertical = !embedded && l.position.vertical();
-        let fg = color(
-            if embedded {
-                self.bar_palette().fg
-            } else {
-                g.theme.fg
-            },
-            t,
-        );
+        let palette = embedded.then(|| self.bar_palette());
+        let (fg0, bg0, accent0) = palette.map_or((g.theme.fg, g.theme.bg, g.theme.accent), |p| {
+            (p.fg, p.bg, p.accent)
+        });
+        let fg = color(fg0, t);
         let dim = color(g.theme.fg, 0.55 * t);
         let size = if embedded {
             self.cfg
@@ -463,43 +460,17 @@ impl App {
         } else {
             l.size as f32
         };
-        let accent = color(
-            if embedded {
-                self.bar_palette().accent
-            } else {
-                g.theme.accent
-            },
-            t,
-        );
+        let accent = color(accent0, t);
+        // Encre de l'icône de remplacement : celle du thème qui reste lisible
+        // sur la tuile d'accent.
+        let on_accent = Color {
+            a: t,
+            ..design::on_accent(color(accent0, 1.0), color(fg0, 1.0), color(bg0, 1.0))
+        };
         let face = |class: &str, px: f32| -> Element<'a, UiMsg> {
             let img = self.class_imgs.get(class).copied().unwrap_or(IconImg::None);
             self.img_element(img, px, t).unwrap_or_else(|| {
-                container(
-                    text(
-                        class
-                            .chars()
-                            .next()
-                            .unwrap_or('?')
-                            .to_uppercase()
-                            .to_string(),
-                    )
-                    .font(self.font)
-                    .size(px * 0.5)
-                    .color(fg),
-                )
-                .center(px)
-                .style(move |_| container::Style {
-                    background: Some(
-                        Color {
-                            a: 0.16 * t,
-                            ..accent
-                        }
-                        .into(),
-                    ),
-                    border: Border::default().rounded(px * 0.24),
-                    ..Default::default()
-                })
-                .into()
+                crate::ui::icons::fallback_icon(class, px, accent, on_accent, self.title_font())
             })
         };
         let glyph = |g: &Glyph| -> Element<'a, UiMsg> {
@@ -527,29 +498,15 @@ impl App {
                             .color(fg)
                             .into()
                     }),
-                Glyph::Settings if embedded => iced::widget::svg(
+                // Réglages : le glyphe de hyprdesk, teinté comme les autres
+                // commandes, à la même échelle dans les deux docks.
+                Glyph::Settings => iced::widget::svg(
                     crate::ui::icons::get("preferences-system").expect("settings icon"),
                 )
                 .width(size * 0.85)
                 .height(size * 0.85)
                 .style(move |_, _| iced::widget::svg::Style { color: Some(fg) })
                 .into(),
-                Glyph::Settings => self
-                    .img_element(
-                        self.ui_imgs
-                            .get(crate::ui::ICON_SETTINGS)
-                            .copied()
-                            .unwrap_or(IconImg::None),
-                        size * 0.6,
-                        t,
-                    )
-                    .unwrap_or_else(|| {
-                        text(crate::i18n::tr("Réglages"))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                            .color(fg)
-                            .into()
-                    }),
             }
         };
         let monitor = m.name.clone();
