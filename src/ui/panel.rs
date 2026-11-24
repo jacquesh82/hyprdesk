@@ -1399,10 +1399,11 @@ impl App {
                 .size(crate::ui::tokens::ts(11.0))
                 .color(self.ink().dim)
                 .font(self.title_font()),
+            // Titre de page : la seule graisse Bold du tiroir (HIG TYP-05).
             text(plugins::find(p.tab).map_or("", |i| i.label))
                 .font(self.font)
                 .size(crate::ui::tokens::ts(27.0))
-                .font(self.title_font())
+                .font(self.page_title_font())
                 .color(fg),
             // Aides, états et comptes : la couleur secondaire du thème,
             // garantie à 4,5:1 sur le fond du tiroir (HIG LAY-08).

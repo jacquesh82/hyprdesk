@@ -147,7 +147,8 @@ impl Default for Typography {
             display: REF_DISPLAY,
             metric: REF_METRIC,
             weight: 400,
-            title_weight: 700,
+            // Titres en semibold : Bold reste au titre de page (HIG TYP-05).
+            title_weight: 600,
             line_height: 1.3,
             tabular_numbers: false,
         }
@@ -967,6 +968,23 @@ mod tests {
         assert!((t.scaled(13.0) - 15.0).abs() < 1e-4);
         assert!((t.scaled(34.0) - 40.0).abs() < 1e-4);
         assert_eq!(Typography::default().scaled(14.0), 14.0);
+    }
+
+    /// HIG TYP-05 : les titres sont en semibold par défaut ; un pack peut
+    /// toujours graisser davantage ses titres.
+    #[test]
+    fn titres_en_semibold_par_defaut() {
+        use crate::theme_engine::manifest::WeightSpec;
+        assert_eq!(Typography::default().title_weight, 600);
+        assert_eq!(typography(None).title_weight, 600);
+        let t = typography(Some(&Fonts {
+            title_weight: Some(WeightSpec::Name("bold".into())),
+            ..Default::default()
+        }));
+        assert_eq!(
+            t.title_weight, 700,
+            "le pack qui graisse ses titres l'impose"
+        );
     }
 
     #[test]

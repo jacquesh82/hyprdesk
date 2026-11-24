@@ -3479,9 +3479,19 @@ impl App {
     }
 
     /// Police de l'interface, à la graisse voulue.
-    /// Graisse de la barre et des titres : la version grasse de la police.
+    /// Graisse de la barre et des titres : celle des titres du pack,
+    /// semibold par défaut (HIG TYP-05).
     pub(super) fn title_font(&self) -> Font {
         self.ui_font(tokens::weight(tokens::design().typography.title_weight))
+    }
+
+    /// Police du titre de page : Bold, réservé à ce titre, que le reste des
+    /// titres soit en semibold (HIG TYP-05) ; un pack qui graisse davantage
+    /// ses titres garde sa graisse.
+    pub(super) fn page_title_font(&self) -> Font {
+        self.ui_font(tokens::weight(
+            tokens::design().typography.title_weight.max(700),
+        ))
     }
 
     pub(super) fn ui_font(&self, weight: iced::font::Weight) -> Font {
