@@ -2877,6 +2877,7 @@ Video
         let bulle = |id: u32| crate::ui::toasts::Toast {
             n: crate::notifications::build(id, "a", "", "s", "", &[], &Default::default(), -1),
             since: std::time::Instant::now(),
+            request: None,
         };
         let calendrier = |style, toast| {
             matches!(

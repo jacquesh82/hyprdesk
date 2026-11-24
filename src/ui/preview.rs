@@ -996,13 +996,15 @@ impl Preview {
                 .want_icon(crate::ui::plugins::bar::surface::URGENT_ICON);
             // Icône de l'application de la bulle, résolue tout de suite
             // (pas de tâche dans l'aperçu).
-            if !self.app.named_icons.contains_key("firefox") {
-                let path = launch::lookup_icon("firefox", None, 32)
-                    .or_else(|| launch::lookup_icon("firefox", Some("Adwaita"), 32));
-                let gen_ = self.app.icons_gen;
-                let _ = self
-                    .app
-                    .update_inner(Msg::IconResolved(gen_, "firefox".into(), path));
+            for app in ["firefox", "thunderbird"] {
+                if !self.app.named_icons.contains_key(app) {
+                    let path = launch::lookup_icon(app, None, 32)
+                        .or_else(|| launch::lookup_icon(app, Some("Adwaita"), 32));
+                    let gen_ = self.app.icons_gen;
+                    let _ = self
+                        .app
+                        .update_inner(Msg::IconResolved(gen_, app.into(), path));
+                }
             }
             self.app.toasts.list = vec![
                 super::toasts::Toast {
@@ -1017,6 +1019,7 @@ impl Preview {
                         -1,
                     ),
                     since: std::time::Instant::now(),
+                    request: None,
                 },
                 super::toasts::Toast {
                     n: crate::notifications::build(
@@ -1030,6 +1033,24 @@ impl Preview {
                         -1,
                     ),
                     since: std::time::Instant::now(),
+                    request: None,
+                },
+                // Demande d'autorisation (HIG PAT-02) : la bulle de la première
+                // notification d'une application, « Refuser » et « Autoriser »
+                // au-dessus de son contenu.
+                super::toasts::Toast {
+                    n: crate::notifications::build(
+                        3,
+                        "Thunderbird",
+                        "thunderbird",
+                        "Nouveau message",
+                        "Alice : on déjeune ?",
+                        &[],
+                        &Default::default(),
+                        -1,
+                    ),
+                    since: std::time::Instant::now(),
+                    request: Some("thunderbird".into()),
                 },
             ];
             // Première critique de son application : sa bulle explique le
@@ -2130,6 +2151,7 @@ impl Preview {
                             -1,
                         ),
                         since: std::time::Instant::now(),
+                        request: None,
                     }];
                 }
             }
@@ -2703,6 +2725,7 @@ impl Preview {
                         unread: false,
                     },
                     since: Instant::now(),
+                    request: None,
                 });
             }
         }

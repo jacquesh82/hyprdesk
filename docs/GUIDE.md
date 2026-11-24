@@ -195,6 +195,13 @@ turns itself off at its deadline, and its tile says until when ("Silence ·
 until 18:00"). From the command line: `hyprdesk notifications dnd on
 [1h|soir]`.
 
+The first notification from an application asks, in its bubble, for the
+permission to send you notifications: "Decline" or "Allow", above its content.
+The bubble stays until you answer or close it; closed without an answer,
+nothing is recorded and the next notification asks again. "Decline": nothing
+more from that application, neither bubble nor history. Until the permission is
+given, nothing enters the history.
+
 The first critical notification from an application explains, in its bubble,
 that it gets through Silence and stays until it is closed; its "Block during
 Silence" button denies the bypass to that application: under Silence, its

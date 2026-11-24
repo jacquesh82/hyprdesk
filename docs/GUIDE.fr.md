@@ -193,6 +193,13 @@ désactivation. Il s'éteint seul à son échéance, et sa tuile dit jusqu'à qu
 (« Silence · jusqu'à 18:00 »). En ligne de commande :
 `hyprdesk notifications dnd on [1h|soir]`.
 
+La première notification d'une application demande, dans sa bulle, l'autorisation
+de vous en envoyer : « Refuser » ou « Autoriser », au-dessus de son contenu. La
+bulle reste jusqu'à votre réponse ou à sa fermeture ; fermée sans réponse, rien
+n'est inscrit et la notification suivante redemande. « Refuser » : plus rien de
+cette application, ni bulle ni historique. Tant que l'autorisation n'est pas
+donnée, rien n'entre dans l'historique.
+
 La première notification critique d'une application explique, dans sa bulle,
 qu'elle traverse le Silence et reste jusqu'à sa fermeture ; son bouton
 « Bloquer pendant le Silence » refuse ce passage à cette application : sous

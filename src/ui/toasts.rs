@@ -9,6 +9,9 @@
 //! La première notification critique d'une application explique, dans sa
 //! bulle, qu'elle traverse le Silence, et permet de le refuser pour cette
 //! application (`crate::notifications::Passage`).
+//! La première notification d'une application demande, dans sa bulle,
+//! l'autorisation de lui en envoyer ; refusée, l'application n'est plus remise
+//! (`crate::notifications::Authorizations`).
 //!
 //! Si un autre démon de notifications tient le nom (wayle, mako…), rien
 //! n'est affiché ici : c'est lui qui montre les notifications.
@@ -26,7 +29,10 @@ use iced_layershell::reexport::{
 };
 
 use super::{App, Msg, color};
-use crate::notifications::{Event, Notification, Passage, Reason, SilenceEnd, Urgency};
+use crate::notifications::{
+    Authorization, Authorizations, Delivery, Event, Notification, Passage, Reason, SilenceEnd,
+    Urgency,
+};
 use crate::ui::plugins::bar::surface::{URGENT_ICON, truncate};
 
 pub const NAMESPACE: &str = "hyprdesk-notifications";
@@ -175,6 +181,23 @@ pub fn stream() -> impl Stream<Item = Event> {
 pub struct Toast {
     pub n: Notification,
     pub since: Instant,
+    /// Demande d'autorisation (HIG PAT-02) que porte la bulle : la clé de
+    /// l'application qui n'a encore aucune décision. Jusqu'à la réponse ou à
+    /// la fermeture, la bulle reste et sa notification n'est pas remise.
+    pub request: Option<String>,
+}
+
+/// Ce que devient, pour l'interface, une notification reçue d'une application
+/// (HIG PAT-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reception {
+    /// Remise : accordée — ou sans le service (aperçu, autre démon), où rien
+    /// ne se décide.
+    Delivered,
+    /// Refusée : fermée pour l'application, ni bulle ni historique.
+    Refused,
+    /// Sans décision : sa bulle porte la demande d'autorisation.
+    Asked,
 }
 
 impl Toast {
@@ -320,6 +343,10 @@ pub enum TMsg {
     Close(u32),
     /// Refus du passage du Silence pour l'application de la bulle (HIG PAT-05).
     Refuse(u32),
+    /// Réponse de la bulle à la demande d'autorisation de son application
+    /// (HIG PAT-02) : « Autoriser », « Refuser ».
+    Allow(u32),
+    Deny(u32),
     Tick,
     Shown(Id),
     /// La fin programmée du Silence est atteinte (HIG PAT-04).
@@ -473,6 +500,70 @@ impl Toasts {
         true
     }
 
+    /// Décision qui s'applique à une notification de l'application `key` (HIG
+    /// PAT-02). Décide celui qui tient le service de notifications : sans lui
+    /// (aperçu, autre démon), rien ne se décide.
+    fn reception(&self, key: &str) -> Reception {
+        if !self.active {
+            return Reception::Delivered;
+        }
+        match Authorizations::load().get(key) {
+            Some(Authorization { granted: true, .. }) => Reception::Delivered,
+            Some(_) => Reception::Refused,
+            None => Reception::Asked,
+        }
+    }
+
+    /// Une notification remise entre dans l'historique, non lue ; un
+    /// remplacement (même id) change son contenu : non lue à nouveau (HIG
+    /// SYS-02). Une liste de la barre ouverte la montre : lue. Rien d'une
+    /// notification `transient`.
+    fn deliver(&mut self, n: &Notification, list_open: bool) {
+        if n.transient {
+            return;
+        }
+        self.history.retain(|h| h.id != n.id);
+        let mut h = n.clone();
+        h.unread = !list_open;
+        self.history.insert(0, h);
+        self.history.truncate(crate::notifications::HISTORY);
+        self.publish();
+    }
+
+    /// Réponse à la demande d'autorisation que porte la bulle `id` (HIG
+    /// PAT-02). `allow` : la demande quitte la bulle, qui devient une bulle
+    /// ordinaire — son délai repart, sa notification entre dans l'historique.
+    /// `serving`, hyprdesk tient le service et garde la décision (l'aperçu,
+    /// un autre démon : rien ne se garde). Vrai quand la bulle portait une
+    /// demande.
+    fn answer(&mut self, id: u32, allow: bool, serving: bool, list_open: bool) -> bool {
+        let Some(t) = self.list.iter_mut().find(|t| t.n.id == id) else {
+            return false;
+        };
+        let Some(key) = t.request.take() else {
+            return false;
+        };
+        let n = t.n.clone();
+        if allow {
+            t.since = Instant::now();
+        }
+        if serving {
+            Authorizations::load()
+                .set(
+                    &key,
+                    Authorization {
+                        granted: allow,
+                        delivery: Delivery::default(),
+                    },
+                )
+                .save();
+        }
+        if allow {
+            self.deliver(&n, list_open);
+        }
+        true
+    }
+
     /// Applique une commande `hyprdesk notifications …` : `dnd [on [1h|soir]
     /// | off]`, `clear`. Sans mot de fin, le Silence dure jusqu'à
     /// désactivation (HIG PAT-04).
@@ -506,14 +597,20 @@ const CARD_BODY_ACTIONS: f32 = 20.0;
 
 /// Hauteur de la carte d'une bulle : `CARD`, plus 20 px quand elle montre à la
 /// fois un corps et des boutons d'action (HIG ACC-04), plus l'explication du
-/// passage du Silence quand la bulle la porte (HIG PAT-05).
-fn card_height(n: &Notification, explained: bool) -> f32 {
+/// passage du Silence quand la bulle la porte (HIG PAT-05), plus la demande
+/// d'autorisation quand elle la porte (HIG PAT-02 : ses deux lignes et ses
+/// deux boutons, la même mesure que l'explication).
+fn card_height(t: &Toast, explained: bool) -> f32 {
+    let n = &t.n;
     let actions = n.actions.iter().any(|(k, _)| k != "default");
     let mut h = CARD;
     if actions && !n.body.is_empty() {
         h += CARD_BODY_ACTIONS;
     }
     if explained {
+        h += explain_height();
+    }
+    if t.request.is_some() {
         h += explain_height();
     }
     h
@@ -530,7 +627,7 @@ fn height_of(list: &[Toast], visible: usize, explain: &[Explain]) -> u32 {
     let cards: f32 = list
         .iter()
         .take(n)
-        .map(|t| card_height(&t.n, explained(t)))
+        .map(|t| card_height(t, explained(t)))
         .sum();
     (cards + n.saturating_sub(1) as f32 * GAP + 2.0 * SHADOW).ceil() as u32
 }
@@ -665,16 +762,19 @@ impl App {
                 self.toasts
                     .explain
                     .retain(|e| self.toasts.list.iter().any(|t| t.n.id == e.id));
-                if !n.transient {
-                    self.toasts.history.retain(|h| h.id != n.id);
-                    // Elle entre dans l'historique non lue ; un remplacement
-                    // (même id) change son contenu : non lue à nouveau (HIG
-                    // SYS-02). Une liste de la barre ouverte la montre : lue.
-                    let mut h = n.clone();
-                    h.unread = !self.history_list_open();
-                    self.toasts.history.insert(0, h);
-                    self.toasts.history.truncate(crate::notifications::HISTORY);
-                    self.toasts.publish();
+                // Décision de l'application (HIG PAT-02) : sans décision, sa
+                // bulle porte la demande d'autorisation et sa notification
+                // n'entre pas dans l'historique ; refusée, elle n'est pas
+                // remise — fermée pour l'application aussitôt.
+                let key = passage_key(&n);
+                let mut request = None;
+                match self.toasts.reception(&key) {
+                    Reception::Refused => {
+                        send(Cmd::Dismiss(n.id, Reason::Expired));
+                        return Task::none();
+                    }
+                    Reception::Asked => request = Some(key.clone()),
+                    Reception::Delivered => self.toasts.deliver(&n, self.history_list_open()),
                 }
                 // Icône de l'application émettrice, pour la bulle et le centre :
                 // la sienne, sinon celle de son application (HIG ICO-03).
@@ -682,9 +782,10 @@ impl App {
                 let app_icon = self.want_notif_icons(&n);
                 // Passage du Silence (HIG PAT-05), application par
                 // application. Première notification critique : accordé, et la
-                // bulle l'explique, avec moyen de le refuser.
-                let passes = if n.urgency == Urgency::Critical {
-                    let key = passage_key(&n);
+                // bulle l'explique, avec moyen de le refuser. La demande prime
+                // (HIG PAT-02) : rien ne s'inscrit ni ne s'explique — ce sera
+                // à la première critique qui suit l'autorisation.
+                let passes = if n.urgency == Urgency::Critical && request.is_none() {
                     let mut passage = Passage::load();
                     let first = passage.granted(&key).is_none();
                     if first {
@@ -697,12 +798,20 @@ impl App {
                     }
                     passes
                 } else {
-                    false
+                    // Une demande critique passe le Silence comme une première
+                    // critique.
+                    n.urgency == Urgency::Critical
                 };
                 // Basse urgence (HIG PAT-06) ou ne pas déranger : dans
                 // l'historique seulement, sauf critique dont l'application
                 // passe le Silence.
                 if n.urgency == Urgency::Low || (self.toasts.dnd && !passes) {
+                    // Sans bulle, une demande ne se pose pas : la notification,
+                    // non remise, se ferme pour l'application — la suivante
+                    // redemandera.
+                    if request.is_some() {
+                        send(Cmd::Dismiss(n.id, Reason::Expired));
+                    }
                     return app_icon;
                 }
                 // Urgence critique : son repère doit être prêt dès la première image.
@@ -714,6 +823,7 @@ impl App {
                 let t = Toast {
                     n,
                     since: Instant::now(),
+                    request,
                 };
                 match self.toasts.list.iter_mut().find(|o| o.n.id == t.n.id) {
                     Some(o) => *o = t,
@@ -784,6 +894,27 @@ impl App {
                     Task::none()
                 }
             }
+            // La bulle autorise son application (HIG PAT-02) : décision gardée,
+            // la demande quitte la bulle, qui devient une bulle ordinaire — son
+            // délai repart, sa notification entre dans l'historique.
+            TMsg::Allow(id) => {
+                if self
+                    .toasts
+                    .answer(id, true, self.toasts.active, self.history_list_open())
+                {
+                    self.sync_toasts()
+                } else {
+                    Task::none()
+                }
+            }
+            // La bulle refuse son application (HIG PAT-02) : décision gardée,
+            // et la bulle se ferme sans historique, comme « Fermer ».
+            TMsg::Deny(id) => {
+                if self.toasts.answer(id, false, self.toasts.active, false) {
+                    return self.toasts_update(TMsg::Close(id));
+                }
+                Task::none()
+            }
             TMsg::Tick => {
                 let default = Layout::of(&self.cfg.general).timeout;
                 let expired: Vec<u32> = self
@@ -791,8 +922,10 @@ impl App {
                     .list
                     .iter()
                     .filter(|t| {
-                        t.lifetime_or(default)
-                            .is_some_and(|l| t.since.elapsed() >= l)
+                        // Une demande reste jusqu'à sa réponse ou à sa fermeture.
+                        t.request.is_none()
+                            && t.lifetime_or(default)
+                                .is_some_and(|l| t.since.elapsed() >= l)
                     })
                     .map(|t| t.n.id)
                     .collect();
@@ -1116,16 +1249,19 @@ impl App {
                 text(crate::i18n::tr("Fermer")).font(self.font),
                 iced::widget::tooltip::Position::Left,
             ));
-        let mut col = column![
-            head,
+        let mut col = column![head].spacing(4).width(Length::Fill);
+        // Demande d'autorisation de l'application (HIG PAT-02) : au-dessus du
+        // contenu de la notification, pour qu'on sache ce qu'on accorde.
+        if t.request.is_some() {
+            col = col.push(self.request_block(&t.n, fg));
+        }
+        col = col.push(
             text(t.n.summary.clone())
                 .font(self.title_font())
                 .size(crate::ui::tokens::ts(14.0))
                 .color(fg)
                 .wrapping(text::Wrapping::None),
-        ]
-        .spacing(4)
-        .width(Length::Fill);
+        );
         if !t.n.body.is_empty() {
             // Deux lignes au plus (la carte a une hauteur fixe) ; rien du corps
             // quand les aperçus sont masqués (HIG SYS-05).
@@ -1178,7 +1314,7 @@ impl App {
         let card = container(row![glyph, col].spacing(12).align_y(Alignment::Start))
             .padding([10, 14])
             .width(Layout::of(&self.cfg.general).width)
-            .height(card_height(&t.n, explained))
+            .height(card_height(t, explained))
             .clip(true)
             .style(move |_| {
                 if convex {
@@ -1365,6 +1501,46 @@ impl App {
         Some(r.into())
     }
 
+    /// Demande d'autorisation d'une application (HIG PAT-02) : la phrase qui
+    /// la nomme, puis « Refuser » et « Autoriser » — 28 px de haut (HIG
+    /// ACC-04). Deux lignes au plus, comme le corps : la carte calcule sa
+    /// hauteur. La bulle et la vue étendue la partagent.
+    fn request_block<'a>(&'a self, n: &'a Notification, ink: Color) -> Element<'a, Msg> {
+        let id = n.id;
+        let ask = if n.app.is_empty() {
+            crate::i18n::tr("Une application veut vous envoyer des notifications.").to_string()
+        } else {
+            crate::tr!("{app} veut vous envoyer des notifications.", app = n.app)
+        };
+        let choice = |label: &'static str, press: Msg| {
+            button(
+                text(crate::i18n::tr(label))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(11.0)),
+            )
+            // 28 px de haut (HIG ACC-04) : la carte calcule sa hauteur.
+            .padding([crate::ui::tokens::ts(7.0), 10.0])
+            .height(crate::ui::tokens::ts(BUTTON_TARGET))
+            .on_press(press)
+        };
+        column![
+            text(ask)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .line_height(crate::ui::tokens::line_height())
+                .color(ink)
+                .height(explain_text_height()),
+            row![
+                choice("Refuser", Msg::Toasts(TMsg::Deny(id))),
+                choice("Autoriser", Msg::Toasts(TMsg::Allow(id))),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(4)
+        .into()
+    }
+
     /// Vue étendue d'une activité de la pilule Island (HIG SYS-13) :
     /// l'application, le titre, le corps et les actions de la notification
     /// `id` — ceux de la bulle, le corps moins coupé —, puis le passage à la
@@ -1428,15 +1604,23 @@ impl App {
                 text(crate::i18n::tr("Fermer")).font(self.font),
                 iced::widget::tooltip::Position::Left,
             ));
-        let mut block = column![
-            head,
+        let mut block = column![head].spacing(4).width(Length::Fill);
+        // La bulle porte une demande d'autorisation (HIG PAT-02) : la vue
+        // étendue la montre comme elle, et l'on y répond.
+        if let Some(t) = self
+            .toasts
+            .list
+            .iter()
+            .find(|t| t.n.id == id && t.request.is_some())
+        {
+            block = block.push(self.request_block(&t.n, fg));
+        }
+        block = block.push(
             text(title)
                 .font(self.title_font())
                 .size(crate::ui::tokens::ts(14.0))
                 .color(fg),
-        ]
-        .spacing(4)
-        .width(Length::Fill);
+        );
         if let Some(body) = body {
             block = block.push(
                 text(body)
@@ -1592,6 +1776,7 @@ mod tests {
         Toast {
             n: crate::notifications::build(1, "a", "", "s", "b", &[], &h, timeout),
             since: Instant::now(),
+            request: None,
         }
     }
 
@@ -1649,6 +1834,7 @@ mod tests {
         let corps = |actions: &[String]| Toast {
             n: crate::notifications::build(1, "a", "", "s", "b", actions, &HashMap::new(), -1),
             since: Instant::now(),
+            request: None,
         };
         let sans = corps(&["default".into(), "Ouvrir".into()]);
         let avec = corps(&[
@@ -1659,11 +1845,11 @@ mod tests {
         ]);
         let deux = [sans, avec];
         assert_eq!(
-            card_height(&deux[0].n, false),
+            card_height(&deux[0], false),
             CARD,
             "un corps sans action tient dans CARD"
         );
-        assert_eq!(card_height(&deux[1].n, false), CARD + CARD_BODY_ACTIONS);
+        assert_eq!(card_height(&deux[1], false), CARD + CARD_BODY_ACTIONS);
         assert_eq!(
             height(&deux[1..], &[]),
             (CARD + CARD_BODY_ACTIONS + 2.0 * SHADOW).ceil() as u32
@@ -1682,10 +1868,11 @@ mod tests {
         let bulle = |id: u32| Toast {
             n: crate::notifications::build(id, "a", "", "s", "b", &[], &HashMap::new(), -1),
             since: Instant::now(),
+            request: None,
         };
         let deux = [bulle(1), bulle(2)];
         assert_eq!(
-            card_height(&deux[1].n, true) - card_height(&deux[1].n, false),
+            card_height(&deux[1], true) - card_height(&deux[1], false),
             explain_height()
         );
         assert_eq!(
@@ -1708,6 +1895,39 @@ mod tests {
         assert_eq!(
             height_of(&deux, 1, std::slice::from_ref(&explain)),
             height(&deux[1..], &[])
+        );
+    }
+
+    /// HIG PAT-02 : la carte qui porte une demande d'autorisation gagne ses
+    /// deux lignes et ses deux boutons, la surface suit ; les autres bulles ne
+    /// changent pas.
+    #[test]
+    fn carte_plus_haute_quand_elle_porte_une_demande() {
+        let bulle = |id: u32| Toast {
+            n: crate::notifications::build(id, "a", "", "s", "b", &[], &HashMap::new(), -1),
+            since: Instant::now(),
+            request: None,
+        };
+        let deux = [bulle(1), bulle(2)];
+        assert_eq!(
+            card_height(&deux[0], false),
+            CARD,
+            "sans demande, la carte ne change pas"
+        );
+        let avec = [
+            deux[0].clone(),
+            Toast {
+                request: Some("a".into()),
+                ..bulle(2)
+            },
+        ];
+        assert_eq!(
+            card_height(&avec[1], false) - card_height(&deux[1], false),
+            explain_height()
+        );
+        assert_eq!(
+            height(&avec, &[]),
+            (2.0 * CARD + explain_height() + GAP + 2.0 * SHADOW).ceil() as u32
         );
     }
 
@@ -1876,9 +2096,10 @@ mod tests {
 
     /// Le fichier du passage du Silence est commun aux tests d'un processus et
     /// sa réécriture part d'une lecture : deux tests qui y écriraient à la fois
-    /// perdraient l'inscription de l'un d'eux. Tout test qui fait passer une
-    /// critique par `TMsg::Event(Event::Shown)` prend ce verrou, un seul à la
-    /// fois.
+    /// perdraient l'inscription de l'un d'eux — de même du fichier des
+    /// autorisations (HIG PAT-02), même verrou. Tout test qui fait passer une
+    /// notification par `TMsg::Event(Event::Shown)` en tenant le service prend
+    /// ce verrou, un seul à la fois.
     static VERROU_PASSAGE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Prend ce verrou pour tout le test.
@@ -2026,6 +2247,168 @@ mod tests {
         assert_eq!(Passage::load().granted(&autre), Some(true));
     }
 
+    /// HIG PAT-02 : la première notification d'une application porte, dans sa
+    /// bulle, la demande d'autorisation. La bulle reste jusqu'à la réponse et
+    /// sa notification n'entre pas dans l'historique ; « Autoriser » garde la
+    /// décision et remet la bulle comme les autres, son délai reparti ; la
+    /// notification suivante arrive sans demande. Sans le service (aperçu,
+    /// autre démon), rien ne se demande.
+    #[test]
+    fn la_premiere_notification_d_une_application_demande_l_autorisation() {
+        let _verrou = verrou_passage();
+        let (mut app, autre) = (application(), cle());
+        app.toasts.active = true;
+        let bulles = |app: &App| {
+            app.toasts
+                .list
+                .iter()
+                .map(|t| (t.n.id, t.request.clone()))
+                .collect::<Vec<_>>()
+        };
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(1, &autre))));
+        assert_eq!(
+            bulles(&app),
+            vec![(1, Some(autre.clone()))],
+            "la bulle de demande se montre, et nomme son application"
+        );
+        assert!(
+            app.toasts.history.is_empty(),
+            "non accordée : rien n'entre dans l'historique"
+        );
+        assert!(
+            Authorizations::load().get(&autre).is_none(),
+            "tant qu'il n'y a pas de réponse, rien n'est inscrit"
+        );
+        app.toasts.list[0].since = Instant::now() - Duration::from_secs(60);
+        let _ = app.toasts_update(TMsg::Tick);
+        assert_eq!(
+            bulles(&app).len(),
+            1,
+            "une demande ne s'efface pas d'elle-même"
+        );
+        let _ = app.toasts_update(TMsg::Allow(1));
+        assert_eq!(
+            Authorizations::load().get(&autre),
+            Some(Authorization {
+                granted: true,
+                delivery: Delivery::Banner,
+            }),
+            "« Autoriser » garde l'autorisation"
+        );
+        assert_eq!(bulles(&app), vec![(1, None)], "la bulle devient ordinaire");
+        assert_eq!(
+            app.toasts.history.len(),
+            1,
+            "accordée : la notification est remise"
+        );
+        let _ = app.toasts_update(TMsg::Tick);
+        assert_eq!(bulles(&app).len(), 1, "son délai repart de la réponse");
+        app.toasts.list[0].since = Instant::now() - Duration::from_secs(60);
+        let _ = app.toasts_update(TMsg::Tick);
+        assert!(bulles(&app).is_empty(), "puis elle s'efface à son échéance");
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(2, &autre))));
+        assert_eq!(
+            bulles(&app),
+            vec![(2, None)],
+            "la suivante arrive sans demande"
+        );
+        assert_eq!(app.toasts.history.len(), 2);
+        // Sans le service : rien ne se demande.
+        let (mut app, sans) = (application(), cle());
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(9, &sans))));
+        assert_eq!(bulles(&app), vec![(9, None)]);
+    }
+
+    /// HIG PAT-02 : « Refuser » ferme la bulle sans historique et garde le
+    /// refus ; l'application n'est plus remise — ni bulle, ni historique — et
+    /// ne redemande pas. Fermée sans réponse, une demande n'inscrit rien et la
+    /// notification suivante redemande ; sous Silence, une demande non
+    /// critique ne se pose pas.
+    #[test]
+    fn une_application_refusee_n_est_plus_remise_et_une_demande_fermee_redemande() {
+        let _verrou = verrou_passage();
+        let (mut app, refusee, autre) = (application(), cle(), cle());
+        app.toasts.active = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(1, &refusee))));
+        let _ = app.toasts_update(TMsg::Deny(1));
+        assert!(app.toasts.list.is_empty(), "« Refuser » ferme la bulle");
+        assert!(app.toasts.history.is_empty(), "sans historique");
+        assert_eq!(
+            Authorizations::load().get(&refusee),
+            Some(Authorization {
+                granted: false,
+                delivery: Delivery::Banner,
+            }),
+            "le refus est gardé"
+        );
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(2, &refusee))));
+        assert!(app.toasts.list.is_empty(), "refusée : plus de bulle");
+        assert!(app.toasts.history.is_empty(), "refusée : plus d'historique");
+        // Fermée sans réponse : rien n'est inscrit, la suivante redemande.
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(3, &autre))));
+        let _ = app.toasts_update(TMsg::Close(3));
+        assert!(
+            Authorizations::load().get(&autre).is_none(),
+            "fermée sans réponse : rien n'est inscrit"
+        );
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(4, &autre))));
+        assert_eq!(
+            app.toasts.list[0].request.as_deref(),
+            Some(autre.as_str()),
+            "la notification suivante redemande"
+        );
+        // Sous Silence : pas de bulle, donc pas de demande, et rien dans
+        // l'historique.
+        let _ = app.toasts_update(TMsg::Close(4));
+        app.toasts.dnd = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(5, &autre))));
+        assert!(
+            app.toasts.list.is_empty(),
+            "Silence : pas de bulle de demande"
+        );
+        assert!(
+            app.toasts.history.is_empty(),
+            "rien n'est remis sans accord"
+        );
+    }
+
+    /// HIG PAT-02 : la demande prime sur l'explication du passage du Silence
+    /// (PAT-05) — une demande critique passe le Silence, mais rien ne s'inscrit
+    /// ni ne s'explique ; l'autorisation donnée, la première critique qui suit
+    /// l'explique.
+    #[test]
+    fn une_demande_critique_passe_le_silence_sans_expliquer_le_passage() {
+        let _verrou = verrou_passage();
+        let (mut app, autre) = (application(), cle());
+        app.toasts.active = true;
+        app.toasts.dnd = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(1, &autre))));
+        assert_eq!(
+            app.toasts.list[0].request.as_deref(),
+            Some(autre.as_str()),
+            "la demande critique se montre sous Silence"
+        );
+        assert!(
+            app.toasts.explain.is_empty(),
+            "la demande prime : rien n'est expliqué"
+        );
+        assert_eq!(
+            Passage::load().granted(&autre),
+            None,
+            "et le passage n'est pas inscrit"
+        );
+        let _ = app.toasts_update(TMsg::Allow(1));
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(2, &autre))));
+        assert_eq!(
+            app.toasts.explain,
+            vec![Explain {
+                key: autre.clone(),
+                id: 2,
+            }],
+            "la première critique qui suit l'autorisation explique le passage"
+        );
+    }
+
     /// Une notification « a » avec ou sans action `default`, avec ou sans
     /// application d'origine (`desktop-entry`).
     fn carte(actions: &[&str], entry: Option<&str>) -> Notification {
@@ -2080,6 +2463,7 @@ mod tests {
         app.toasts.list = vec![Toast {
             n: carte(&["default", "open"], None),
             since: Instant::now(),
+            request: None,
         }];
         let _ = app.open_popover(bar, "clock".into(), Kind::Activity(1));
         assert!(app.activity_open(1), "la vue de la bulle 1 est ouverte");
@@ -2106,6 +2490,7 @@ mod tests {
         app.toasts.list = vec![Toast {
             n: recue(2, "b"),
             since: Instant::now(),
+            request: None,
         }];
         let _ = app.toasts_update(TMsg::Close(2));
         assert!(app.activity_open(1), "fermer une autre bulle laisse la vue");
