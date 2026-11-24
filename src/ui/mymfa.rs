@@ -737,7 +737,7 @@ impl App {
                     ),
                 };
                 let mut col = column![
-                    title(tr("Créer votre coffre myMFA").to_string()),
+                    title(tr("Créer un coffre myMFA").to_string()),
                     para(why),
                     field(
                         INPUT_ID,

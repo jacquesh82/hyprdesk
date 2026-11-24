@@ -8,7 +8,7 @@
 //!
 //! Il s'écrit comme le reste des réglages, dans `settings.lua`
 //! (`hd.config({ theme = { … } })` et `hd.wallpaper`). Il voyage seul dans une
-//! archive de thème (`crate::share`, portée `Scope::Theme`) ; « Mes thèmes »
+//! archive de thème (`crate::share`, portée `Scope::Theme`) ; « Thèmes personnels »
 //! sont ces archives, rangées dans `hyprdesk/themes/`.
 
 use std::path::{Path, PathBuf};
@@ -477,7 +477,7 @@ pub fn apply_pack_shape(
     Ok(refused)
 }
 
-/// Dossier de « Mes thèmes ».
+/// Dossier de « Thèmes personnels ».
 pub fn themes_dir(config_path: &Path) -> PathBuf {
     config_path
         .parent()
@@ -485,12 +485,12 @@ pub fn themes_dir(config_path: &Path) -> PathBuf {
         .join("hyprdesk/themes")
 }
 
-/// Retire un thème de « Mes thèmes » : déplacé dans `themes/.retired/`
+/// Retire un thème de « Thèmes personnels » : déplacé dans `themes/.retired/`
 /// (récupérable), jamais effacé.
 pub fn retire(path: &Path, config_path: &Path) -> Result<PathBuf, String> {
     let dir = themes_dir(config_path);
     if path.parent() != Some(dir.as_path()) {
-        return Err(crate::i18n::tr("seuls les thèmes de « Mes thèmes » se retirent").into());
+        return Err(crate::i18n::tr("seuls les thèmes personnels se retirent").into());
     }
     let bin = dir.join(".retired");
     std::fs::create_dir_all(&bin).map_err(|e| e.to_string())?;
@@ -537,7 +537,7 @@ pub struct Saved {
     pub summary: Summary,
 }
 
-/// « Mes thèmes », triés par nom.
+/// « Thèmes personnels », triés par nom.
 pub fn library(config_path: &Path) -> Vec<Saved> {
     let Ok(rd) = std::fs::read_dir(themes_dir(config_path)) else {
         return Vec::new();
@@ -569,7 +569,7 @@ pub fn library(config_path: &Path) -> Vec<Saved> {
     out
 }
 
-/// Enregistre le thème en place dans « Mes thèmes » (remplace un thème du même nom).
+/// Enregistre le thème en place dans « Thèmes personnels » (remplace un thème du même nom).
 pub fn save_current(config_path: &Path, name: &str) -> Result<PathBuf, String> {
     let out = themes_dir(config_path).join(format!("{}.tar.gz", slug(name)));
     crate::share::export_theme(config_path, &out, Some(name))?;
@@ -855,7 +855,7 @@ mod tests {
 
     use super::*;
 
-    /// Retirer un thème le met de côté (récupérable) ; hors de « Mes thèmes », refusé.
+    /// Retirer un thème le met de côté (récupérable) ; hors de « Thèmes personnels », refusé.
     #[test]
     fn retirer_un_theme() {
         let root = std::env::temp_dir().join(format!("hyprdesk-retire-{}", std::process::id()));

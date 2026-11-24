@@ -136,7 +136,7 @@ Commandes :
                     applique un setup partagé (sauvegarde l'actuel d'abord) ;
                     --theme : n'en prendre que le thème (une archive de thème
                     ne change jamais que le thème)
-  theme [list]      « Mes thèmes »
+  theme [list]      « Thèmes personnels »
   theme new <image|pack.zip|dossier> [--name NOM]
                     crée un thème depuis une scène : couleurs tirées de l'image,
                     scène étalée sur tous les écrans (bureau et verrouillage)

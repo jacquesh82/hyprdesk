@@ -208,7 +208,7 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
-            self.section("Vos courbes"),
+            self.section("Courbes personnelles"),
         ]
         .spacing(14);
         let user = &self.cfg.general.fx.curves;

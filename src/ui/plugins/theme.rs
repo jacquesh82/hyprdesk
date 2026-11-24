@@ -1,6 +1,6 @@
 //! Paquet intégré « Thème » : ce qui se voit. Couleurs, fonds d'écran, effet
 //! de chaque endroit (opacité, flou), mode du bureau, voile du verrouillage ;
-//! thèmes livrés et « Mes thèmes » (archives de thème, `crate::theme`).
+//! thèmes livrés et « Thèmes personnels » (archives de thème, `crate::theme`).
 //!
 //! Le thème s'exporte seul ou avec tout le setup (paquet Partage).
 //!
@@ -114,7 +114,7 @@ pub struct State {
     pub hex: BTreeMap<Slot, String>,
     /// Sélecteur de couleur ouvert, et son emplacement (HIG SEL-02).
     pub picker: Option<(Slot, Picker)>,
-    /// « Mes thèmes ».
+    /// « Thèmes personnels ».
     pub library: Vec<Saved>,
     /// Packs du moteur de thème (embarqués, installés, `perso`) : les thèmes
     /// livrés (MLG-233).
@@ -141,17 +141,17 @@ pub enum Msg {
     PickerCancel,
     Name(String),
     NameSubmit,
-    /// Enregistre le thème en place dans « Mes thèmes ».
+    /// Enregistre le thème en place dans « Thèmes personnels ».
     Save,
     /// Source d'un nouveau thème : image, pack `.zip` ou dossier.
     Scene(String),
-    /// Crée un thème depuis cette scène, dans « Mes thèmes ».
+    /// Crée un thème depuis cette scène, dans « Thèmes personnels ».
     CreateFromScene,
     Saved(Result<String, String>),
     Library(Vec<Saved>, Vec<crate::theme_engine::bridge::Entry>),
     /// Applique un thème enregistré.
     Apply(PathBuf),
-    /// Retire un thème de « Mes thèmes » (premier appui : arme ; second : confirme).
+    /// Retire un thème de « Thèmes personnels » (premier appui : arme ; second : confirme).
     Delete(PathBuf),
     Applied(Result<String, String>),
     Opacity(Place, f32),
@@ -179,7 +179,7 @@ pub enum Msg {
     OpenDir,
 }
 
-/// Relit « Mes thèmes » et les packs du moteur.
+/// Relit « Thèmes personnels » et les packs du moteur.
 pub fn load_library(config_path: PathBuf) -> Task<UiMsg> {
     Task::perform(
         async move {
@@ -449,7 +449,7 @@ impl App {
                         .width(Length::Fill),
                     row![
                         button(
-                            text("Enregistrer dans Mes thèmes")
+                            text("Enregistrer dans les thèmes personnels")
                                 .font(font)
                                 .size(crate::ui::tokens::ts(13.0))
                         )
@@ -529,7 +529,7 @@ impl App {
         .spacing(10)
         .wrap();
 
-        // Mes thèmes.
+        // Thèmes personnels.
         let library: Element<'_, UiMsg> = if st.library.is_empty() {
             text(
                 "Aucun pour l'instant : enregistrez le thème en place, ou importez une archive \
@@ -961,7 +961,7 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             presets,
-            self.section("Mes thèmes"),
+            self.section("Thèmes personnels"),
             row![
                 text(
                     "Appliquer remplace le thème en place (fonds compris) : enregistrez-le \
@@ -1208,7 +1208,7 @@ impl App {
                         tokio::task::spawn_blocking(move || {
                             crate::theme::create(&cfg, &src, None).map(|(out, warning)| {
                                 let mut m = crate::tr!(
-                                    "Thème créé : {out} — à appliquer d'un clic dans Mes thèmes.",
+                                    "Thème créé : {out} — à appliquer d'un clic dans les thèmes personnels.",
                                     out = out.display()
                                 );
                                 if let Some(w) = warning {

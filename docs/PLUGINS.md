@@ -253,7 +253,7 @@ chaque clé CLI pointe vers un paquet existant.
 | `icons` | Icônes | raccourcis d'applications, taille, thème | `launch.rs`, `layout.rs` |
 | `dock` | Dock | fenêtres affichées, regroupement, style | — (widget, § 3) |
 | `launcher` | Lanceur | présentation, suggestions, forme, raccourci | `search.rs` |
-| `theme` | Thème | couleurs, fonds, effet de chaque endroit (opacité, flou), mode du bureau, voile du verrouillage ; thèmes livrés et « Mes thèmes » | `theme.rs`, `config::Theme` |
+| `theme` | Thème | couleurs, fonds, effet de chaque endroit (opacité, flou), mode du bureau, voile du verrouillage ; thèmes livrés et « Thèmes personnels » | `theme.rs`, `config::Theme` |
 | `apptheme` | Modules du thème | les modules du moteur de thème qui portent le thème jusqu'à d'autres logiciels (kitty : `~/.config/kitty/hyprdesk-theme.conf`, inclus à la fin de kitty.conf, relu par SIGUSR1) ; une application = un module `apptheme/<id>.rs` qui expose `TARGET`, listé dans `apptheme::TARGETS` | `apptheme/` |
 | `wallpaper` | Fond d'écran | image, diaporama, couleur ; portée | `config::WallpaperRule` |
 | `widgets` | Widgets | activation, placement | `widgets/` (§ 2) |
@@ -552,7 +552,7 @@ propose deux portées : **tout le setup**, ou **le thème seul**.
 
 - **L'archive** (tout le setup) contient tout ce que tiennent hyprdesk et
   Hyprland (MLG-203), avec un `manifest.json` :
-  - `hyprdesk.lua`, `settings.lua`, les plugins tiers, « Mes thèmes »
+  - `hyprdesk.lua`, `settings.lua`, les plugins tiers, « Thèmes personnels »
     (`hyprdesk/themes/`), les calibrations d'écran (`hyprdesk/calibration/`) ;
   - `hypr/` : `hyprland.lua`, chacun de ses `require` locaux, suivis de
     proche en proche dans le texte sans rien exécuter (`binds.lua`,
@@ -606,8 +606,8 @@ d'icônes, modules du thème (cibles et options).
   écrans restent en place. Une archive de thème s'importe toujours ainsi ;
   le thème d'une archive complète aussi, sur demande (`--theme`). Un fond
   qui n'est ni dans l'archive ni présent sur la machine est écarté.
-- **Mes thèmes** : des archives de thème rangées dans `hyprdesk/themes/`
-  (paquet Thème : « Enregistrer dans Mes thèmes », un clic pour appliquer).
+- **Thèmes personnels** : des archives de thème rangées dans `hyprdesk/themes/`
+  (paquet Thème : « Enregistrer dans les thèmes personnels », un clic pour appliquer).
   Les thèmes livrés (`theme::PRESETS`) changent couleurs et effets, pas les
   fonds.
 
@@ -629,7 +629,7 @@ Une **scène** est une image pensée pour toute la disposition des écrans.
   « Créer depuis une image » dans le paquet Thème) : couleurs extraites de
   l'image (surfaces dans la teinte des ombres, accent dans la teinte vive
   dominante), scène étalée, surfaces translucides et floutées ; rangé dans
-  Mes thèmes. La source peut être une image, ou un **pack** (dossier ou
+  Thèmes personnels. La source peut être une image, ou un **pack** (dossier ou
   `.zip`) dont le `manifest.json` désigne la scène maîtresse (`master`) et
   son nom (`theme`) : les découpes figées du pack sont ignorées, la découpe
   se fait selon les écrans réels.

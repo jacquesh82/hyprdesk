@@ -884,7 +884,7 @@ fn main() -> ExitCode {
                 }
             }
         }
-        // Thèmes : créer depuis une scène, lister « Mes thèmes », appliquer.
+        // Thèmes : créer depuis une scène, lister « Thèmes personnels », appliquer.
         "theme" => match args.get(1).map(String::as_str) {
             Some("new") => {
                 let Some(src) = args[2..]

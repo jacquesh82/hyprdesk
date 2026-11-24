@@ -1080,7 +1080,7 @@ impl App {
         let identity = row![
             appearance::avatar(82.0, presence, animate, accent),
             column![
-                text("Votre assistante du bureau")
+                text("Assistante du bureau")
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
                     .color(dim),

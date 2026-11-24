@@ -122,7 +122,7 @@ impl App {
             Scope::All => crate::i18n::tr(
                 "Une archive avec toute la configuration : hyprdesk.lua, les réglages, \
                            hyprland.lua et chaque fichier qu'il charge (raccourcis, clavier, \
-                           écrans, démarrage, scripts cités), les plugins tiers, Mes thèmes, \
+                           écrans, démarrage, scripts cités), les plugins tiers, les thèmes personnels, \
                            les calibrations, la place des icônes, les fonds et les images \
                            utilisés — à donner à quelqu'un, ou à garder. Les services d'IA et \
                            leurs clés n'y sont pas.",

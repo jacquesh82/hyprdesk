@@ -618,7 +618,7 @@ confirmations and memory.
 | `~/.config/hypr/hyprdesk.lua` | your configuration (`$HYPRDESK_CONFIG` overrides it) |
 | `~/.config/hypr/hyprdesk/settings.lua` | generated settings |
 | `~/.config/hypr/hyprdesk/widgets/` | your plugins |
-| `~/.config/hypr/hyprdesk/themes/` | "My themes" (theme archives) |
+| `~/.config/hypr/hyprdesk/themes/` | "Custom themes" (theme archives) |
 | `~/.config/hypr/hyprdesk/sauvegardes/<date>/` | copies made before a reset to defaults |
 | `~/.config/hypr/hyprdesk/.raccourcis-repondus` | answers to shortcut conflicts |
 | `~/.config/hypr/monitors.lua` | screen layout, written on **Keep** (`require("monitors")` in `hyprland.lua`) |
@@ -642,7 +642,7 @@ confirmations and memory.
 
 **Sharing a setup.** `hyprdesk export [file]` (or Settings → Sharing)
 writes a `.tar.gz` with a `manifest.json`. It carries the whole setup:
-`hyprdesk.lua`, `settings.lua`, third-party plugins, "My themes" and screen
+`hyprdesk.lua`, `settings.lua`, third-party plugins, "Custom themes" and screen
 calibrations; `hyprland.lua`, each local file it `require`s (followed in the
 text, nothing is run), the files hyprdesk holds (`binds.lua`, `inputs.lua`,
 `monitors.lua`, `autostart.lua`, `appearance.lua`…) and the files of the
