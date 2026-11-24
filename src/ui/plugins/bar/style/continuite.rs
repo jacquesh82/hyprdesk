@@ -159,7 +159,7 @@ pub(super) fn workspaces<'a>(
                 .width(if w.name.chars().count() > 1 {
                     Length::Shrink
                 } else {
-                    Length::Fixed(h)
+                    Length::Fixed(h + 4.0)
                 })
                 .on_press(Msg::BarWorkspace(ctx.monitor.clone(), w.name.clone()))
                 .style(move |_, st| button::Style {
@@ -170,7 +170,7 @@ pub(super) fn workspaces<'a>(
                         },
                     )),
                     text_color: txt,
-                    border: Border::default().rounded(h / 2.0),
+                    border: Border::default().rounded(motion::key_radius(h)),
                     ..Default::default()
                 }),
                 app.bar_duration(TOKENS.press),

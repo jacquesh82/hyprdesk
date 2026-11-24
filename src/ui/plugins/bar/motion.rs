@@ -16,6 +16,13 @@ pub(in crate::ui) const LIFT_PX: f32 = 4.0;
 const HOVER_LIFT: f32 = 0.25;
 
 /// Aspect de la capsule qui suit le module survolé.
+/// Rayon d'une touche de rail et de sa capsule glissante : un rectangle
+/// arrondi, comme les capsules des modules — jamais un rond, même sur une
+/// touche carrée (espace de travail à un chiffre).
+pub(in crate::ui) fn key_radius(height: f32) -> f32 {
+    (height * 0.32).min(crate::ui::design::SMALL_RADIUS)
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::ui) enum RailLook {
     /// Capsule remplie (Continuité).
@@ -409,7 +416,7 @@ impl Widget<Msg, iced::Theme, iced::Renderer> for Motion<'_> {
                     f.value(now)
                 }
             });
-            let radius = crate::ui::design::SMALL_RADIUS.min(rect.height / 2.0);
+            let radius = key_radius(rect.height);
             match look {
                 RailLook::Fill(fill) => renderer.fill_quad(
                     renderer::Quad {
