@@ -37,6 +37,7 @@
 | 2026-11-24 | A17 | ACC-07 traité ; il en reste 20 dans ce couloir |
 | 2026-11-24 | A18 | ACC-09 traité ; il en reste 19 dans ce couloir |
 | 2026-11-24 | A19 | FON-04, FON-05, FON-06 traités ; il en reste 16 dans ce couloir |
+| 2026-11-24 | A20 | SYS-08 traité ; il en reste 15 dans ce couloir |
 
 ### Couloir B
 
@@ -228,7 +229,7 @@ Référence verte : `06a2180` (code vérifié par `scripts/verify.sh --visual` l
 | SEL-06 | Libellés des segments « Affichage du bureau » | ÉCART | S | haute | à faire | — | — |
 | SYS-06 | Centre de contrôle : bascule | ÉCART | S | haute | à faire | — | — |
 | SYS-07 | Centre de contrôle : action en cours | ÉCART | S | haute | à faire | — | — |
-| SYS-08 | Centre de contrôle : symboles du Wi-Fi | ÉCART | S | haute | à faire | — | — |
+| SYS-08 | Centre de contrôle : symboles du Wi-Fi | ÉCART | S | haute | fait | e034b49 | la tuile « Wi-Fi » et la pilule du centre Continuité prennent un symbole par état de la radio (`radio_symbol`, `src/ui/controls.rs`) : ondes allumées quand elle est allumée, barrées quand elle est éteinte, l'une et l'autre avec repli vectoriel ; l'état de la connexion reste dans la valeur, l'info-bulle du widget ; sans état connu (hors ligne : le widget ne dit pas l'état de sa radio), le symbole du widget fait foi ; le widget Lua `network` n'est pas changé ; SYS-06 et SYS-07, qui demandent une animation d'état, restent à faire |
 | SYS-09 | Galerie de widgets : descriptions | ÉCART | S | haute | à faire | — | — |
 | SYS-16 | Widget Système : alerte | ÉCART | S | moyenne | à faire | — | — |
 | TYP-06 | Écriture — casse des états | ÉCART | S | haute | fait | 0ef9e75 | Table `ui::etats::Etat` (`src/ui/etats.rs`) : tout état qui se lit seul prend la majuscule initiale — badges des paquets et des widgets (« Activé », « Désactivé », « Intégré », « Livré », « Tiers », « Cœur », « En erreur »), composants de la session (« Actif (pid n) », « Arrêté », « Abandonné (plantages) »), connexions (« Connecté », « Non connecté »), thèmes d'applications (« Installé », « Introuvable »), dans les Réglages et la carte Bluetooth de la barre (`assets/widgets/integres/bluetooth.lua`). Les clés minuscules restent dans les phrases et dans les sorties en ligne de commande. « Actif » de la vue d'ensemble (écran courant) et « Activé », libellé d'interrupteur, restent tels quels. Test `un_terme_par_etat_majuscule_et_traduit`. Recouvrement : même commit que TYP-14. |
