@@ -260,6 +260,10 @@ full desktop) to reach your wallpaper, icons, and widgets. Your windows float
 above the desktop while you use it and return to their tiled layout when you
 leave.
 
+A fullscreen window does not hide the dock for good: it tucks away at the
+screen edge and appears over the window when the pointer touches that edge.
+A window that is only maximized leaves it in place.
+
 Desktop modes are saved per workspace across sessions. With multiple monitors,
 each screen follows the workspace it displays. Use **Settings → Desktop →
 Forced modes** to set a mode for a specific screen or workspace. Windows you

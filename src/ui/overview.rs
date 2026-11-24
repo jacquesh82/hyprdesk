@@ -1341,6 +1341,7 @@ mod tests {
             workspace: "Projet 1".into(),
             floating: false,
             rect: (0, 0, 800, 600),
+            fullscreen: false,
         }];
         let cards = app.overview_layout(Size::new(1440.0, 900.0));
         let (r0, _) = cards[0];

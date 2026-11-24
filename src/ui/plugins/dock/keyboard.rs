@@ -191,6 +191,14 @@ impl App {
                         id,
                         keyboard_interactivity: KeyboardInteractivity::Exclusive,
                     }));
+                    // Masqué (réglé, ou par-dessus un plein écran) : le dock
+                    // qui prend le clavier se montre (HIG PAT-01).
+                    if self.launcher_surfaces.contains_key(&id) && self.dock_hides(id) {
+                        let e = self.bar_reveal.entry(id).or_insert((false, 0));
+                        e.1 += 1;
+                        let generation = e.1;
+                        tasks.push(self.bar_reveal_apply(id, generation, true));
+                    }
                 }
             }
         }
@@ -227,6 +235,11 @@ impl App {
                 id,
                 keyboard_interactivity: KeyboardInteractivity::None,
             }));
+            // Montré pour le clavier, le dock masqué se retire ensuite
+            // (HIG PAT-01).
+            if self.launcher_surfaces.contains_key(&id) && self.dock_hides(id) {
+                tasks.push(self.bar_hover(id, false));
+            }
         }
         Task::batch(tasks)
     }
@@ -434,6 +447,58 @@ mod tests {
             1,
             "Continuity restores its standalone dock"
         );
+    }
+
+    /// Sous une fenêtre plein écran, le dock passe par-dessus, réduit à sa
+    /// bande de rappel, et revient à sa place ensuite (HIG PAT-01).
+    #[test]
+    fn the_dock_stays_reachable_over_a_fullscreen_window() {
+        let mut app = app();
+        let _ = app.update_inner(Msg::Control(crate::control::Command::LauncherOnly));
+        let before = dock(&app);
+        assert!(!app.launcher_surfaces[&before].over_fullscreen);
+        assert!(!app.dock_hides(before) || app.dock_autohide());
+        let window = |fullscreen| crate::hypr::WindowGeo {
+            address: "0x1".into(),
+            class: "foot".into(),
+            title: String::new(),
+            workspace: "1".into(),
+            floating: false,
+            rect: (0, 0, 1440, 900),
+            fullscreen,
+        };
+        let clients = app.clients.clone();
+        let _ = app.update_inner(Msg::Hypr(crate::hypr::Update::Clients(
+            clients.clone(),
+            vec![window(true)],
+        )));
+        let over = dock(&app);
+        assert_ne!(over, before, "surface recréée sur le calque Overlay");
+        assert!(app.launcher_surfaces[&over].over_fullscreen);
+        assert!(app.dock_hides(over));
+        assert!(
+            !app.bar_revealed(over),
+            "réduit d'emblée à sa bande de rappel"
+        );
+        assert_eq!(app.launcher_surfaces.len(), 1);
+        // Les barres changent : la bande de rappel du dock tient.
+        let _ = app.sync_bars();
+        assert!(!app.bar_revealed(over));
+        // Pris au clavier, il se montre.
+        let _ = app.launcher_grab("A", false);
+        assert_eq!(dock(&app), over, "pris sans renaître");
+        assert!(app.bar_revealed(over), "le dock qui a le clavier se voit");
+        app.launcher_runtime.focus = None;
+        let _ = app.update_inner(Msg::Hypr(crate::hypr::Update::Clients(
+            clients,
+            vec![window(false)],
+        )));
+        let back = dock(&app);
+        assert!(
+            !app.launcher_surfaces[&back].over_fullscreen,
+            "revenu sur Top"
+        );
+        assert_eq!(app.launcher_surfaces.len(), 1);
     }
 
     #[test]

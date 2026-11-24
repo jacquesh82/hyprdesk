@@ -739,8 +739,10 @@ impl App {
                 .retain(|(id, _), _| self.bar_surfaces.contains_key(id));
             self.bar_hidden
                 .retain(|id, _| self.bar_surfaces.contains_key(id));
-            self.bar_reveal
-                .retain(|id, _| self.bar_surfaces.contains_key(id));
+            // Le dock partage la bande de rappel (HIG PAT-01).
+            self.bar_reveal.retain(|id, _| {
+                self.bar_surfaces.contains_key(id) || self.launcher_surfaces.contains_key(id)
+            });
             self.bar_full_width
                 .retain(|id, _| self.bar_surfaces.contains_key(id));
             if self
@@ -1042,7 +1044,7 @@ impl App {
     /// après le délai réglé, si rien n'a changé entre-temps.
     pub(in crate::ui) fn bar_hover(&mut self, id: Id, hover: bool) -> Task<Msg> {
         // Le dock masqué hors survol suit le même geste (MLG-279).
-        let delay = if self.launcher_surfaces.contains_key(&id) && self.dock_autohide() {
+        let delay = if self.launcher_surfaces.contains_key(&id) && self.dock_hides(id) {
             if hover { 120 } else { 600 }
         } else {
             let Some(s) = self.bar_surfaces.get(&id) else {
@@ -1080,7 +1082,11 @@ impl App {
                 return Task::none();
             }
             e.0 = show;
-            let th = if show { d.thickness } else { 4 };
+            let th = if show {
+                d.thickness
+            } else {
+                crate::ui::plugins::dock::REVEAL_STRIP
+            };
             let vertical = matches!(
                 d.position,
                 crate::config::LauncherPosition::Left | crate::config::LauncherPosition::Right

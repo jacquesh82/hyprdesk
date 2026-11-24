@@ -262,6 +262,10 @@ puis le bureau complet) ramène le fond d'écran, les icônes et les widgets.
 Les fenêtres passent en flottant par-dessus le bureau le temps de
 l'utiliser, et retrouvent leur mosaïque quand vous le quittez.
 
+Une fenêtre en plein écran ne cache pas le dock pour de bon : il se retire
+au bord de l'écran, et paraît par-dessus la fenêtre quand le pointeur
+touche ce bord. Une fenêtre seulement agrandie le laisse à sa place.
+
 Le mode du bureau est mémorisé par workspace, d'une session à l'autre. Avec
 plusieurs écrans, chacun suit le workspace qu'il affiche. **Réglages → Bureau →
 Modes imposés** fixe le mode d'un écran ou d'un workspace précis. Une fenêtre

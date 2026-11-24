@@ -3358,6 +3358,7 @@ impl Preview {
                 workspace: ws.into(),
                 floating,
                 rect,
+                fullscreen: false,
             });
             // Une icône plausible pour chaque classe (les images de bureau
             // résolues de l'aperçu, prises en rond).

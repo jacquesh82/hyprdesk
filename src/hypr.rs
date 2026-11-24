@@ -364,6 +364,10 @@ impl Pending {
         ) {
             self.workspaces = true;
         }
+        // Le mode du plein écran se lit dans les fenêtres (HIG PAT-01).
+        if name == "fullscreen" {
+            self.clients = true;
+        }
         if let Some(p) = line.strip_prefix("activewindow>>") {
             self.active = Some(parse_active_window(p));
         }
@@ -1889,6 +1893,9 @@ pub struct WindowGeo {
     pub workspace: String,
     pub floating: bool,
     pub rect: Rect,
+    /// Vrai plein écran (mode 2 de Hyprland), pas la fenêtre agrandie (mode
+    /// 1), sous laquelle les calques `top` restent visibles (HIG PAT-01).
+    pub fullscreen: bool,
 }
 
 /// Fenêtres d'après `clients` : titres et géométrie en coordonnées globales.
@@ -1920,6 +1927,7 @@ pub fn parse_window_geometries(v: &Value) -> Vec<WindowGeo> {
                     n(&c["size"], 0),
                     n(&c["size"], 1),
                 ),
+                fullscreen: c["fullscreen"].as_i64().unwrap_or(0) & 2 != 0,
             })
         })
         .filter(|w| !w.workspace.starts_with("special:"))
@@ -2406,6 +2414,23 @@ pub fn notify(icon: u8, ms: u32, msg: &str) {
 
 #[cfg(test)]
 mod tests {
+    /// Vrai plein écran (mode 2, ou 3 : agrandie puis plein écran) ; une
+    /// fenêtre seulement agrandie (mode 1) n'en est pas un (HIG PAT-01).
+    #[test]
+    fn plein_ecran_distingue_de_la_fenetre_agrandie() {
+        let v = serde_json::json!([
+            {"address": "0x1", "class": "mpv", "workspace": {"name": "1"}, "fullscreen": 2},
+            {"address": "0x2", "class": "foot", "workspace": {"name": "1"}, "fullscreen": 1},
+            {"address": "0x3", "class": "kitty", "workspace": {"name": "2"}, "fullscreen": 3},
+            {"address": "0x4", "class": "zed", "workspace": {"name": "2"}}
+        ]);
+        let full: Vec<bool> = super::parse_window_geometries(&v)
+            .iter()
+            .map(|g| g.fullscreen)
+            .collect();
+        assert_eq!(full, [true, false, true, false]);
+    }
+
     fn float_win(address: &str, ws: &str, rect: Rect, floating: bool) -> Geometry {
         Geometry {
             address: address.into(),

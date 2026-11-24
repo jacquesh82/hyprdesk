@@ -64,6 +64,9 @@ fn magnifies(over: f32, embedded: bool, still: bool) -> f32 {
     if embedded || still { 0.0 } else { over }
 }
 
+/// Épaisseur de la bande de rappel d'un dock masqué, en pixels.
+pub(in crate::ui) const REVEAL_STRIP: u32 = 4;
+
 /// Ordre des workspaces : numériques d'abord, dans l'ordre, puis par nom.
 fn ws_key(name: &str) -> (i64, String) {
     (name.parse::<i64>().unwrap_or(i64::MAX), name.to_string())
@@ -135,6 +138,9 @@ pub struct LauncherSurface {
     pub monitor: String,
     pub position: LauncherPosition,
     pub thickness: u32,
+    /// Posé par-dessus une fenêtre plein écran (calque `Overlay`), réduit à
+    /// sa bande de rappel (HIG PAT-01).
+    pub over_fullscreen: bool,
 }
 
 /// Contenu de la bulle du lanceur.
@@ -294,6 +300,31 @@ impl App {
         Task::none()
     }
 
+    /// Le dock se masque hors survol : réglé ainsi, ou posé par-dessus une
+    /// fenêtre plein écran, où seule sa bande de rappel reste (HIG PAT-01).
+    pub(in crate::ui) fn dock_hides(&self, id: iced::window::Id) -> bool {
+        self.dock_autohide()
+            || self
+                .launcher_surfaces
+                .get(&id)
+                .is_some_and(|s| s.over_fullscreen)
+    }
+
+    /// Un dock d'écran n'est plus sur le bon calque : plein écran venu ou
+    /// parti sur son espace affiché (HIG PAT-01).
+    pub(in crate::ui) fn dock_cover_changed(&self) -> bool {
+        self.launcher_surfaces
+            .values()
+            .any(|s| s.over_fullscreen != self.dock_covered(&s.monitor))
+    }
+
+    /// Le dock de l'écran `monitor` passe par-dessus un plein écran. Pas
+    /// en Convex masqué hors survol : sa bande de réveil est sur le cadre,
+    /// sous la fenêtre (HIG PAT-01).
+    fn dock_covered(&self, monitor: &str) -> bool {
+        !self.convex_auto_hide() && self.fullscreen_on(monitor)
+    }
+
     /// Une surface de lanceur par écran où le bureau est affiché.
     pub(in crate::ui) fn sync_launchers(&mut self) -> Task<UiMsg> {
         use iced_layershell::reexport::{
@@ -313,8 +344,14 @@ impl App {
         let mut tasks = Vec::new();
         let mut changed = false;
         for (id, s) in self.launcher_surfaces.clone() {
-            if !(want.contains(&s.monitor) && (s.position, s.thickness) == spec) {
+            // Plein écran venu ou parti : le calque change, la surface est
+            // recréée (HIG PAT-01).
+            if !(want.contains(&s.monitor)
+                && (s.position, s.thickness) == spec
+                && s.over_fullscreen == self.dock_covered(&s.monitor))
+            {
                 self.launcher_surfaces.remove(&id);
+                self.bar_reveal.remove(&id);
                 self.launcher_runtime.docks.remove(&s.monitor);
                 if self
                     .launcher_runtime
@@ -341,13 +378,21 @@ impl App {
             let (pos, th) = spec;
             let fade = self.launcher_transition(0.0, 0.0, 0);
             self.launcher_runtime.docks.insert(mon.clone(), fade);
+            // Par-dessus un plein écran : calque `Overlay`, sans zone réservée,
+            // réduit d'emblée à sa bande de rappel (HIG PAT-01).
+            let cover = self.dock_covered(&mon);
+            // Ouvert au clavier, il se montre tout de suite.
+            let strip = cover && grabbed.as_deref() != Some(mon.as_str());
+            let start = if strip { REVEAL_STRIP } else { th };
             let (size, anchor) = match pos {
                 LauncherPosition::Bottom => {
-                    ((0, th), Anchor::Bottom | Anchor::Left | Anchor::Right)
+                    ((0, start), Anchor::Bottom | Anchor::Left | Anchor::Right)
                 }
-                LauncherPosition::Top => ((0, th), Anchor::Top | Anchor::Left | Anchor::Right),
-                LauncherPosition::Left => ((th, 0), Anchor::Left | Anchor::Top | Anchor::Bottom),
-                LauncherPosition::Right => ((th, 0), Anchor::Right | Anchor::Top | Anchor::Bottom),
+                LauncherPosition::Top => ((0, start), Anchor::Top | Anchor::Left | Anchor::Right),
+                LauncherPosition::Left => ((start, 0), Anchor::Left | Anchor::Top | Anchor::Bottom),
+                LauncherPosition::Right => {
+                    ((start, 0), Anchor::Right | Anchor::Top | Anchor::Bottom)
+                }
             };
             self.launcher_surfaces.insert(
                 id,
@@ -355,14 +400,18 @@ impl App {
                     monitor: mon.clone(),
                     position: pos,
                     thickness: th,
+                    over_fullscreen: cover,
                 },
             );
+            if cover {
+                self.bar_reveal.insert(id, (!strip, 0));
+            }
             tasks.push(Task::done(UiMsg::NewLayerShell {
                 settings: NewLayerShellSettings {
                     size: Some(size),
-                    layer: Layer::Top,
+                    layer: if cover { Layer::Overlay } else { Layer::Top },
                     anchor,
-                    exclusive_zone: Some(if self.convex_auto_hide() {
+                    exclusive_zone: Some(if self.convex_auto_hide() || cover {
                         0
                     } else {
                         th as i32
@@ -390,13 +439,13 @@ impl App {
             tasks.push(Task::done(UiMsg::ExclusiveZoneChange {
                 id: *id,
                 // Masqué hors survol (MLG-279) : les fenêtres prennent la place.
-                zone_size: if self.convex_auto_hide() || self.dock_autohide() {
+                zone_size: if self.convex_auto_hide() || self.dock_hides(*id) {
                     0
                 } else {
                     s.thickness as i32
                 },
             }));
-            if self.dock_autohide() && !self.bar_reveal.contains_key(id) {
+            if self.dock_hides(*id) && !self.bar_reveal.contains_key(id) {
                 // Montré à l'apparition, masqué après le délai.
                 tasks.push(Task::done(UiMsg::BarReveal(*id, false)));
             }

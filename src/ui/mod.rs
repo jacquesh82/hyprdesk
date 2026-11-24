@@ -576,6 +576,8 @@ pub struct App {
     /// Fenêtres avec géométrie : minimaps de l'écran d'organisation et des
     /// miniatures du sélecteur de la barre.
     ws_geos: Vec<hypr::WindowGeo>,
+    /// Workspaces où une fenêtre est en vrai plein écran (HIG PAT-01).
+    fullscreen_spaces: HashSet<String>,
     /// Dernière relecture de ces géométries (rappel périodique).
     ws_geos_at: Option<Instant>,
     /// Fenêtres marquées urgentes par Hyprland (adresses) ; une fenêtre
@@ -1111,6 +1113,7 @@ impl App {
             force_quit: None,
             overview: None,
             ws_geos: Vec::new(),
+            fullscreen_spaces: Default::default(),
             ws_geos_at: None,
             cal_months: 0,
             desk_stamp: None,
@@ -3096,6 +3099,11 @@ impl App {
         }
         // Chaque écran prend le mode du workspace qu'il affiche.
         tasks.push(self.sync_modes());
+        // Espace affiché en plein écran, ou qui ne l'est plus : le dock change
+        // de calque (HIG PAT-01).
+        if self.dock_cover_changed() {
+            tasks.push(self.sync_launchers());
+        }
         if self.visible {
             tasks.push(Task::done(Msg::Poll));
         }
@@ -3289,6 +3297,17 @@ impl App {
             && !self.workspaces.iter().any(|w| {
                 w.fullscreen && w.monitor == m.name && (w.name == m.workspace || w.name == m.base)
             })
+    }
+
+    /// Une fenêtre en vrai plein écran (pas seulement agrandie) couvre
+    /// l'espace affiché de l'écran `monitor` : les calques `top` passent
+    /// dessous (HIG PAT-01).
+    pub(in crate::ui) fn fullscreen_on(&self, monitor: &str) -> bool {
+        self.monitors.iter().any(|m| {
+            m.name == monitor
+                && (self.fullscreen_spaces.contains(&m.workspace)
+                    || (!m.base.is_empty() && self.fullscreen_spaces.contains(&m.base)))
+        })
     }
 
     fn poll(&mut self) -> Task<Msg> {
@@ -4454,6 +4473,15 @@ impl App {
             }
             Msg::Hypr(hypr::Update::Clients(list, geos)) => {
                 let mut tasks = Vec::new();
+                // Plein écran venu ou parti : le dock change de calque (HIG PAT-01).
+                self.fullscreen_spaces = geos
+                    .iter()
+                    .filter(|g| g.fullscreen)
+                    .map(|g| g.workspace.clone())
+                    .collect();
+                if self.dock_cover_changed() {
+                    tasks.push(self.sync_launchers());
+                }
                 // Bureau vide seulement : avec les fenêtres, une nouvelle fenêtre
                 // est une fenêtre ordinaire (mise de côté si on revient au bureau vide).
                 if self.visible {
@@ -6181,7 +6209,7 @@ impl App {
                 return Space::new().into();
             };
             // Dock masqué hors survol (MLG-279) : une fine bande au bord.
-            if self.dock_autohide() && !self.bar_revealed(id) {
+            if self.dock_hides(id) && !self.bar_revealed(id) {
                 return iced::widget::mouse_area(
                     Space::new().width(Length::Fill).height(Length::Fill),
                 )
@@ -6189,7 +6217,7 @@ impl App {
                 .into();
             }
             let dock = self.view_launcher(m, self.fade_value());
-            if self.dock_autohide() {
+            if self.dock_hides(id) {
                 return iced::widget::mouse_area(dock)
                     .on_enter(Msg::BarReveal(id, true))
                     .on_exit(Msg::BarReveal(id, false))
