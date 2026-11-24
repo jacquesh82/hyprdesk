@@ -28,6 +28,7 @@ use iced_layershell::reexport::{
 };
 
 use super::menu::{Item, Line, groups};
+use super::plugins::bar::window;
 use super::{App, Msg, color};
 use crate::config::IconKind;
 
@@ -81,6 +82,18 @@ pub enum MenuTarget {
     App(AppRef),
     /// Champ de saisie sous le curseur (MLG-309).
     Edit(EditRef),
+    /// Fenêtre de l'aperçu des espaces (HIG MENU-06).
+    Window(WindowRef),
+}
+
+/// Fenêtre visée par le menu de l'aperçu : son adresse, son état lu à
+/// l'ouverture (`hyprctl clients -j`) et le nombre de fenêtres de son
+/// application. Le menu est celui de la barre (`plugins::bar::window`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowRef {
+    pub address: String,
+    pub state: serde_json::Value,
+    pub same_app: usize,
 }
 
 /// Application visée par un menu du dock ou de la grille du Lanceur.
@@ -154,6 +167,9 @@ pub struct IconMenu {
     pub entry: Option<crate::launch::DesktopEntry>,
     /// « Partager… » : les destinations, à la place des entrées.
     pub share: Option<Vec<Share>>,
+    /// « Déplacer vers l'espace » d'une fenêtre : ses espaces, à la place des
+    /// entrées.
+    pub spaces: Option<Vec<Line<CMsg>>>,
     /// La carte s'ouvre vers le haut (dock en bas) : le groupe le plus près du
     /// pointeur vient en dernier (HIG MENU-09).
     pub upward: bool,
@@ -183,6 +199,7 @@ impl IconMenu {
             offset: 0.0,
             entry: None,
             share: None,
+            spaces: None,
             upward: false,
         }
     }
@@ -246,6 +263,10 @@ pub enum CMsg {
     ShareTo(Share),
     /// Champ de saisie : commande d'édition rejouée dans sa surface.
     Edit(super::edit::Command),
+    /// Fenêtre de l'aperçu : une entrée de son menu (le rang de l'action, voir `plugins::bar::window`).
+    WindowAct(i64),
+    /// « Déplacer vers l'espace » : ses espaces (libellé, action), à la place des entrées.
+    WindowSpaces(Vec<(String, i64)>),
     Close,
     Done(Result<(), String>),
 }
@@ -563,6 +584,61 @@ fn share(p: &Path, t: &Share) -> Result<(), String> {
     Ok(())
 }
 
+/// Une entrée du menu de la fenêtre (`plugins::bar::window`), pour la carte du
+/// clic droit. Le sous-menu « Déplacer vers l'espace » devient la ligne qui
+/// ouvre ses espaces en seconde page.
+fn window_line(e: crate::config::MenuEntry) -> Line<CMsg> {
+    match e {
+        crate::config::MenuEntry::Item {
+            label,
+            detail,
+            icon,
+            checked,
+            enabled,
+            action: Some(action),
+            ..
+        } => Item::new(
+            label,
+            icon.as_deref().unwrap_or(""),
+            CMsg::WindowAct(action),
+        )
+        .enabled(enabled)
+        .checked(checked.unwrap_or(false))
+        .detail(detail)
+        .into(),
+        crate::config::MenuEntry::Separator => Line::Separator,
+        crate::config::MenuEntry::Submenu {
+            label,
+            icon,
+            enabled,
+            children,
+            ..
+        } => {
+            let spaces = children
+                .into_iter()
+                .filter_map(|c| match c {
+                    crate::config::MenuEntry::Item {
+                        label,
+                        action: Some(action),
+                        ..
+                    } => Some((label, action)),
+                    _ => None,
+                })
+                .collect();
+            // Des points de suspension annoncent la suite, comme « Partager… ».
+            Item::new(
+                format!("{label}…"),
+                icon.as_deref().unwrap_or(""),
+                CMsg::WindowSpaces(spaces),
+            )
+            .enabled(enabled)
+            .into()
+        }
+        // Sans action, une entrée ne fait rien dans la carte.
+        _ => Line::Separator,
+    }
+}
+
 impl App {
     /// Lignes du menu : trois groupes au plus, les plus utiles en tête,
     /// l'action destructive en dernier (HIG Context menus).
@@ -570,6 +646,9 @@ impl App {
         let tr = |s: &str| crate::i18n::tr(s).to_string();
         if let Some(targets) = &m.share {
             return self.share_lines(m, targets);
+        }
+        if let Some(spaces) = &m.spaces {
+            return spaces.clone();
         }
         match &m.target {
             MenuTarget::Widget(id) => {
@@ -656,6 +735,7 @@ impl App {
                 ])
             }
             MenuTarget::App(a) => self.app_lines(m, a),
+            MenuTarget::Window(w) => self.window_lines(w),
             MenuTarget::Edit(e) => groups(vec![
                 vec![
                     Item::new(
@@ -939,6 +1019,43 @@ impl App {
             .collect()
     }
 
+    /// Menu d'une fenêtre de l'aperçu des espaces : celui de la barre
+    /// (`plugins::bar::window::entries`), mêmes libellés et mêmes icônes
+    /// (HIG Context menus). La carte n'a qu'un niveau : « Déplacer vers
+    /// l'espace », un sous-menu dans la barre, y prend une seconde page,
+    /// comme « Partager… ».
+    fn window_lines(&self, w: &WindowRef) -> Vec<Line<CMsg>> {
+        let workspaces = self.workspaces.clone();
+        window::entries(&w.state, &workspaces, w.same_app)
+            .map(|(_, entries)| entries.into_iter().map(window_line).collect())
+            .unwrap_or_default()
+    }
+
+    /// Clic droit sur une fenêtre de l'aperçu des espaces (HIG MENU-06) : son
+    /// menu, celui de la barre, au curseur. La fenêtre a pu fermer depuis la
+    /// dernière lecture des géométries : rien alors.
+    pub(super) fn open_window_menu(
+        &mut self,
+        surface: Id,
+        monitor: &str,
+        address: &str,
+    ) -> Task<Msg> {
+        let Some((state, same_app)) = window::named(address) else {
+            return Task::none();
+        };
+        let at = self.cursor.get(&surface).copied().unwrap_or_default();
+        let mut menu = IconMenu::new(
+            MenuTarget::Window(WindowRef {
+                address: address.to_string(),
+                state,
+                same_app,
+            }),
+            surface,
+        );
+        menu.monitor = monitor.to_string();
+        self.spawn_menu(menu, at, false)
+    }
+
     /// Titre de la carte (vide : pas de titre).
     fn icon_menu_title(&self, m: &IconMenu) -> String {
         let name = match &m.target {
@@ -970,6 +1087,8 @@ impl App {
             }
             MenuTarget::Desktop => crate::i18n::tr("Bureau").to_string(),
             MenuTarget::App(a) => a.name.clone(),
+            // Sans titre : la fenêtre vient d'être cliquée, elle est sous le curseur.
+            MenuTarget::Window(_) => String::new(),
             MenuTarget::Edit(_) => String::new(),
         };
         if m.share.is_some() && !name.is_empty() {
@@ -1110,9 +1229,12 @@ impl App {
         menu.origin = Point::new(x, y);
         menu.win = Id::unique();
         menu.catcher = Id::unique();
-        // Dock, grille, champs : leur surface peut être au-dessus de la couche
-        // « Top » ; le capteur passe alors par-dessus elle.
-        let over = matches!(menu.target, MenuTarget::App(_) | MenuTarget::Edit(_));
+        // Dock, grille, champs, aperçu des espaces : leur surface peut être
+        // au-dessus de la couche « Top » ; le capteur passe alors par-dessus elle.
+        let over = matches!(
+            menu.target,
+            MenuTarget::App(_) | MenuTarget::Edit(_) | MenuTarget::Window(_)
+        );
         let monitor = menu.monitor.clone();
         for name in super::menu::icons(&self.icon_menu_lines(&menu)) {
             tasks.push(self.want_icon(&name));
@@ -1727,6 +1849,45 @@ impl App {
                     None => close,
                 }
             }
+            // Comme l'entrée d'un menu de la barre (`popover.rs`, `MenuSource::Window`).
+            CMsg::WindowAct(action) => {
+                let address = match &menu.target {
+                    MenuTarget::Window(w) => Some(w.address.clone()),
+                    _ => None,
+                };
+                let close = self.close_icon_menu();
+                let Some(address) = address else {
+                    return close;
+                };
+                Task::batch([
+                    close,
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                if let Err(e) = window::act(&address, action) {
+                                    tracing::warn!("{}", crate::tr!("fenêtre : {e}", e = e));
+                                }
+                            })
+                            .await
+                        },
+                        |_| Msg::Noop,
+                    ),
+                ])
+            }
+            CMsg::WindowSpaces(list) => {
+                let Some(mut m) = self.icon_menu.take() else {
+                    return Task::none();
+                };
+                let close =
+                    Task::batch([iced::window::close(m.win), iced::window::close(m.catcher)]);
+                m.spaces = Some(
+                    list.into_iter()
+                        .map(|(label, action)| Item::new(label, "", CMsg::WindowAct(action)).into())
+                        .collect(),
+                );
+                m.hover = None;
+                Task::batch([close, self.reopen_icon_menu(m)])
+            }
             CMsg::Close => self.close_icon_menu(),
             CMsg::Done(r) => {
                 if let Err(e) = r {
@@ -1835,7 +1996,7 @@ impl App {
                 ));
             }
             // Pas de « Propriétés » dans ces menus.
-            MenuTarget::App(_) | MenuTarget::Edit(_) => {}
+            MenuTarget::App(_) | MenuTarget::Edit(_) | MenuTarget::Window(_) => {}
             MenuTarget::Desktop => {
                 if let Some(m) = self.monitor(desk) {
                     v.push((
@@ -2523,6 +2684,93 @@ mod tests {
         };
         assert_eq!(edit(false, true), [false, false, true, true]);
         assert_eq!(edit(true, false), [true, true, false, true]);
+    }
+
+    /// Le menu d'une fenêtre de l'aperçu est celui de la barre : mêmes
+    /// libellés et mêmes icônes, coches et états compris ; « Déplacer vers
+    /// l'espace » ouvre ses espaces en seconde page (HIG MENU-06).
+    #[test]
+    fn menu_d_une_fenetre_de_l_apercu() {
+        let mut app = app();
+        app.monitors = vec![ecran(1080)];
+        app.workspaces = (1..=3)
+            .map(|id| crate::hypr::Workspace {
+                id,
+                name: format!("Projet {id}"),
+                monitor: "A".into(),
+                windows: 1,
+                fullscreen: false,
+            })
+            .collect();
+        let mut m = IconMenu::new(
+            MenuTarget::Window(WindowRef {
+                address: "0x6".into(),
+                state: serde_json::json!({
+                    "address": "0x6",
+                    "class": "kitty",
+                    "floating": true,
+                    "pinned": false,
+                    "fullscreen": 1,
+                    "workspace": { "id": 1, "name": "1" }
+                }),
+                same_app: 2,
+            }),
+            Id::unique(),
+        );
+        m.monitor = "A".into();
+        app.icon_menu = Some(m);
+        let lines = app.icon_menu_lines(app.icon_menu.as_ref().unwrap());
+        let it = items(&lines);
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        let labels: Vec<String> = it.iter().map(|i| i.label.clone()).collect();
+        assert_eq!(
+            labels,
+            [
+                tr("Réduire"),
+                tr("Agrandir"),
+                tr("Plein écran"),
+                tr("Flottante"),
+                tr("Sur tous les espaces"),
+                // La suite est annoncée, comme « Partager… ».
+                format!("{}…", tr("Déplacer vers l'espace")),
+                tr("Fermer toutes les fenêtres"),
+                tr("Fermer")
+            ]
+        );
+        // Mêmes icônes que la barre ; la coche marque l'état en cours.
+        assert_eq!(it[0].icon.as_deref(), Some("window-minimize-symbolic"));
+        assert_eq!(it[7].icon.as_deref(), Some("window-close-symbolic"));
+        assert_eq!(it[6].detail.as_deref(), Some("2"));
+        assert!(it[1].checked && it[3].checked, "agrandie, flottante");
+        assert!(!it[0].checked && !it[2].checked && !it[4].checked);
+        // Flottante : Hyprland accepte de l'épingler.
+        assert!(it.iter().all(|i| i.enabled));
+        // Deux groupes de séparation : états, déplacement, fermeture.
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|l| matches!(l, Line::Separator))
+                .count(),
+            2
+        );
+        // Sans titre : la fenêtre est sous le curseur.
+        assert!(
+            app.icon_menu_title(app.icon_menu.as_ref().unwrap())
+                .is_empty()
+        );
+        let list = match &it[5].msg {
+            CMsg::WindowSpaces(s) => s.clone(),
+            other => panic!("pas un changement de page : {other:?}"),
+        };
+        // La seconde page : les autres espaces, l'action de la barre à chacun.
+        let _ = app.icon_menu_update(CMsg::WindowSpaces(list));
+        let m = app.icon_menu.as_ref().unwrap();
+        let page = app.icon_menu_lines(m);
+        let spaces = items(&page);
+        let labels: Vec<&str> = spaces.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels, ["Projet 2", "Projet 3"]);
+        assert!(matches!(spaces[0].msg, CMsg::WindowAct(1002)));
+        assert!(matches!(spaces[1].msg, CMsg::WindowAct(1003)));
     }
 
     #[test]

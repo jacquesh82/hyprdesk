@@ -76,6 +76,9 @@ pub enum OMsg {
     Geos(Vec<crate::hypr::WindowGeo>),
     /// Pressé dans une carte : (carte, sur le titre).
     Grab(usize, bool),
+    /// Clic droit dans la minimap d'une carte : menu de la fenêtre sous le
+    /// curseur (HIG MENU-06).
+    Context(usize),
     /// Une carte est cliquée : afficher ce workspace.
     Pick(String),
     /// Titre pressé deux fois : renommer l'espace.
@@ -187,9 +190,20 @@ impl App {
     }
 
     pub(super) fn destroy_overview(&mut self) -> Task<Msg> {
+        // Le menu d'une de ses fenêtres part avec l'aperçu (HIG MENU-06).
+        let on_it = self
+            .overview
+            .as_ref()
+            .zip(self.icon_menu.as_ref())
+            .is_some_and(|(o, m)| m.desk == o.win);
+        let menu = if on_it {
+            self.close_icon_menu()
+        } else {
+            Task::none()
+        };
         match self.overview.take() {
-            Some(o) => iced::window::close(o.win),
-            None => Task::none(),
+            Some(o) => Task::batch([menu, iced::window::close(o.win)]),
+            None => menu,
         }
     }
 
@@ -382,6 +396,20 @@ impl App {
                     });
                 }
                 Task::none()
+            }
+            OMsg::Context(card) => {
+                let Some(o) = self.overview.as_ref() else {
+                    return Task::none();
+                };
+                if o.renaming.is_some() {
+                    return Task::none();
+                }
+                let at = self.cursor.get(&o.win).copied().unwrap_or_default();
+                let Some(win) = self.overview_window_at(card, at) else {
+                    return Task::none();
+                };
+                let (surface, monitor) = (o.win, o.monitor.clone());
+                self.open_window_menu(surface, &monitor, &win.address)
             }
             OMsg::Pick(name) => {
                 let close = self.close_overview();
@@ -1036,9 +1064,11 @@ impl App {
                     }),
             );
         }
-        // Saisie dans la minimap : fenêtre (glisser) ou fond (ouvrir l'espace).
+        // Saisie dans la minimap : fenêtre (glisser) ou fond (ouvrir l'espace) ;
+        // clic droit sur une fenêtre : son menu (HIG MENU-06).
         let minimap = mouse_area(container(minimap).width(Length::Fill).height(Length::Fill))
-            .on_press(Msg::Overview(OMsg::Grab(i, false)));
+            .on_press(Msg::Overview(OMsg::Grab(i, false)))
+            .on_right_press(Msg::Overview(OMsg::Context(i)));
 
         let border = if drop_target {
             Border::default()

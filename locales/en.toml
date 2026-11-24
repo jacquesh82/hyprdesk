@@ -516,6 +516,7 @@
 "Fenêtre suivante" = "Next window"
 "fenêtre {address} en attente de restitution" = "window {address} awaiting restoration"
 "Fenêtres" = "Windows"
+"fenêtre : {e}" = "window: {e}"
 "fenêtres : {e}" = "windows: {e}"
 "Fenêtres en pile avant de centrer le maître" = "Stacked windows before centering the master"
 "Fenêtres et écrans" = "Windows and screens"

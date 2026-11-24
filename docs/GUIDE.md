@@ -348,7 +348,9 @@ them.
   “Move to trash” targets the selected desktop icon (click or arrow keys)
   when it is a file or a folder; otherwise it stays visible and inactive.
 - **Window** is the menu of the active window, the same as the one on its
-  title in the bar. Without an active window it stays visible and inactive.
+  title in the bar. A right-click on a window in the spaces overview opens
+  this menu for that window. Without an active window it stays visible and
+  inactive.
   “Close all windows” closes the windows of its application; inactive when
   it has only one.
 - **Workspaces** is the workspace card of the screen.

@@ -32,6 +32,20 @@ pub(in crate::ui) fn read(workspaces: &[Workspace]) -> Option<(String, Vec<MenuE
     entries(&v, workspaces, same_app)
 }
 
+/// Fenêtre d'adresse `address` et nombre de fenêtres de son application,
+/// lues dans `clients` : le menu d'une fenêtre qui n'est pas forcément active
+/// (clic droit dans l'aperçu des espaces, HIG MENU-06). Rien si elle a fermé.
+pub(in crate::ui) fn named(address: &str) -> Option<(Value, usize)> {
+    let clients = ipc::query_json("clients").ok()?;
+    let v = clients
+        .as_array()?
+        .iter()
+        .find(|c| c["address"].as_str() == Some(address))?
+        .clone();
+    let same_app = same_application(&v, &clients);
+    Some((v, same_app))
+}
+
 /// Fenêtres ouvertes de l'application de la fenêtre active, la sienne
 /// comprise ; une au moins.
 fn same_application(active: &Value, clients: &Value) -> usize {

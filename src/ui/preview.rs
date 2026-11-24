@@ -24,7 +24,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 168] = [
+const SCENES: [&str; 169] = [
     "desktop",
     "typography",
     "icons",
@@ -128,6 +128,7 @@ const SCENES: [&str; 168] = [
     "bar-graphite-urgent",
     "controls-desktop",
     "overview",
+    "menu-fenetre",
     "bar-selector-relief",
     "bar-selector-rail",
     "bar-selector-miniatures",
@@ -2579,6 +2580,7 @@ impl Preview {
         if matches!(
             SCENES[self.scene],
             "overview"
+                | "menu-fenetre"
                 | "bar-selector-relief"
                 | "bar-selector-rail"
                 | "bar-selector-miniatures"
@@ -2587,7 +2589,7 @@ impl Preview {
         ) {
             self.demo_window_data();
         }
-        if SCENES[self.scene] == "overview" {
+        if matches!(SCENES[self.scene], "overview" | "menu-fenetre") {
             let win = Id::unique();
             self.app.overview = Some(overview::Overview::new(
                 win,
@@ -2613,6 +2615,49 @@ impl Preview {
                 title: false,
             });
             self.app.cursor.insert(win, Point::new(560.0, 560.0));
+        }
+        if SCENES[self.scene] == "menu-fenetre" {
+            // Clic droit sur une fenêtre de l'aperçu des espaces : son menu,
+            // celui de la barre (HIG MENU-06).
+            if let Some(o) = self.app.overview.as_mut() {
+                o.press = None;
+            }
+            self.app.workspaces = (1..=3)
+                .map(|id| crate::hypr::Workspace {
+                    id,
+                    name: format!("Projet {id}"),
+                    monitor: self.app.monitors[0].name.clone(),
+                    windows: 1,
+                    fullscreen: false,
+                })
+                .collect();
+            let mut m = super::context::IconMenu::new(
+                super::context::MenuTarget::Window(super::context::WindowRef {
+                    address: "0x6".into(),
+                    state: serde_json::json!({
+                        "address": "0x6",
+                        "class": "kitty",
+                        "floating": false,
+                        "pinned": false,
+                        "fullscreen": 0,
+                        "workspace": { "id": 1, "name": "1" }
+                    }),
+                    same_app: 1,
+                }),
+                Id::unique(),
+            );
+            m.monitor = self.app.monitors[0].name.clone();
+            m.hover = Some(0);
+            // Icônes résolues tout de suite (pas de tâche dans l'aperçu).
+            for name in super::menu::icons(&self.app.icon_menu_lines(&m)) {
+                if !self.app.named_icons.contains_key(&name) {
+                    let path = launch::lookup_icon(&name, None, 32)
+                        .or_else(|| launch::lookup_icon(&name, Some("Adwaita"), 32));
+                    let gen_ = self.app.icons_gen;
+                    let _ = self.app.update_inner(Msg::IconResolved(gen_, name, path));
+                }
+            }
+            self.app.icon_menu = Some(m);
         }
         if matches!(
             SCENES[self.scene],

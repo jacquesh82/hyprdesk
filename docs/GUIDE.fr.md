@@ -361,7 +361,9 @@ Réglages → Barre ne les déplace pas.
   corbeille » vise l'icône du bureau sélectionnée (clic ou flèches) quand
   c'est un fichier ou un dossier ; sans cela, elle reste affichée et inactive.
 - **Fenêtre** est le menu de la fenêtre active, le même que celui de son
-  titre dans la barre. Sans fenêtre active, il reste affiché et inactif.
+  titre dans la barre. Un clic droit sur une fenêtre de l'aperçu des espaces
+  ouvre ce menu pour cette fenêtre. Sans fenêtre active, il reste affiché
+  et inactif.
   « Fermer toutes les fenêtres » ferme celles de son application ; inactive
   quand elle n'en a qu'une.
 - **Espaces** est la carte des espaces de travail de l'écran.
