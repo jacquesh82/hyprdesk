@@ -352,7 +352,12 @@ impl App {
             let base = th.shown(crate::config::Place::Widgets).opacity;
             match self.monitor(win) {
                 Some(m) if th.shown(crate::config::Place::Widgets).adaptive.is_some() => {
-                    let roi = widget_roi(self.monitor_size(&m.name), w.anchor, (w.x, w.y));
+                    let roi = widget_roi(
+                        self.monitor_size(&m.name),
+                        w.anchor,
+                        (w.x, w.y),
+                        self.desk_bottom_edge(m, 32.0),
+                    );
                     self.adaptive_opacity(crate::config::Place::Widgets, base, &m.name, roi)
                 }
                 _ => base,
@@ -448,7 +453,12 @@ impl App {
             }
         };
         let (left, right) = axis(ax, w.x, margin);
-        let (top, bottom) = axis(ay, w.y, if ay == Alignment::End { 120.0 } else { margin });
+        // Bord bas : au-dessus du dock et des barres de l'écran, d'après
+        // leur hauteur rendue (HIG TYP-17).
+        let low = self
+            .monitor(win)
+            .map_or(margin, |m| self.desk_bottom_edge(m, margin));
+        let (top, bottom) = axis(ay, w.y, if ay == Alignment::End { low } else { margin });
         (
             super::desk_layout::Spot {
                 x: ax,
@@ -685,7 +695,12 @@ pub(super) fn month_weeks(first: chrono::NaiveDate) -> u32 {
 /// Zone approximative d'un widget sur son écran, d'après son ancrage et son
 /// décalage (sa taille n'est connue qu'après la mise en page) : une carte
 /// de 360×220 au point d'ancrage, de quoi lire le fond qu'il couvre.
-fn widget_roi(screen: iced::Size, anchor: Anchor, (dx, dy): (f32, f32)) -> iced::Rectangle {
+fn widget_roi(
+    screen: iced::Size,
+    anchor: Anchor,
+    (dx, dy): (f32, f32),
+    low: f32,
+) -> iced::Rectangle {
     let (w, h, margin) = (360.0_f32, 220.0_f32, 32.0_f32);
     let x = match anchor {
         Anchor::TopLeft | Anchor::Left | Anchor::BottomLeft => margin + dx,
@@ -695,7 +710,7 @@ fn widget_roi(screen: iced::Size, anchor: Anchor, (dx, dy): (f32, f32)) -> iced:
     let y = match anchor {
         Anchor::TopLeft | Anchor::Top | Anchor::TopRight => margin + dy,
         Anchor::Left | Anchor::Center | Anchor::Right => (screen.height - h) / 2.0 + dy,
-        Anchor::BottomLeft | Anchor::Bottom | Anchor::BottomRight => screen.height - h - 120.0 + dy,
+        Anchor::BottomLeft | Anchor::Bottom | Anchor::BottomRight => screen.height - h - low + dy,
     };
     iced::Rectangle::new(
         iced::Point::new(
@@ -704,6 +719,50 @@ fn widget_roi(screen: iced::Size, anchor: Anchor, (dx, dy): (f32, f32)) -> iced:
         ),
         iced::Size::new(w.min(screen.width), h.min(screen.height)),
     )
+}
+
+/// Distance du bord bas où se posent les widgets ancrés en bas : la marge
+/// commune, ou la bande occupée en bas (dock rendu, zone réservée par une
+/// barre) plus 16 px d'air (HIG TYP-17).
+pub(super) fn bottom_edge(dock: Option<f32>, reserved: f32, margin: f32) -> f32 {
+    let band = dock.unwrap_or(0.0).max(reserved);
+    if band > 0.0 {
+        margin.max(band + 16.0)
+    } else {
+        margin
+    }
+}
+
+impl App {
+    /// Bord bas des widgets de l'écran `m`, d'après la hauteur rendue de
+    /// son dock (s'il est en bas) et la zone réservée en bas.
+    pub(super) fn desk_bottom_edge(&self, m: &crate::hypr::Monitor, margin: f32) -> f32 {
+        let dock = self
+            .launcher_surfaces
+            .values()
+            .find(|s| s.monitor == m.name && s.position == crate::config::LauncherPosition::Bottom)
+            .map(|s| s.thickness as f32);
+        bottom_edge(dock, m.reserved.3, margin)
+    }
+}
+
+#[cfg(test)]
+mod bottom_edge_tests {
+    use super::bottom_edge;
+
+    #[test]
+    fn le_bord_bas_suit_le_dock_et_les_barres() {
+        // Sans dock ni barre en bas : la marge des autres bords.
+        assert_eq!(bottom_edge(None, 0.0, 32.0), 32.0);
+        // Dock par défaut (42 px, surface de 98 px) : 114 px.
+        assert_eq!(bottom_edge(Some(98.0), 0.0, 32.0), 114.0);
+        // Grand dock : la marge grandit avec lui.
+        assert_eq!(bottom_edge(Some(160.0), 0.0, 32.0), 176.0);
+        // Barre en bas, plus haute que le dock : la barre.
+        assert_eq!(bottom_edge(Some(40.0), 60.0, 32.0), 76.0);
+        // Barre fine : jamais sous la marge.
+        assert_eq!(bottom_edge(None, 8.0, 32.0), 32.0);
+    }
 }
 
 #[cfg(test)]
