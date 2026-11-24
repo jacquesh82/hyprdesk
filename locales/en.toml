@@ -4902,3 +4902,11 @@
 "Réglages d'énergie…" = "Energy settings…"
 "Réglages de date et d'heure…" = "Date and time settings…"
 "Tout marquer comme lu" = "Mark all as read"
+# Paquet « Notifications » des Réglages : par application, autorisation d'afficher et style de remise (HIG PAT-02, PAT-07, SYS-03).
+"Autorisation d'afficher et style de remise, par application." = "Permission to display and delivery style, per app."
+"Une application demande l'autorisation à sa première notification. Refusée, ses notifications ne s'affichent plus et n'entrent pas dans l'historique." = "An app asks for permission with its first notification. Once declined, its notifications no longer appear and no longer enter the history."
+"Aucune application n'a encore demandé à envoyer de notifications." = "No app has asked to send notifications yet."
+"Bannières" = "Banners"
+"Alertes" = "Alerts"
+"L’historique est vide." = "The history is empty."
+"Confirmer : effacer l’historique" = "Confirm: clear history"

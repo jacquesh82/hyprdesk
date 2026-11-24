@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 173] = [
+const SCENES: [&str; 174] = [
     "desktop",
     "typography",
     "icons",
@@ -201,6 +201,8 @@ const SCENES: [&str; 173] = [
     "menu-espace",
     "bar-menu-notification",
     "bar-menu-module",
+    // Paquet « Notifications » des Réglages (HIG PAT-07).
+    "reglages-notifications",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -868,6 +870,7 @@ impl Preview {
             "a-propos" => Some("about"),
             "raccourcis" | "raccourcis-essentiels" => Some("keys"),
             "reglages-valeur-saisie" => Some("dock"),
+            "reglages-notifications" => Some("notifications"),
             "bar-graphite-edit" => Some("bar"),
             _ => None,
         });
@@ -1709,6 +1712,91 @@ impl Preview {
                 loaded: true,
                 error: None,
             };
+        }
+        // Paquet « Notifications » (HIG PAT-07) : l'aperçu ne lit pas l'état
+        // gardé. Trois applications ont demandé (un style chacune) et figurent
+        // à l'historique, qui leur donne nom et icône ; une quatrième, refusée,
+        // n'y est pas et garde sa clé. Même idiome : icônes résolues tout de
+        // suite (pas de tâche dans l'aperçu).
+        if SCENES[self.scene] == "reglages-notifications" {
+            use crate::notifications::{Authorization, Delivery};
+            let app = |id: &str, name: &str, icon: &str| crate::launch::AppInfo {
+                id: id.into(),
+                name: name.into(),
+                icon: Some(icon.into()),
+                wm_class: None,
+                mime_types: Vec::new(),
+                categories: Vec::new(),
+                available: true,
+            };
+            self.app.apps = Arc::new(vec![
+                app("firefox", "Firefox", "firefox"),
+                app("thunderbird", "Thunderbird", "thunderbird"),
+                app("signal", "Signal", "signal"),
+            ]);
+            self.app.toasts.history = [
+                (
+                    1,
+                    "Firefox",
+                    "Téléchargement terminé",
+                    "rustbook.pdf — 4,2 Mo",
+                ),
+                (
+                    2,
+                    "Thunderbird",
+                    "Nouveau message",
+                    "Anna : on se voit à 19 h ?",
+                ),
+                (3, "Signal", "Nouveau message", "Marc a rejoint le groupe"),
+            ]
+            .into_iter()
+            .map(|(id, app, title, body)| {
+                crate::notifications::build(
+                    id,
+                    app,
+                    "",
+                    crate::i18n::tr(title),
+                    crate::i18n::tr(body),
+                    &[],
+                    &Default::default(),
+                    -1,
+                )
+            })
+            .collect();
+            let granted = |delivery| Authorization {
+                granted: true,
+                delivery,
+            };
+            if let Some(p) = self.app.panel.as_mut() {
+                p.notifications = super::plugins::notifications::State {
+                    apps: vec![
+                        ("Firefox".into(), granted(Delivery::Banner)),
+                        ("Thunderbird".into(), granted(Delivery::Alert)),
+                        ("Signal".into(), granted(Delivery::Silent)),
+                        (
+                            "org.example.Minuteur".into(),
+                            Authorization {
+                                granted: false,
+                                delivery: Delivery::default(),
+                            },
+                        ),
+                    ],
+                    loaded: true,
+                    confirm_clear: false,
+                };
+            }
+            // La cloche de repli : un dessin de hyprdesk, posé tout de suite.
+            let _ = self.app.want_icon(crate::ui::toasts::ICON);
+            let gen_ = self.app.icons_gen;
+            for icon in ["firefox", "thunderbird", "signal"] {
+                if !self.app.named_icons.contains_key(icon) {
+                    let path = launch::lookup_icon(icon, None, 32)
+                        .or_else(|| launch::lookup_icon(icon, Some("Adwaita"), 32));
+                    let _ = self
+                        .app
+                        .update_inner(Msg::IconResolved(gen_, icon.into(), path));
+                }
+            }
         }
         // Réseau et Bluetooth : états d'exemple.
         if SCENES[self.scene] == "reseau"

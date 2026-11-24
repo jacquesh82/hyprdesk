@@ -39,6 +39,7 @@ pub mod lock;
 pub mod login;
 pub mod modules;
 pub mod network;
+pub mod notifications;
 pub mod panorama;
 pub mod passwords;
 pub mod performance;
@@ -98,6 +99,7 @@ pub const BUILTIN: &[PluginInfo] = &[
     network::INFO,
     bluetooth::INFO,
     datetime::INFO,
+    notifications::INFO,
     input::INFO,
     lock::INFO,
     login::INFO,
@@ -160,6 +162,7 @@ pub const GROUPS: &[Group] = &[
             "lock",
             "login",
             "datetime",
+            "notifications",
             "passwords",
         ],
     },
@@ -584,6 +587,7 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         }
         "installes" | "installés" | "installed" => "plugins",
         "date" | "heure" | "date-heure" | "time" | "fuseau" => "datetime",
+        "notification" => "notifications",
         "clavier" | "souris" | "keyboard" | "mouse" | "touchpad" | "pave" | "pavé" | "entrees"
         | "entrées" => "input",
         "connexion" | "ecran-connexion" | "écran-connexion" | "greeter" | "greetd" | "gdm"
@@ -621,6 +625,7 @@ pub enum PluginMsg {
     Network(network::Msg),
     Bluetooth(bluetooth::Msg),
     DateTime(datetime::Msg),
+    Notifications(notifications::Msg),
     Input(input::Msg),
     Autostart(autostart::Msg),
     HyprConfig(hyprconfig::Msg),
@@ -660,6 +665,7 @@ pub(in crate::ui) fn update(app: &mut App, m: PluginMsg) -> Task<Msg> {
         PluginMsg::Network(m) => app.network_update(m),
         PluginMsg::Bluetooth(m) => app.bluetooth_update(m),
         PluginMsg::DateTime(m) => app.datetime_update(m),
+        PluginMsg::Notifications(m) => app.notifications_update(m),
         PluginMsg::Input(m) => app.input_update(m),
         PluginMsg::Autostart(m) => app.autostart_update(m),
         PluginMsg::HyprConfig(m) => app.hyprconfig_update(m),
@@ -730,6 +736,7 @@ fn page<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'a, Msg> {
         "network" => app.network_page(),
         "bt" => app.bluetooth_page(),
         "datetime" => app.datetime_page(),
+        "notifications" => app.notifications_page(),
         "input" => app.input_page(),
         "autostart" => app.autostart_page(),
         "hyprconfig" => app.hyprconfig_page(),
@@ -773,6 +780,7 @@ pub(in crate::ui) fn on_show(app: &mut App, id: &str) -> Task<Msg> {
         "network" => network::load(),
         "bt" => bluetooth::load(),
         "datetime" => datetime::load(),
+        "notifications" => notifications::load(app),
         "input" => input::load(),
         "autostart" => autostart::load(app.config_path.clone()),
         "hyprconfig" => Task::batch([hyprconfig::load(app), hyprconfig::load_hyprpm(app)]),

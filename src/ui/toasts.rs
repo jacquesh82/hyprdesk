@@ -47,7 +47,7 @@ const CARD: f32 = 104.0;
 const GAP: f32 = 8.0;
 const SHADOW: f32 = 18.0;
 /// Cloche de repli, quand l'application n'a pas donné d'icône (jeu de hyprdesk).
-const ICON: &str = "preferences-system-notifications-symbolic";
+pub(super) const ICON: &str = "preferences-system-notifications-symbolic";
 /// Côté de l'icône de l'application dans une bulle.
 const APP_ICON: f32 = 36.0;
 /// Côté de l'icône de l'application dans une carte du centre.
@@ -247,7 +247,7 @@ fn app_id(entry: &str) -> Option<&str> {
 /// Clé d'application du passage du Silence (HIG PAT-05) : l'identifiant
 /// `desktop-entry` quand il en est un, sinon le nom de l'émetteur. Ceux qui ne
 /// donnent ni l'un ni l'autre n'en forment qu'un, comme dans l'historique.
-fn passage_key(n: &Notification) -> String {
+pub(super) fn passage_key(n: &Notification) -> String {
     app_id(n.desktop_entry.as_deref().unwrap_or_default())
         .map_or_else(|| n.app.clone(), str::to_string)
         .replace(['\n', '\r'], " ")
@@ -1171,7 +1171,7 @@ impl App {
     /// application, cherchée parmi les applications installées d'après son
     /// `desktop-entry` (à défaut son nom), comme une classe de fenêtre
     /// (HIG ICO-03).
-    fn class_icon_name(&self, n: &Notification) -> Option<String> {
+    pub(super) fn class_icon_name(&self, n: &Notification) -> Option<String> {
         let class = n
             .desktop_entry
             .as_deref()
@@ -1223,7 +1223,20 @@ impl App {
         tint: Color,
     ) -> Element<'a, Msg> {
         let name = self.notif_icon_name(n).unwrap_or_default();
-        self.icon_named(&name, size, tint).unwrap_or_else(|| {
+        self.icon_or_bell(&name, size, tint)
+    }
+
+    /// Icône nommée, `size` de côté ; la cloche générique sert de dernier
+    /// repli et occupe la même place : le texte ne bouge pas quand l'icône
+    /// arrive. Sert de même à l'icône d'une application dans les Réglages
+    /// (HIG PAT-07).
+    pub(super) fn icon_or_bell<'a>(
+        &'a self,
+        name: &str,
+        size: f32,
+        tint: Color,
+    ) -> Element<'a, Msg> {
+        self.icon_named(name, size, tint).unwrap_or_else(|| {
             container(
                 self.icon_named(ICON, 18.0, tint)
                     .unwrap_or_else(|| iced::widget::Space::new().width(18).into()),

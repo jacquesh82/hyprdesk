@@ -202,6 +202,14 @@ nothing is recorded and the next notification asks again. "Decline": nothing
 more from that application, neither bubble nor history. Until the permission is
 given, nothing enters the history.
 
+Settings → Notifications (System group) takes these decisions back, application
+by application: the "Allow" switch, once off, revokes the permission like a
+decline; the delivery style says what becomes of a notification from the
+application — "Banners" (the bubble goes away after its delay), "Alerts" (the
+bubble stays until closed) or "None" (history only, no bubble). A critical
+notification keeps its rules whatever the style. The page also clears the
+history ("Clear history", to be confirmed).
+
 The first critical notification from an application explains, in its bubble,
 that it gets through Silence and stays until it is closed; its "Block during
 Silence" button denies the bypass to that application: under Silence, its

@@ -266,6 +266,7 @@ chaque clé CLI pointe vers un paquet existant.
 | `share` | Partage | export / import d'un setup ou du thème seul (archive) | `share.rs` |
 | `plugins` | Plugins | état et activation des paquets, plugins Lua : actifs, tiers, ajout, retrait | `widgets/plugins.rs` |
 | `about` | À propos | version, système, Hyprland, LYRA, fichiers de configuration, dépendances, thème SmartUI ; copie pour un rapport de bogue | `doctor.rs` |
+| `notifications` | Notifications | par application : l'autorisation d'afficher (interrupteur « Autoriser », coupé = révoquée) et le style de remise (bannières, alertes, aucune) ; effacement de l'historique, à confirmation. La page relit l'état gardé à chaque ouverture et écrit dans le fichier des autorisations, celui que lit la réception | `notifications.rs` (`Authorizations`, `Delivery`) |
 
 Le **domaine** (modèle, Lua, règles Hyprland, `monitors.lua`) ne dépend pas de
 l'interface. Le paquet fait le lien entre les deux. C'est ce qui permettra plus

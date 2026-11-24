@@ -200,6 +200,14 @@ n'est inscrit et la notification suivante redemande. « Refuser » : plus rien d
 cette application, ni bulle ni historique. Tant que l'autorisation n'est pas
 donnée, rien n'entre dans l'historique.
 
+Réglages → Notifications (groupe Système) reprend ces décisions, application
+par application : l'interrupteur « Autoriser », coupé, révoque l'autorisation
+comme un refus ; le style de remise dit ce que devient une notification de
+l'application — « Bannières » (la bulle s'efface après son délai), « Alertes »
+(la bulle reste jusqu'à sa fermeture) ou « Aucune » (l'historique seul, sans
+bulle). Une notification critique garde ses règles quel que soit le style. La
+page efface aussi l'historique (« Effacer l’historique », à confirmer).
+
 La première notification critique d'une application explique, dans sa bulle,
 qu'elle traverse le Silence et reste jusqu'à sa fermeture ; son bouton
 « Bloquer pendant le Silence » refuse ce passage à cette application : sous
