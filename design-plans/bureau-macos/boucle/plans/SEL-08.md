@@ -57,6 +57,7 @@ Pas de primitive nouvelle : `App::slider` est un composé de widgets du catalogu
 2. **Curseurs entiers à unité** : `plugins/bar.rs` (6), `icons.rs` (2), `effects.rs` (2), `lock.rs` (délai de mise en veille), `wallpaper.rs`, `theme.rs` (opacité, échelle du texte, verre, assombrissement du verrouillage), `animations.rs`, `launcher.rs` (helper de forme, cinq champs), `screens.rs` (3), `panorama.rs` (survol, veille). Vérifiable : chaque domaine, pas et unité inchangés ; scènes des paquets inchangées au repos. À savoir depuis B17 : une vingtaine de sites (`theme.rs`, `input.rs`, `hyprset.rs`, `curves.rs`…) alignent curseur et valeur au centre (`align_y(Alignment::Center)`), quand le site du dock les aligne en haut ; donner l'alignement au composant plutôt que déplacer les sites.
    - **Faits (B19, treize curseurs)** : le composant prend la présentation de son site, `SliderLook` — `fixed` : curseur largeur fixe, valeur à sa largeur ; `fill` : curseur souple, valeur largeur fixe — et `SliderSpec::new`. Convertis : `bar.rs` (hauteur, marge), `icons.rs` (2), `effects.rs` (2), `wallpaper.rs`, `theme.rs` (échelle du texte, verre, verrouillage), `launcher.rs` (suggestions), `panorama.rs` (survol, veille). Le pilote du dock suit la nouvelle signature, aligné en haut (`Alignment::Start`).
    - **Restent (douze curseurs)** : `bar.rs` (marges des côtés, rayon des coins ; l'helper « Convexe », trois champs), `theme.rs` (opacité par endroit), `launcher.rs` (helper de forme), `lock.rs` (quatre étapes de veille), `screens.rs` (barre et texte de l'écran, taille de zone), `animations.rs` (vitesse). Leur `poser` a besoin d'une donnée du rendu — une forme, un endroit, une étape, un écran, un nom —, qu'un pointeur de fonction ne garde pas : voir « Révision du plan » ci-dessous, à exécuter avant la fin de cette étape.
+   - **Faits (B20, étape 2 achevée)** : la révision exécutée, avec trois écarts (voir « Révision du plan »). Convertis : `bar.rs` (marges des côtés, rayon des coins ; « Convexe » déroulé en trois curseurs fixes à 260 px), `theme.rs` (opacité par endroit, plus les deux options numériques de l'étape 3), `launcher.rs` (helper de forme, cinq champs), `lock.rs` (quatre étapes de veille), `screens.rs` (barre et texte de l'écran, taille de zone), `animations.rs` (vitesse). **Étape 2 faite.**
 3. **Curseurs décimaux, signés ou de domaine propre** (vingt-trois endroits) : `input.rs` (4), `lock.rs` (assombrissement), `desktop.rs` (2), `sound.rs`, `colors.rs`, `theme.rs` (2 numériques), `curves.rs`, `widgets.rs` (3), `screens.rs` (2), `panorama.rs` (2), `hue.rs` (2), `hyprset.rs` (2). Vérifiable : `+0,50`, `1,5` et `1500` se lisent ; hors domaine, la valeur est bornée. L'écart passe alors `fait`.
 
 ## Périmètre
@@ -124,8 +125,56 @@ Relu à froid après la comparaison des scènes d'aperçu : rendues avant le cha
 
 **Garde contre une forme périmée.** Une fermeture qui emporte une forme la repose entière à Entrée. Si la forme change entre l'ouverture du champ et Entrée — un autre réglage bougé à la souris, une remise par défaut —, la valeur tapée écraserait ce changement ; or le champ reste ouvert quand il perd le focus (B17). Donc : tout message d'un paquet au tiroir (`PanelMsg::Plugin`) referme le champ avant `plugins::update` — un autre geste ferme la saisie, comme un changement de paquet. À vérifier d'abord : qu'aucun message de paquet n'arrive au tiroir sans geste de l'utilisateur (rafraîchissement périodique, événement du démon routé par `PanelMsg::Plugin`) ; sinon la saisie se fermerait toute seule, et il faut alors se limiter à refermer à `PanelMsg::Defaults` et dire le piège au propriétaire.
 
+**Vérification demandée ci-dessus (B20).** Aucun abonnement ne rend de message de paquet (`subscription` de `src/ui/mod.rs` : `Control`, `Hypr`, volume, thème… ; `plugins::update` n'est appelé que par `PanelMsg::Plugin`). Deux exceptions, aux conséquences bornées : une tâche lancée par un geste rend un message de paquet à son achèvement (`Task::done(wrap(Msg::Status))` de `colors.rs`, et semblables) — une saisie ouverte pendant une de ces tâches se referme quand elle finit ; la carte des écrans émet `Msg::DragEnd` en sortant de son survol (`screens.rs`). Dans les deux cas la saisie est perdue, aucun réglage ne l'est. La garde reste : sans elle, Entrée sur un curseur de forme reprendrait un champ bougé depuis.
+
+**Écarts à cette révision, constatés en l'exécutant (B20).**
+
+- `Msg` doit être `Send` : un `Rc` ne compile pas. La fermeture est un `Arc<dyn Fn(f64) -> Msg + Send + Sync>`.
+- La clé est un `Arc<str>`, non un `&'static str` : les options de design et les surcharges d'écran ont un nom composé au rendu (`screen.DP-1.text_scale`). Deux curseurs de noms différents ne sont pas le même champ ouvert (test).
+- Le piège que la révision ne voyait pas : le message de relâchement de plusieurs sites portait la valeur d'avant le glissé (`Msg::DesignOpt(c, v, true)`, `Msg::AppsShape(shape, true)`). Copié à l'ouverture du champ, il aurait écrasé la valeur tapée à Entrée. `enregistrer` prend donc un message sans valeur : `Msg::Commit` du paquet après une pose qui pose, `PanelMsg::Commit` pour la forme du lanceur, `UiMsg::Noop` quand la pose enregistre déjà (zone Panorama). Le relâchement s'en trouve égal : la valeur est posée pendant le glissé, l'enregistrement la suit.
+- `SliderLook` prend l'écart du site (`.spacing(10)`) : la rangée de la taille de zone écartait le curseur de sa valeur de 10 px.
+- « Voile derrière » du lanceur : en pour cent, comme sa valeur affichée (0 à 80, pas de 1). Auparavant son domaine était 0 à 0,8 sans pas déclaré : or depuis iced 0.14 le pas par défaut d'un curseur est 1, il sautait de 0 à 80 %.
+
 **Relecture à froid**, écrite après la comparaison des scènes.
 
 - **Qu'est-ce qui casse ?** `SliderEdit` n'est plus `Debug` par dérivation : d'où le `Debug` à la main. La garde referme le champ au premier glissé du curseur lui-même : cohérent, la saisie n'a alors plus d'objet. Les messages de pose et d'enregistrement rendus par Entrée reviennent au tiroir par `PanelMsg::Plugin` une fois le champ refermé : la garde ne les arrête pas.
 - **Que manque-t-il ?** La vérification sur le routage des messages de paquet, dite plus haut ; un test qu'un message de paquet referme le champ ; un test de la pose par fermeture sur un site à forme (`Msg::Shape`), lisant le réglage posé.
 - **Le plan résout-il l'écart ?** Oui : tous les curseurs restants passent au composant avec leurs messages existants ; plus aucune valeur du tiroir ne reste en lecture seule.
+
+## Relecture du diff de l'étape 2, seconde partie (itération B20, sans outil d'agent)
+
+Relu à froid après la porte visuelle. Scènes rendues avant le changement (binaire de
+tête, copié hors du worktree) et après, aux trois largeurs : les 174 scènes, puis neuf
+rendus ciblés par onglet (`HYPRDESK_PREVIEW_SUBTAB` : forme du lanceur, Barre, Écran,
+Transparence, Animations, Veille, Bureau, Clavier, Son), où se trouvent les curseurs
+convertis.
+
+- **Qu'est-ce qui casse ?** Trois défauts, corrigés avant la publication. Le `Debug` à la
+  main employait `debug_struct(..).field("key", ..)` : le relevé du catalogue
+  (`i18n::marked`, qui lit `.field("…")` comme un libellé) réclamait la traduction de
+  « key », « range », « step », « save » — la porte a échoué là-dessus une fois ; le
+  `Debug` s'écrit avec `write!`. `Row::spacing` d'iced 0.14 prend des `Pixels`, non un
+  entier. La rangée de la taille de zone écartait le curseur de sa valeur de 10 px, non
+  12 : `SliderLook::spacing`. Une seule différence hors horloges et télémétrie de
+  l'en-tête : sur la page Barre en style Convexe, la barre de défilement est 16 px plus à
+  gauche qu'avant — à la place qu'elle a sur la même page en style Continuité et sur les
+  autres pages ; le contenu visible est identique au pixel près.
+- **Que manque-t-il ?** Les deux tests que la révision demandait : un message de paquet
+  referme le champ ; la pose par fermeture sur un site à forme (`Msg::Shape`) lit le
+  réglage posé, le reste de la forme et la marge posée avant étant gardés. S'y ajoute un
+  test de deux clés composées distinctes. Non vérifié à l'exécution, comme depuis B17 :
+  le focus et la sélection du nombre à l'ouverture du champ.
+- **Le diff fait-il exactement ce que l'étape demande ?** Oui : domaine, pas, unité et
+  messages de pose de chaque site inchangés ; l'enregistrement prend un message sans
+  valeur là où celui du relâchement en portait une. Deux dépassements, notés au registre :
+  « Voile derrière » en pour cent (0 à 80, pas de 1) au lieu de 0 à 0,8 sans pas déclaré ;
+  et les trois curseurs « Convexe » fixes à 260 px, comme la révision le décidait.
+- **Respect de `DESIGN.md` et des conventions du dépôt ?** Oui : des widgets du catalogue
+  seulement (curseur, bouton, champ, infobulle), ni jeton ni style nouveaux ; aucune
+  chaîne nouvelle à traduire ; une allocation par curseur rendu (fermeture, clé composée),
+  assumée par la révision.
+- **Régression, test manquant ?** Aucune trouvée sur les pages rendues : Dock, Barre,
+  Lanceur, Écrans, Thème, Animations, Verrouillage, Bureau, Clavier, Son identiques au
+  pixel près dans le tiroir. Reste à dire au propriétaire : un geste lancé avant la saisie
+  qui rend un message de paquet à son achèvement referme le champ (la saisie est perdue,
+  pas le réglage).
