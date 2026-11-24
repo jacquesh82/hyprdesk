@@ -619,7 +619,7 @@ impl App {
                 .on_press(wrap(Msg::PortraitReset)),
             );
         }
-        col = col.push(self.adv(self.field("Modules", "", which)));
+        col = col.push(self.adv("Modules par type d'écran", self.field("", "", which)));
         if portrait && b.portrait.is_none() {
             col = col.push(
                 text(
@@ -1382,7 +1382,6 @@ impl App {
         );
         // Couleur de chaque module : configuration avancée.
         let mut fine = column![].spacing(10);
-        fine = fine.push(self.section("Couleur de chaque module"));
         fine = fine.push(
             text(crate::i18n::tr(
                 "Texte et icônes du module, y compris quand il est actif ; avertissement et critique gardent leurs couleurs.",
@@ -1411,7 +1410,7 @@ impl App {
                 .spacing(6),
             );
         }
-        col = col.push(self.adv(fine));
+        col = col.push(self.adv("Couleur de chaque module", fine));
         col.into()
     }
 }

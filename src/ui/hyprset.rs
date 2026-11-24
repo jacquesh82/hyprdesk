@@ -552,8 +552,9 @@ impl App {
     /// Sections du registre `hyprset` rangées sous `key` (`fenetres`,
     /// `groupes`, `curseur`, `gestes`, `comportement-fenetres`, `avance`,
     /// `permissions`). Options brutes de Hyprland : affichées seulement en
-    /// configuration avancée, encadrées en cyan, sauf sur une page avancée
-    /// ou pour un groupe de base (`hyprset::BASIC_GROUPS`).
+    /// configuration avancée, repliées derrière un triangle de divulgation
+    /// intitulé (`hyprset_folded`), sauf sur une page avancée ou pour un
+    /// groupe de base (`hyprset::BASIC_GROUPS`).
     pub(in crate::ui) fn hyprset_tab(&self, key: &str) -> Element<'_, UiMsg> {
         let on_advanced_page = self
             .panel
@@ -562,8 +563,19 @@ impl App {
         if crate::hyprset::BASIC_GROUPS.contains(&key) || on_advanced_page {
             self.hyprset_groups(key)
         } else {
-            self.adv(self.hyprset_groups(key))
+            self.hyprset_folded(key)
         }
+    }
+
+    /// Sections du registre rangées sous `key`, chacune derrière son triangle de
+    /// divulgation, intitulé par son titre (HIG LAY-01).
+    pub(in crate::ui) fn hyprset_folded(&self, key: &str) -> Element<'_, UiMsg> {
+        let mut col = column![].spacing(14);
+        for (_, title, paths) in crate::hyprset::GROUPS.iter().filter(|(k, _, _)| *k == key) {
+            let fields = column(paths.iter().map(|p| self.opt_field(Store::Hypr, p))).spacing(14);
+            col = col.push(self.adv(title, fields));
+        }
+        col.into()
     }
 
     /// Sections du registre rangées sous `key`, sans cadre.

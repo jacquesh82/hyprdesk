@@ -214,18 +214,21 @@ impl App {
                 column(rows).spacing(8)
             ),
             column(extras).spacing(4),
-            self.adv(self.field(
+            self.adv(
                 "Écrans dédiés : seulement leurs workspaces, les autres vont sur l'écran principal",
-                "workspace_dedicated",
-                column(self.monitors.iter().map(|m| {
-                    let name = m.name.clone();
-                    iced::widget::toggler(g.workspace_dedicated.contains(&m.name))
-                        .label(m.name.clone())
-                        .on_toggle(move |v| wrap(Msg::Dedicated(name.clone(), v)))
-                        .into()
-                }))
-                .spacing(8),
-            )),
+                self.field(
+                    "",
+                    "workspace_dedicated",
+                    column(self.monitors.iter().map(|m| {
+                        let name = m.name.clone();
+                        iced::widget::toggler(g.workspace_dedicated.contains(&m.name))
+                            .label(m.name.clone())
+                            .on_toggle(move |v| wrap(Msg::Dedicated(name.clone(), v)))
+                            .into()
+                    }))
+                    .spacing(8),
+                )
+            ),
         ]
         .spacing(14)
         .into()

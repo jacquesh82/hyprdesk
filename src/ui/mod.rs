@@ -469,6 +469,8 @@ pub struct App {
     chat_session: u64,
     /// Onglet choisi dans chaque paquet de réglages (retenu d'une ouverture à l'autre).
     subtabs: HashMap<&'static str, &'static str>,
+    /// Sections avancées dépliées dans les Réglages, par leur clé (HIG LAY-01).
+    adv_open: std::collections::HashSet<String>,
     /// Dernier paquet consulté dans le tiroir des réglages : c'est sur lui
     /// que le tiroir rouvre (HIG PAT-09).
     panel_tab: &'static str,
@@ -1039,6 +1041,7 @@ impl App {
             chat: None,
             chat_session: 0,
             subtabs: HashMap::new(),
+            adv_open: Default::default(),
             panel_tab: plugins::desktop::INFO.id,
             drop_hover: None,
             drop_count: 0,

@@ -283,8 +283,11 @@ and disabled bindings are kept. A hand-written file is copied
 - **Advanced settings** (switch in the body of Settings) show what only an
   expert needs, marked in cyan: a flask next to the tab and, with the count
   of advanced settings, next to each package that holds some, an
-  *Advanced* badge on the page, a cyan frame around advanced sections.
-  Behind it: animation curves, desktop transitions, window behaviour and
+  *Advanced* badge on the page. A page's advanced sections fold away
+  behind a titled disclosure triangle (“▸”): a click unfolds the section
+  in the page, with no frame; a search unfolds them all, to show its
+  matches. Behind it: animation curves, desktop transitions, window
+  behaviour and
   groups, layer and workspace rules, per-device settings (speed,
   acceleration, scrolling, layout for one keyboard or mouse), environment
   variables, **Hyprland plugins** (hyprpm: enable or disable each plugin,

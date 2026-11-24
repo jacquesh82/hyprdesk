@@ -112,6 +112,7 @@ fn literal(s: &str, start: usize) -> Option<(String, usize)> {
 const PATTERNS: &[&str] = &[
     "text(\"",
     "self.field(\"",
+    ".adv(\"",
     "self.section(\"",
     "section(crate::i18n::tr(\"",
     "field(crate::i18n::tr(\"",

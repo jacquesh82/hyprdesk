@@ -314,6 +314,7 @@ impl App {
         // La commande lancée : avancé (par défaut, un éditeur détecté).
         col = col.push(
             self.adv(
+                "Commande de la tuile Notes",
                 row![
                     text_input("gnome-text-editor", &shown)
                         .font(self.font)

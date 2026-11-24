@@ -231,7 +231,10 @@ impl App {
             }
             // Réglages fins du groupe : configuration avancée.
             if keys.iter().any(|k| fx::ADVANCED.contains(k)) {
-                col = col.push(self.adv(fine));
+                col = col.push(self.adv(
+                    &crate::tr!("Réglages fins : {t}", t = crate::i18n::tr(title)),
+                    fine,
+                ));
             }
         }
         col.into()

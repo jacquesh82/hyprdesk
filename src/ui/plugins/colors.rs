@@ -321,7 +321,7 @@ impl App {
             None => Space::new().into(),
         };
         col = col.push(sliders);
-        col = col.push(self.adv(fine_sliders));
+        col = col.push(self.adv("Gamma par canal", fine_sliders));
         col = col.push(curves);
         col = col.push(
             row![
@@ -446,7 +446,7 @@ impl App {
                 .size(crate::ui::tokens::ts(11.0))
                 .color(dim),
         );
-        col = col.push(self.adv(fine));
+        col = col.push(self.adv("Calibration et image de référence", fine));
         col.into()
     }
 

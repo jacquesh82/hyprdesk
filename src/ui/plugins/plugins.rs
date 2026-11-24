@@ -490,9 +490,8 @@ impl App {
                 self.section("Plugins de widget de barre"),
                 lua,
                 // Plugin tiers : configuration avancée.
-                self.adv(
+                self.adv("Ajouter un plugin tiers",
                     column![
-                        self.section("Ajouter un plugin tiers"),
                         text(crate::tr!(
                             "Un plugin Lua (fichier, dossier avec init.lua, ou dépôt git) est installé \
                              dans {p0} ; il apparaît aussitôt ci-dessus et dans Widgets.",
@@ -592,6 +591,7 @@ impl App {
             // Règle polkit posée dans /etc : avancé.
             col = col.push(
                 self.adv(
+                    "Règle polkit d'un seul mot de passe",
                     column![
                         row![
                             text(crate::i18n::tr("Un seul mot de passe par mise à jour"))

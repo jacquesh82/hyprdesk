@@ -36,6 +36,8 @@ pub enum PanelMsg {
     SubTab(Tab, &'static str),
     /// Configuration avancée (tous les détails) ou de base (l'essentiel).
     Advanced(bool),
+    /// Section avancée dépliée ou repliée : sa clé (HIG LAY-01).
+    AdvToggle(String),
     /// Visite guidée.
     Tour(super::tour::TourMsg),
     Close,
@@ -523,6 +525,13 @@ impl App {
                     p.tab = plugins::desktop::INFO.id;
                 }
                 self.commit()
+            }
+            PanelMsg::AdvToggle(key) => {
+                // Dépliée : on la replie ; repliée : on la déplie.
+                if !self.adv_open.remove(&key) {
+                    self.adv_open.insert(key);
+                }
+                Task::none()
             }
             PanelMsg::Close => self.close_panel(),
             PanelMsg::Commit => self.commit(),
@@ -1185,6 +1194,8 @@ impl App {
     }
 
     /// Champ : libellé (et avertissement si hyprdesk.lua surcharge la clé), puis le contrôle.
+    /// Libellé vide : le contrôle seul, avec l'avertissement — le libellé est alors
+    /// l'intitulé du triangle de divulgation d'une section avancée (HIG LAY-01).
     pub(in crate::ui) fn field<'a>(
         &self,
         label: &'a str,
@@ -1192,14 +1203,17 @@ impl App {
         control: impl Into<Element<'a, Msg>>,
     ) -> Element<'a, Msg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
-        let mut head = row![self.marked(
-            crate::i18n::tr(label),
-            14,
-            Color { a: 0.85, ..fg },
-            self.font
-        )]
-        .spacing(10)
-        .align_y(Alignment::Center);
+        let mut head = row![].spacing(10).align_y(Alignment::Center);
+        let mut titled = false;
+        if !label.is_empty() {
+            head = head.push(self.marked(
+                crate::i18n::tr(label),
+                14,
+                Color { a: 0.85, ..fg },
+                self.font,
+            ));
+            titled = true;
+        }
         if !key.is_empty() && self.cfg.keys_user.contains(key) {
             head = head.push(
                 super::selectable::selectable("surchargé dans hyprdesk.lua — sans effet ici")
@@ -1207,8 +1221,13 @@ impl App {
                     .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning()),
             );
+            titled = true;
         }
-        column![head, control.into()].spacing(6).into()
+        let control = control.into();
+        if !titled {
+            return control;
+        }
+        column![head, control].spacing(6).into()
     }
 
     /// Couleurs de texte lisibles du tiroir (WCAG AA sur son fond) : texte,

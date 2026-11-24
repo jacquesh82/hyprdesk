@@ -192,11 +192,14 @@ Marquage, partout (tiroir large ou étroit) : fiole cyan (icône
 `hyprdesk-advanced`) à côté d'un onglet avancé, et, configuration avancée
 affichée, à côté de chaque paquet qui contient de l'avancé avec leur nombre
 (`plugins::adv_count` : onglets avancés, sections de `ADVANCED_PLACES`,
-appels `self.adv(…)` comptés dans `ADV_SOURCES`) ; pastille « Avancé » en
-tête de page, cadre cyan autour d'une section avancée. Règle : un onglet fait seulement d'options brutes de
+groupes repliés de `FOLDED_GROUPS`, appels `self.adv(…)` comptés dans
+`ADV_SOURCES`) ; pastille « Avancé » en
+tête de page ; section avancée repliée derrière un triangle de divulgation
+intitulé (`self.adv("Titre", …)`, HIG LAY-01). Règle : un onglet fait seulement d'options brutes de
 Hyprland, de fichiers ou de réglages d'expert est avancé (● ci-dessous) ;
 sur une page de base, les options brutes de Hyprland (`hyprset::GROUPS` hors
-`BASIC_GROUPS`) sont encadrées par `App::hyprset_tab`. Le test
+`BASIC_GROUPS`) se replient derrière leurs triangles (`App::hyprset_tab`,
+`App::hyprset_folded`). Le test
 `options_brutes_marquees_avancees` le vérifie.
 
 ### Onglets des paquets chargés

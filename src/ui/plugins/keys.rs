@@ -1675,12 +1675,21 @@ impl App {
         let mut col = column![
             self.section("Raccourcis"),
             self.key_conflicts_view(),
-            self.adv(self.field(
+            self.adv(
                 "Bureau affiché : suspendre les raccourcis de Hyprland",
-                "suspend_binds",
-                toggler(g.suspend_binds).on_toggle(|v| wrap(Msg::SuspendBinds(v))),
-            )),
-            self.adv(text("Les raccourcis de Hyprland n'agissent plus sur les fenêtres cachées derrière le bureau. Seuls restent actifs ceux de hyprdesk et ceux marqués { submap_universal = true } dans hyprland.lua.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim)),
+                column![
+                    self.field(
+                        "",
+                        "suspend_binds",
+                        toggler(g.suspend_binds).on_toggle(|v| wrap(Msg::SuspendBinds(v))),
+                    ),
+                    text("Les raccourcis de Hyprland n'agissent plus sur les fenêtres cachées derrière le bureau. Seuls restent actifs ceux de hyprdesk et ceux marqués { submap_universal = true } dans hyprland.lua.")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim),
+                ]
+                .spacing(6),
+            ),
             key_field(0, "Changer de mode (no-desktop → launcher-only → full-desktop)", "keys.toggle"),
             key_field(3, "launcher-only (lanceur seul)", "keys.launcher"),
             key_field(4, "no-desktop (masquer)", "keys.hide"),
@@ -1690,8 +1699,8 @@ impl App {
             key_field(7, crate::i18n::tr("Fenêtres (Alt+Tab ; avec Maj : en arrière)"), "keys.switch"),
             key_field(8, crate::i18n::tr("Vue d'ensemble des fenêtres"), "keys.overview"),
             key_field(10, crate::i18n::tr("Ouvrir LYRA (assistant IA)"), "keys.assistant"),
-            self.adv(self.field(
-                "Vue d'ensemble par un plugin de Hyprland",
+            self.adv("Vue d'ensemble par un plugin de Hyprland", self.field(
+                "",
                 "overview_command",
                 text_input(
                     crate::i18n::tr("vide : le sélecteur de hyprdesk"),
@@ -1714,7 +1723,10 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
-            self.adv(key_field(2, crate::i18n::tr("Sortie de secours (bureau affiché)"), "keys.leave")),
+            self.adv(
+                "Sortie de secours (bureau affiché)",
+                key_field(2, "", "keys.leave"),
+            ),
             text("Valider avec Entrée. Vide = aucun raccourci.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
         ]
         .spacing(10);

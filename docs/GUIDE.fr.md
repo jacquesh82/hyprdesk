@@ -287,8 +287,11 @@ application : `hyprdesk binds generate --write`.
 - **Configuration avancée** (interrupteur dans le corps des Réglages) : ce qui ne
   sert qu'à l'expert, marqué en cyan — une fiole à côté de l'onglet et, avec
   le nombre de réglages avancés, à côté de chaque paquet qui en contient,
-  une pastille « Avancé » en tête de page, un cadre cyan autour des sections
-  avancées. On y trouve les courbes d'animation, les
+  une pastille « Avancé » en tête de page. Les sections avancées d'une page
+  sont repliées derrière un triangle de divulgation intitulé (« ▸ ») : un
+  clic déploie la section dans la page, sans cadre ; une recherche les
+  déploie toutes, pour montrer ses correspondances. On y trouve les courbes
+  d'animation, les
   transitions du bureau, le comportement et les groupes de fenêtres, les
   règles de couches et de workspaces, les réglages par périphérique
   (vitesse, accélération, défilement, disposition d'un seul clavier ou

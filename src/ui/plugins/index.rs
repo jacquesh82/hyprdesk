@@ -542,15 +542,16 @@ impl App {
                     .on_input(|v| wrap(Msg::MaxText(v))),
             ),
         );
-        col = col.push(self.adv(fine));
+        col = col.push(self.adv("Exclusions et taille maximale", fine));
 
         // — Démarrage —
         // Quand démarre le démon d'index : avancé.
         col = col.push(
             self.adv(
+                "Lancer l'index avec hyprdesk",
                 column![
                     self.field(
-                        "Lancer l'index avec hyprdesk",
+                        "",
                         "index_autostart",
                         toggler(self.cfg.general.index_autostart)
                             .on_toggle(|v| wrap(Msg::Autostart(v))),
@@ -569,7 +570,7 @@ impl App {
         let mut rescan = column![].spacing(10);
         rescan = rescan.push(
             self.field(
-                "Rescan de sûreté",
+                "",
                 "index_interval",
                 text_input("secondes (défaut 21600)", &s.interval_text)
                     .font(self.font)
@@ -585,7 +586,7 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
-        col = col.push(self.adv(rescan));
+        col = col.push(self.adv("Rescan de sûreté", rescan));
 
         // — retour inline + Appliquer —
         if let Some(m) = &s.info {

@@ -180,7 +180,7 @@ pub const ADVANCED_ONLY: &[&str] = &["share"];
 ///
 /// Règle : un onglet fait seulement d'options brutes de Hyprland, de
 /// fichiers ou de réglages d'expert est avancé ; sur une page de base, les
-/// options brutes de Hyprland sont encadrées (`App::hyprset_tab`).
+/// options brutes de Hyprland sont repliées (`App::hyprset_tab`).
 pub const ADVANCED_TABS: &[(&str, &str)] = &[
     ("desktop", "modes"),
     ("desktop", "session"),
@@ -216,36 +216,19 @@ pub const ADVANCED_PLACES: &[(&str, &str, &str)] = &[
     ("animations", "effets", "flou"),
 ];
 
-/// Couleur des réglages de la configuration avancée (liseré, pastille,
-/// point dans le menu) : distincte de l'accent et de l'orange des
+/// Sections du registre `hyprset` repliées dans la page d'un paquet, chacune
+/// derrière un triangle de divulgation (`App::hyprset_folded`, HIG LAY-01) :
+/// (clé de groupe de `hyprset::GROUPS`, paquet, onglet).
+pub const FOLDED_GROUPS: &[(&str, &str, &str)] = &[
+    ("fenetres-details", "windows", "apparence"),
+    ("curseur", "input", "curseur"),
+    ("gestes", "input", "gestes"),
+];
+
+/// Couleur des repères de la configuration avancée (fiole, pastille,
+/// point et compte dans le menu) : distincte de l'accent et de l'orange des
 /// avertissements.
 pub const ADV_COLOR: iced::Color = iced::Color::from_rgb(0.545, 0.914, 0.992);
-
-/// Réglage avancé : cadre cyan, fond à peine teinté.
-pub fn adv_frame<'a>(e: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
-    use iced::widget::container;
-    container(e)
-        .width(iced::Length::Fill)
-        .padding([10, 12])
-        .style(|_| container::Style {
-            background: Some(
-                iced::Color {
-                    a: 0.04,
-                    ..ADV_COLOR
-                }
-                .into(),
-            ),
-            border: iced::Border::default()
-                .rounded(10)
-                .width(1)
-                .color(iced::Color {
-                    a: 0.45,
-                    ..ADV_COLOR
-                }),
-            ..Default::default()
-        })
-        .into()
-}
 
 /// Icône de la configuration avancée (fiole), dans la couleur donnée.
 pub fn adv_glyph<'a>(size: f32, color: iced::Color) -> Element<'a, Msg> {
@@ -265,7 +248,8 @@ pub fn adv_icon<'a>(size: f32) -> Element<'a, Msg> {
 }
 
 /// Sources des paquets, pour compter leurs sections avancées
-/// (`self.adv(…)`) ; un fichier qui en contient doit y figurer (test).
+/// (`self.adv(…)`, repliées derrière un triangle) ; un fichier qui en contient
+/// doit y figurer (test).
 const ADV_SOURCES: &[(&str, &str)] = &[
     ("animations", include_str!("animations.rs")),
     ("assistant", include_str!("assistant.rs")),
@@ -297,8 +281,10 @@ fn adv_calls(src: &str) -> usize {
 }
 
 /// Nombre de réglages avancés d'un paquet : onglets avancés, sections
-/// d'options de Hyprland ajoutées à ses pages, sections encadrées.
+/// d'options de Hyprland ajoutées à ses pages ou repliées dans ses pages de
+/// base (`FOLDED_GROUPS`), sections repliées écrites dans ses sources.
 pub fn adv_count(id: &str) -> usize {
+    let folded = FOLDED_GROUPS.iter().filter(|(_, p, _)| *p == id).count();
     let tabs = tabs(id)
         .iter()
         .filter(|(t, _)| ADVANCED_TABS.contains(&(id, *t)))
@@ -309,7 +295,7 @@ pub fn adv_count(id: &str) -> usize {
         .filter(|(p, _)| *p == id)
         .map(|(_, s)| adv_calls(s))
         .sum();
-    tabs + places + sections
+    tabs + places + folded + sections
 }
 
 /// Pastille « Avancé » en tête d'une page ou d'un onglet avancé.
@@ -436,14 +422,63 @@ impl App {
         self.cfg.general.advanced_settings
     }
 
-    /// Élément affiché seulement en configuration avancée (sinon rien, sans
-    /// laisser d'espace dans la colonne).
-    pub(in crate::ui) fn adv<'a>(&self, e: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
-        if self.advanced() {
-            adv_frame(e)
-        } else {
-            iced::widget::Space::new().width(0).height(0).into()
+    /// Section avancée : triangle de divulgation intitulé, replié par défaut,
+    /// qui déploie son contenu dans la page (HIG LAY-01). Sans la
+    /// configuration avancée : rien, sans laisser d'espace dans la colonne.
+    /// Pendant une recherche, la section est dépliée : ses correspondances
+    /// surlignées doivent se voir.
+    pub(in crate::ui) fn adv<'a>(
+        &self,
+        title: &str,
+        e: impl Into<Element<'a, Msg>>,
+    ) -> Element<'a, Msg> {
+        use iced::widget::{button, column, container, row, text};
+        if !self.advanced() {
+            return iced::widget::Space::new().width(0).height(0).into();
         }
+        // Clé « paquet · onglet · titre » : les intitulés d'une page sont uniques.
+        let place = self.panel.as_ref().map(|p| (p.tab, self.subtab(p.tab)));
+        let key = format!(
+            "{}\u{1}{}\u{1}{title}",
+            place.map_or("", |p| p.0),
+            place.map_or("", |p| p.1)
+        );
+        let searching = self
+            .panel
+            .as_ref()
+            .is_some_and(|p| !p.search.trim().is_empty());
+        let open = searching || self.adv_open.contains(&key);
+        let ink = self.ink();
+        // Le triangle pointe vers l'intérieur replié, vers le bas déplié.
+        let head: Element<'_, Msg> = button(
+            row![
+                text(if open { "▾" } else { "▸" })
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(ink.fg)
+                    .width(iced::Length::Fixed(12.0)),
+                self.marked(crate::i18n::tr(title), 13, ink.fg, self.font),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+        )
+        .padding([2, 4])
+        .style(button::text)
+        .on_press(Msg::Panel(super::panel::PanelMsg::AdvToggle(key)))
+        .into();
+        if !open {
+            return head;
+        }
+        // Le contenu se déploie sous le libellé, en retrait du triangle.
+        column![
+            head,
+            container(e).padding(iced::Padding {
+                left: 24.0,
+                ..iced::Padding::ZERO
+            })
+        ]
+        .spacing(8)
+        .into()
     }
 
     /// Suppression en deux temps : « × », puis « Supprimer ? » (armé) qui
@@ -650,7 +685,7 @@ pub(in crate::ui) fn view<'a>(app: &'a App, p: &'a Panel, id: &str) -> Element<'
     }
     let mut col = iced::widget::column![page].spacing(14);
     for k in extra {
-        col = col.push(adv_frame(app.hyprset_groups(k)));
+        col = col.push(app.hyprset_folded(k));
     }
     col.into()
 }
@@ -780,12 +815,12 @@ mod tests {
         }
     }
 
-    /// Options brutes de Hyprland : sur un onglet avancé, ou encadrées sur
-    /// un onglet de base ; seuls les groupes de base restent visibles sans
-    /// la configuration avancée.
+    /// Options brutes de Hyprland : sur un onglet avancé, ou repliées derrière
+    /// un triangle sur un onglet de base ; seuls les groupes de base restent
+    /// visibles sans la configuration avancée.
     #[test]
     fn options_brutes_marquees_avancees() {
-        // Groupe du registre → onglet qui l'affiche, et s'il y est encadré.
+        // Groupe du registre → onglet qui l'affiche, et s'il y est replié.
         let places: &[(&str, &str, &str, bool)] = &[
             ("fenetres", "windows", "apparence", false),
             ("fenetres-details", "windows", "apparence", true),
@@ -808,9 +843,9 @@ mod tests {
             let basic = crate::hyprset::BASIC_GROUPS.contains(k);
             assert!(
                 basic || *framed || is_advanced(pkg, Some(tab)),
-                "{k} : options brutes sur {pkg}/{tab}, ni avancé ni encadré"
+                "{k} : options brutes sur {pkg}/{tab}, ni avancé ni replié"
             );
-            assert!(!(basic && *framed), "{k} : groupe de base encadré");
+            assert!(!(basic && *framed), "{k} : groupe de base replié");
         }
         // Onglets nouveaux de Hyprland : marqués.
         for (p, t) in [
@@ -830,7 +865,7 @@ mod tests {
         assert!(BUILTIN.iter().all(|p| p.id != "effects"));
     }
 
-    /// Chaque fichier de paquet qui encadre une section avancée est compté.
+    /// Chaque fichier de paquet qui replie une section avancée est compté.
     #[test]
     fn sections_avancees_comptees() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui");
@@ -860,6 +895,48 @@ mod tests {
         );
         assert!(adv_count("input") >= 2);
         assert!(icons_ok());
+    }
+
+    /// Chaque section avancée est un triangle de divulgation intitulé (HIG
+    /// LAY-01) : l'appel donne son titre en littéral, que couvre la
+    /// traduction anglaise (`i18n::tests::catalogue_complet`).
+    #[test]
+    fn sections_avancees_intitulees() {
+        for (name, src) in ADV_SOURCES {
+            let body = src.split("#[cfg(test)]").next().unwrap_or("");
+            for after in body
+                .match_indices("self.adv(")
+                .map(|(i, _)| body[i + "self.adv(".len()..].trim_start())
+            {
+                assert!(
+                    after.starts_with('\"')
+                        || after.starts_with("&crate::tr!(")
+                        || after.starts_with("crate::tr!("),
+                    "{name} : section avancée sans intitulé littéral : {after}"
+                );
+            }
+        }
+    }
+
+    /// Les groupes du registre repliés dans une page existent, ne sont pas de
+    /// base et se replient sur un onglet de base du paquet.
+    #[test]
+    fn groupes_replies_coherents() {
+        for (k, pkg, tab) in FOLDED_GROUPS {
+            assert!(
+                crate::hyprset::GROUPS.iter().any(|(g, _, _)| g == k),
+                "groupe {k}"
+            );
+            assert!(
+                !crate::hyprset::BASIC_GROUPS.contains(k),
+                "{k} : groupe de base replié"
+            );
+            assert!(
+                tabs(pkg).iter().any(|(t, _)| t == tab),
+                "onglet {pkg}/{tab}"
+            );
+            assert!(!is_advanced(pkg, Some(tab)), "{pkg}/{tab} : onglet avancé");
+        }
     }
 
     fn icons_ok() -> bool {

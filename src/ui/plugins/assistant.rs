@@ -354,8 +354,8 @@ impl App {
                 ]
                 .spacing(8),
             ),
-            self.adv(self.field(
-                "Ouvrir l'assistant",
+            self.adv("Ouvrir l'assistant", self.field(
+                "",
                 "assistant_mode",
                 column![
                     mode(crate::i18n::tr("Dans sa fenêtre"), AssistantMode::Window),

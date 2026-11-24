@@ -247,8 +247,8 @@ impl App {
                 ]
                 .spacing(16),
             ),
-            self.adv(self.field(
-                "Opacité du voile (verre)",
+            self.adv("Opacité du voile (verre)", self.field(
+                "",
                 "glass_opacity",
                 row![
                     slider(0.0..=1.0, g.glass_opacity, |v| wrap(Msg::GlassOpacity(v)))

@@ -758,6 +758,7 @@ impl App {
                     )
                     .spacing(8),
                     self.adv(
+                        "Mise en miroir de l'image",
                         toggler(s.flipped())
                             .label(crate::i18n::tr("Image en miroir"))
                             .on_toggle(|v| wrap(Msg::ScreenFlip(v)))
@@ -807,7 +808,7 @@ impl App {
         // Zone Panorama : seulement quand le paquet Panorama est actif ;
         // découpe peu courante d'un écran ordinaire : avancé.
         if self.cfg.plugin_on("panorama") {
-            col = col.push(self.adv(self.screen_panorama_zone_view(s)));
+            col = col.push(self.adv("Zone Panorama", self.screen_panorama_zone_view(s)));
         }
         col.into()
     }

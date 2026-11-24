@@ -702,8 +702,8 @@ impl App {
             .color(dim),
             self.rules_of(RuleKind::Window),
             self.adv(
+                "Règles de couches",
                 column![
-                    self.section("Règles de couches"),
                     text(
                         "Surfaces des barres, lanceurs et notifications (layer-shell), \
                          repérées par leur espace de noms : hyprctl layers les liste."

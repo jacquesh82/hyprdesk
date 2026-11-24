@@ -139,11 +139,12 @@ impl App {
         match tab {
             "custom" => self.layouts_custom(),
             // Les raccourcis d'abord : c'est ce qu'on cherche en ouvrant l'onglet.
-            "dwindle" | "master" | "scrolling" => {
-                column![self.layout_keys(tab), self.adv(self.layouts_options(tab))]
-                    .spacing(14)
-                    .into()
-            }
+            "dwindle" | "master" | "scrolling" => column![
+                self.layout_keys(tab),
+                self.adv("Réglages de la disposition", self.layouts_options(tab))
+            ]
+            .spacing(14)
+            .into(),
             "monocle" => column![
                 self.section("Monocle"),
                 text(crate::i18n::tr(

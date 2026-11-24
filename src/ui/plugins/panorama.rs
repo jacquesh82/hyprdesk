@@ -314,7 +314,7 @@ impl App {
             );
         }
         preview = preview.push(formats);
-        col = col.push(self.adv(preview));
+        col = col.push(self.adv("Aperçu par format", preview));
         col.into()
     }
 
@@ -607,9 +607,8 @@ impl App {
         };
         let mut col = column![tabs].spacing(14);
         if view == "video" {
-            col = col.push(self.adv(
+            col = col.push(self.adv("Sortie du plein écran",
                 column![
-                    self.section("Sortie du plein écran"),
                     toggler(self.panorama_cfg().restore_on_fullscreen_exit)
                         .label(crate::i18n::tr("Remettre la fenêtre à sa place à la sortie du plein écran"))
                         .font(self.font)
@@ -705,7 +704,7 @@ impl App {
                 .text_size(13)
                 .on_toggle(|b| wrap(Msg::DimPaused(b))),
         );
-        col.push(self.adv(column![
+        col.push(self.adv("Fondu du voile", column![
             self.field(
                 "Durée du fondu",
                 "",
@@ -1342,8 +1341,9 @@ impl App {
         // le navigateur trouvé, ou son absence, reste dit à tous.
         col = col.push(
             self.adv(
+                "Navigateur",
                 self.field(
-                    "Navigateur",
+                    "",
                     "panorama",
                     iced::widget::text_input(
                         found
