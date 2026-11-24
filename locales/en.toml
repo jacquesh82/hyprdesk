@@ -4363,7 +4363,7 @@
 "positions des icônes oubliées" = "icon positions forgotten"
 "mode du bureau de chaque workspace oublié" = "desktop mode of each workspace forgotten"
 "historique des lancements effacé" = "launch history cleared"
-"notifications gardées effacées, « Ne pas déranger » coupé, passage du Silence oublié" = "kept notifications cleared, \"Do not disturb\" off, Silence bypass forgotten"
+"notifications gardées effacées, « Ne pas déranger » coupé, passage du Silence et autorisations des applications oubliés" = "kept notifications cleared, \"Do not disturb\" off, Silence bypass and app permissions forgotten"
 "thèmes perso mis de côté" = "custom themes set aside"
 "widgets perso mis de côté" = "custom widgets set aside"
 "autostart.lua : {e}" = "autostart.lua: {e}"

@@ -278,6 +278,153 @@ impl Passage {
     }
 }
 
+/// Style de remise d'une application (HIG SYS-03) : ce que devient une
+/// notification ordinaire de cette application.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Delivery {
+    /// La bulle s'efface après son délai : le style par défaut.
+    #[default]
+    Banner,
+    /// La bulle reste jusqu'à sa fermeture, comme une critique.
+    Alert,
+    /// L'historique seul, sans bulle, comme une basse urgence.
+    Silent,
+}
+
+impl Delivery {
+    /// Le mot du fichier gardé.
+    const fn word(self) -> &'static str {
+        match self {
+            Self::Banner => "banniere",
+            Self::Alert => "alerte",
+            Self::Silent => "silencieux",
+        }
+    }
+
+    /// Le mot du fichier gardé ; `None` s'il n'en est pas un.
+    fn parse(word: &str) -> Option<Self> {
+        match word {
+            "banniere" => Some(Self::Banner),
+            "alerte" => Some(Self::Alert),
+            "silencieux" => Some(Self::Silent),
+            _ => None,
+        }
+    }
+}
+
+/// Autorisation d'une application (HIG PAT-02) : ce qu'hyprdesk sait d'elle
+/// depuis qu'elle a demandé à envoyer des notifications. Refusée, ses
+/// notifications ne sont ni montrées ni gardées ; accordée, elles lui sont
+/// remises dans son style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Authorization {
+    pub granted: bool,
+    /// Sans objet pour une application refusée : le style par défaut.
+    pub delivery: Delivery,
+}
+
+/// Autorisations, application par application (HIG PAT-02, PAT-07). Une
+/// application absente n'a encore jamais demandé : sa première notification
+/// porte la demande.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Authorizations {
+    /// (clé d'application, décision), dans l'ordre de leur inscription.
+    pub apps: Vec<(String, Authorization)>,
+}
+
+/// Fichier des autorisations : une ligne par application — `clé=0` (refusée),
+/// `clé=1` (accordée, bannières), `clé=1:alerte`, `clé=1:silencieux`.
+pub fn authorizations_path() -> std::path::PathBuf {
+    crate::layout::state_dir().join("notifications-apps")
+}
+
+impl Authorizations {
+    /// Relit le fichier gardé : rien, s'il manque ou s'il est illisible.
+    pub fn load() -> Self {
+        std::fs::read_to_string(authorizations_path())
+            .map(|t| Self::read(&t))
+            .unwrap_or_default()
+    }
+
+    /// Les lignes `clé=0|1[:style]` ; les autres sont ignorées.
+    fn read(text: &str) -> Self {
+        Self {
+            apps: text
+                .lines()
+                .filter_map(|l| {
+                    let (key, value) = l.rsplit_once('=')?;
+                    let value = value.trim();
+                    let (flag, word) = value
+                        .split_once(':')
+                        .map_or((value, None), |(f, w)| (f, Some(w)));
+                    // Refusée, une application n'a pas de style : `0:…` ne
+                    // se lit pas.
+                    let (granted, delivery) = match (flag, word) {
+                        ("0", None) => (false, Delivery::default()),
+                        ("1", None) => (true, Delivery::default()),
+                        ("1", Some(w)) => (true, Delivery::parse(w)?),
+                        _ => return None,
+                    };
+                    Some((key.trim().to_string(), Authorization { granted, delivery }))
+                })
+                .collect(),
+        }
+    }
+
+    /// Décision d'une application ; `None` : elle n'a encore jamais demandé.
+    pub fn get(&self, key: &str) -> Option<Authorization> {
+        self.apps
+            .iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, a)| *a)
+    }
+
+    /// L'application est-elle autorisée ; `None` : elle n'a encore jamais
+    /// demandé.
+    pub fn granted(&self, key: &str) -> Option<bool> {
+        self.get(key).map(|a| a.granted)
+    }
+
+    /// Inscrit ou remplace la décision d'une application.
+    pub fn set(mut self, key: &str, decision: Authorization) -> Self {
+        self.apps.retain(|(k, _)| k != key);
+        self.apps.push((
+            key.to_string(),
+            Authorization {
+                delivery: if decision.granted {
+                    decision.delivery
+                } else {
+                    Delivery::default()
+                },
+                ..decision
+            },
+        ));
+        self
+    }
+
+    /// Garde l'état d'une session à l'autre.
+    pub fn save(&self) {
+        let p = authorizations_path();
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = std::fs::write(&p, self.render());
+    }
+
+    /// Le contenu du fichier gardé.
+    fn render(&self) -> String {
+        self.apps
+            .iter()
+            .map(|(k, a)| match (a.granted, a.delivery) {
+                (false, _) => format!("{k}=0\n"),
+                (true, Delivery::Banner) => format!("{k}=1\n"),
+                (true, style) => format!("{k}=1:{}\n", style.word()),
+            })
+            .collect()
+    }
+}
+
 /// Texte de l'état : un champ par ligne, tabulations et sauts de ligne remplacés.
 pub fn render_state(dnd: bool, until: Option<i64>, history: &[Notification]) -> String {
     let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
@@ -949,6 +1096,78 @@ mod tests {
             None,
             "une ligne illisible ne décide rien"
         );
+    }
+
+    /// HIG PAT-02 et SYS-03 : une décision par application — accordée, avec
+    /// son style de remise, ou refusée — gardée d'une session à l'autre ; une
+    /// application absente n'a encore jamais demandé.
+    #[test]
+    fn autorisations_par_application() {
+        let refusee = Authorization {
+            granted: false,
+            delivery: Delivery::Silent,
+        };
+        let mut actuelles = Authorizations::default();
+        assert_eq!(actuelles.granted("kitty"), None, "jamais demandé");
+        assert_eq!(Authorizations::read(""), Authorizations::default());
+        actuelles = actuelles
+            .set(
+                "kitty",
+                Authorization {
+                    granted: true,
+                    delivery: Delivery::Alert,
+                },
+            )
+            .set("org.example.Chat", refusee)
+            .set(
+                "firefox",
+                Authorization {
+                    granted: true,
+                    delivery: Delivery::default(),
+                },
+            );
+        assert_eq!(actuelles.granted("kitty"), Some(true));
+        assert_eq!(
+            actuelles.get("kitty").map(|a| a.delivery),
+            Some(Delivery::Alert)
+        );
+        assert_eq!(
+            actuelles.render(),
+            "kitty=1:alerte\norg.example.Chat=0\nfirefox=1\n",
+            "refusée : pas de style"
+        );
+        let relues = Authorizations::read(&format!(
+            "{}\nbruit\na=2\nc=1:inconnu\nd=0:alerte\n",
+            actuelles.render()
+        ));
+        assert_eq!(relues, actuelles, "une ligne par application, dans l'ordre");
+        for illisible in ["a", "c", "d"] {
+            assert_eq!(relues.get(illisible), None, "{illisible} ne décide rien");
+        }
+        assert_eq!(
+            Authorizations::read("b=0\nb=1:banniere\n").get("b"),
+            Some(Authorization {
+                granted: true,
+                delivery: Delivery::Banner
+            }),
+            "la dernière ligne d'une application décide ; bannières sans style"
+        );
+        let remplacee = relues.set("kitty", refusee);
+        assert_eq!(
+            remplacee.render(),
+            "org.example.Chat=0\nfirefox=1\nkitty=0\n",
+            "remplacée, en fin de liste"
+        );
+        for style in [Delivery::Banner, Delivery::Alert, Delivery::Silent] {
+            let une = Authorizations::default().set(
+                "a",
+                Authorization {
+                    granted: true,
+                    delivery: style,
+                },
+            );
+            assert_eq!(Authorizations::read(&une.render()), une, "{style:?}");
+        }
     }
 
     /// HIG SYS-17 : une action est destructrice par sa clé, préfixée
