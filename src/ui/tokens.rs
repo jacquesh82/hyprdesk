@@ -329,6 +329,11 @@ pub fn glass(p: Place) -> Glass {
             crate::config::EffectsQuality::High => {}
         }
     }
+    // « Make motion optional. » : en mouvement réduit, le reflet du verre ne
+    // suit plus le pointeur (HIG FON-04).
+    if motion().reduced {
+        g.pointer_response = false;
+    }
     if increase_contrast() {
         g.border = g.border.max(0.3);
     }
@@ -749,6 +754,30 @@ mod tests {
         set_user(false, false, false, 1.0);
         set(Design::default());
         assert_eq!(ts(13.0), 13.0);
+        // HIG FON-04 : en mouvement réduit, le reflet du verre ne suit plus le
+        // pointeur ; hors de là, le thème décide.
+        let mut verre = Design::default();
+        verre.glass.insert(
+            Place::Bar.as_str().to_string(),
+            Glass {
+                highlight: 0.2,
+                pointer_response: true,
+                ..Default::default()
+            },
+        );
+        set(verre);
+        let plein = glass(Place::Bar);
+        assert!(plein.pointer_response && (plein.highlight - 0.2).abs() < 1e-6);
+        set_user(false, true, false, 1.0);
+        let reduit = glass(Place::Bar);
+        assert!(!reduit.pointer_response, "le reflet ne suit plus");
+        assert!(
+            (reduit.highlight - 0.2).abs() < 1e-6,
+            "le reflet lui-même reste"
+        );
+        set_user(false, false, false, 1.0);
+        assert!(glass(Place::Bar).pointer_response);
+        set(Design::default());
         // HIG TYP-08 : la croissance du corps suit le réglage de l'utilisateur.
         assert!((text_growth() - 1.0).abs() < 1e-5, "croissance au repos");
         set_user(false, false, false, 2.0);

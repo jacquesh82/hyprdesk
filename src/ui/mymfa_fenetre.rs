@@ -1715,7 +1715,7 @@ impl Fenetre {
         let accent = color(th.accent, 1.0);
         let edge = color(r.edge, 1.0);
         let ok = color(r.focus, 1.0);
-        let warn = color(r.error, 1.0);
+        let warn = color(r.warning, 1.0);
         let wrap = Msg::MymfaF;
         let mut col = column![].spacing(10);
 
@@ -2060,7 +2060,7 @@ impl Fenetre {
         let accent = color(th.accent, 1.0);
         let edge = color(r.edge, 1.0);
         let ok = color(r.focus, 1.0);
-        let warn = color(r.error, 1.0);
+        let warn = color(r.warning, 1.0);
         let wrap = Msg::MymfaF;
         let creation = form.id.is_empty();
         let champ = |placeholder: &'static str, valeur: &str, nom: &'static str, secret: bool| {
@@ -2360,7 +2360,7 @@ impl Fenetre {
         let dim = color(r.dim, 1.0);
         let accent = color(th.accent, 1.0);
         let edge = color(r.edge, 1.0);
-        let warn = color(r.error, 1.0);
+        let warn = color(r.warning, 1.0);
         let mut col = column![].spacing(12);
 
         // ── Chiffres clés.
@@ -2628,7 +2628,7 @@ impl Fenetre {
         let fg = color(r.fg, 1.0);
         let dim = color(r.dim, 1.0);
         let edge = color(r.edge, 1.0);
-        let warn = color(r.error, 1.0);
+        let warn = color(r.warning, 1.0);
         let ok = ok_vert(app);
         let Some(a) = &self.appareil else {
             return text(crate::i18n::tr("Lecture de l'appareil…").to_string())
@@ -2922,7 +2922,7 @@ impl Fenetre {
         let r = crate::theme::readable(th.fg, th.bg, th.accent);
         let fg = color(r.fg, 1.0);
         let dim = color(r.dim, 1.0);
-        let warn = color(r.error, 1.0);
+        let warn = color(r.warning, 1.0);
         let edge = color(r.edge, 1.0);
         let saisie = text_input(
             crate::i18n::tr("Mot de passe du coffre de Drive (celui du web)"),
@@ -2972,7 +2972,7 @@ impl Fenetre {
         let fg = color(r.fg, 1.0);
         let dim = color(r.dim, 1.0);
         let edge = color(r.edge, 1.0);
-        let warn = color(r.error, 1.0);
+        let warn = color(r.warning, 1.0);
         let mut col = column![].spacing(12);
 
         // Synchro Drive.

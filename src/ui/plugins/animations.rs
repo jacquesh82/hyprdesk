@@ -12,7 +12,7 @@ use iced::widget::{button, column, container, pick_list, row, toggler};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
-use super::super::{App, Msg as UiMsg, color};
+use super::super::{App, Msg as UiMsg};
 use super::{PluginInfo, PluginMsg};
 use crate::config::Config;
 use crate::fx::{self, Anim, Fx};
@@ -151,7 +151,7 @@ impl App {
                 text(crate::i18n::tr("réglé ici"))
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
-                    .color(color(self.cfg.general.theme.accent, 1.0)),
+                    .color(self.ink().accent),
                 button(
                     text(crate::i18n::tr("Rétablir"))
                         .font(self.font)

@@ -1665,7 +1665,8 @@ impl App {
     }
 
     pub(in crate::ui) fn section<'a>(&self, title: &'a str) -> Element<'a, Msg> {
-        let accent = color(self.cfg.general.theme.accent, 1.0);
+        // Titre accentué : l'encre garantie à 4,5:1 (HIG FON-05).
+        let accent = self.ink().accent;
         column![
             Space::new().height(8),
             self.marked(crate::i18n::tr(title), 16, accent, self.title_font()),

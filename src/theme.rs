@@ -162,6 +162,16 @@ pub fn ensure_contrast(c: Rgba, bg: Rgba, toward: Rgba, min: f64) -> Rgba {
     extreme
 }
 
+/// Encres d'état d'une fenêtre (HIG FON-06) : erreur (slot `danger`) et
+/// avertissement (slot `warning`) de la palette, chacune tenue à 4,5:1 sur
+/// `bg`, ramenée au texte du thème sinon.
+pub fn states(danger: Rgba, warning: Rgba, fg: Rgba, bg: Rgba) -> (Rgba, Rgba) {
+    (
+        ensure_contrast(danger, bg, fg, 4.5),
+        ensure_contrast(warning, bg, fg, 4.5),
+    )
+}
+
 /// Couleurs lisibles d'une fenêtre (WCAG AA) : texte ≥ 4,5:1, contours et
 /// boutons ≥ 3:1 sur le fond, texte des boutons ≥ 4,5:1 sur le bouton.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -169,8 +179,11 @@ pub struct Readable {
     pub fg: Rgba,
     /// Texte secondaire (compte, aide, état).
     pub dim: Rgba,
-    /// Message d'erreur.
+    /// Message d'erreur : le slot `danger` de la palette.
     pub error: Rgba,
+    /// Message d'avertissement : le slot `warning` de la palette — une même
+    /// couleur ne dit pas deux choses (HIG FON-06).
+    pub warning: Rgba,
     /// Contour des champs et boutons (repos), et au focus.
     pub edge: Rgba,
     pub focus: Rgba,
@@ -183,7 +196,12 @@ pub fn readable(fg: Rgba, bg: Rgba, accent: Rgba) -> Readable {
     let bg = Rgba(bg.0, bg.1, bg.2, 0xff);
     let fg = ensure_contrast(fg, bg, fg, 7.0);
     let dim = ensure_contrast(mix(fg, bg, 0.3), bg, fg, 4.5);
-    let error = ensure_contrast(Rgba(0xff, 0x95, 0x80, 0xff), bg, fg, 4.5);
+    let (error, warning) = states(
+        crate::ui::tone::rgba("danger"),
+        crate::ui::tone::rgba("warning"),
+        fg,
+        bg,
+    );
     let edge = ensure_contrast(mix(fg, bg, 0.45), bg, fg, 3.0);
     let focus = ensure_contrast(accent, bg, fg, 3.0);
     let button = focus;
@@ -195,6 +213,7 @@ pub fn readable(fg: Rgba, bg: Rgba, accent: Rgba) -> Readable {
         fg,
         dim,
         error,
+        warning,
         edge,
         focus,
         button,
@@ -983,6 +1002,7 @@ mod tests {
                 ("fg", r.fg, 4.5),
                 ("dim", r.dim, 4.5),
                 ("error", r.error, 4.5),
+                ("warning", r.warning, 4.5),
                 ("edge", r.edge, 3.0),
                 ("focus", r.focus, 3.0),
                 ("button", r.button, 3.0),
@@ -991,5 +1011,25 @@ mod tests {
             }
             assert!(contrast(r.on_button, r.button) >= 4.5, "texte du bouton");
         }
+    }
+
+    /// HIG FON-06 : erreur et avertissement viennent des slots `danger` et
+    /// `warning` de la palette, lisibles et distincts.
+    #[test]
+    fn encres_d_etat() {
+        let (fg, bg) = (Rgba(0xf2, 0xf4, 0xfc, 0xff), Rgba(0x13, 0x17, 0x24, 0xff));
+        let (danger, warning) = (Rgba(0xff, 0x70, 0x60, 0xff), Rgba(0xff, 0xc0, 0x40, 0xff));
+        let (error, warn) = states(danger, warning, fg, bg);
+        assert_eq!(
+            (error, warn),
+            (danger, warning),
+            "déjà lisibles : telles quelles"
+        );
+        // Avertissement illisible (sombre sur sombre) : relevé vers le texte.
+        let (error, warn) = states(danger, Rgba(0x40, 0x30, 0x10, 0xff), fg, bg);
+        assert_eq!(error, danger, "l'erreur ne bouge pas");
+        assert!(contrast(warn, bg) >= 4.5, "{warn:?} sur {bg:?}");
+        assert_ne!(warn, error, "deux sens, deux encres");
+        assert_ne!(warn, fg, "l'avertissement reste une couleur d'état");
     }
 }

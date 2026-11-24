@@ -249,7 +249,8 @@ impl App {
             return text("").into();
         };
         let th = &self.cfg.general.theme;
-        let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
+        // Texte accentué : l'encre garantie à 4,5:1 (HIG FON-05).
+        let (fg, accent) = (color(th.fg, 1.0), self.ink().accent);
         let dim = self.ink().dim;
         let head = column![
             text("hyprdesk")
@@ -406,7 +407,7 @@ impl App {
     fn about_files(&self, p: &super::super::panel::Panel) -> Element<'_, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let dim = self.ink().dim;
-        let accent = color(self.cfg.general.theme.accent, 1.0);
+        let accent = self.ink().accent;
         let Some(f) = &p.about.facts else {
             return Space::new().into();
         };
