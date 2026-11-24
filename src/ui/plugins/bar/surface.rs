@@ -2878,6 +2878,7 @@ Video
             n: crate::notifications::build(id, "a", "", "s", "", &[], &Default::default(), -1),
             since: std::time::Instant::now(),
             request: None,
+            alert: false,
         };
         let calendrier = |style, toast| {
             matches!(

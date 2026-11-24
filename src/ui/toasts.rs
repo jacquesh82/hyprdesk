@@ -11,7 +11,9 @@
 //! application (`crate::notifications::Passage`).
 //! La première notification d'une application demande, dans sa bulle,
 //! l'autorisation de lui en envoyer ; refusée, l'application n'est plus remise
-//! (`crate::notifications::Authorizations`).
+//! (`crate::notifications::Authorizations`). Accordée, son style de remise
+//! s'applique à ses notifications : bannières, alertes (la bulle reste) ou
+//! aucune (l'historique seul).
 //!
 //! Si un autre démon de notifications tient le nom (wayle, mako…), rien
 //! n'est affiché ici : c'est lui qui montre les notifications.
@@ -185,15 +187,18 @@ pub struct Toast {
     /// l'application qui n'a encore aucune décision. Jusqu'à la réponse ou à
     /// la fermeture, la bulle reste et sa notification n'est pas remise.
     pub request: Option<String>,
+    /// Style de remise « Alertes » de l'application (HIG SYS-03) : la bulle
+    /// reste jusqu'à sa fermeture, comme une critique.
+    pub alert: bool,
 }
 
 /// Ce que devient, pour l'interface, une notification reçue d'une application
 /// (HIG PAT-02).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reception {
-    /// Remise : accordée — ou sans le service (aperçu, autre démon), où rien
-    /// ne se décide.
-    Delivered,
+    /// Remise, accordée avec le style de remise de l'application — ou sans le
+    /// service (aperçu, autre démon), où rien ne se décide.
+    Delivered(Delivery),
     /// Refusée : fermée pour l'application, ni bulle ni historique.
     Refused,
     /// Sans décision : sa bulle porte la demande d'autorisation.
@@ -207,9 +212,10 @@ impl Toast {
     }
 
     /// Délai d'affichage, `default` quand l'application n'en demande pas
-    /// (réglé : `notifications.timeout`, MLG-279).
+    /// (réglé : `notifications.timeout`, MLG-279). `None` pour une critique et
+    /// pour le style « Alertes » (HIG SYS-03).
     pub fn lifetime_or(&self, default: Duration) -> Option<Duration> {
-        if self.n.urgency == Urgency::Critical {
+        if self.n.urgency == Urgency::Critical || self.alert {
             return None;
         }
         match self.n.timeout_ms {
@@ -501,14 +507,18 @@ impl Toasts {
     }
 
     /// Décision qui s'applique à une notification de l'application `key` (HIG
-    /// PAT-02). Décide celui qui tient le service de notifications : sans lui
+    /// PAT-02), avec son style de remise quand elle est accordée (HIG
+    /// SYS-03). Décide celui qui tient le service de notifications : sans lui
     /// (aperçu, autre démon), rien ne se décide.
     fn reception(&self, key: &str) -> Reception {
         if !self.active {
-            return Reception::Delivered;
+            return Reception::Delivered(Delivery::default());
         }
         match Authorizations::load().get(key) {
-            Some(Authorization { granted: true, .. }) => Reception::Delivered,
+            Some(Authorization {
+                granted: true,
+                delivery,
+            }) => Reception::Delivered(delivery),
             Some(_) => Reception::Refused,
             None => Reception::Asked,
         }
@@ -768,14 +778,24 @@ impl App {
                 // remise — fermée pour l'application aussitôt.
                 let key = passage_key(&n);
                 let mut request = None;
+                // Style de remise de l'application accordée (HIG SYS-03).
+                let mut stays = false;
+                let mut silent = false;
                 match self.toasts.reception(&key) {
                     Reception::Refused => {
                         send(Cmd::Dismiss(n.id, Reason::Expired));
                         return Task::none();
                     }
                     Reception::Asked => request = Some(key.clone()),
-                    Reception::Delivered => self.toasts.deliver(&n, self.history_list_open()),
+                    Reception::Delivered(delivery) => {
+                        stays = delivery == Delivery::Alert;
+                        silent = delivery == Delivery::Silent;
+                        self.toasts.deliver(&n, self.history_list_open());
+                    }
                 }
+                // Une notification critique garde ses règles : elle reste et
+                // se montre, quel que soit le style de son application.
+                let silent = silent && n.urgency != Urgency::Critical;
                 // Icône de l'application émettrice, pour la bulle et le centre :
                 // la sienne, sinon celle de son application (HIG ICO-03).
                 // Demandée aussi sous Silence : le centre montre la carte.
@@ -802,10 +822,11 @@ impl App {
                     // critique.
                     n.urgency == Urgency::Critical
                 };
-                // Basse urgence (HIG PAT-06) ou ne pas déranger : dans
-                // l'historique seulement, sauf critique dont l'application
-                // passe le Silence.
-                if n.urgency == Urgency::Low || (self.toasts.dnd && !passes) {
+                // Basse urgence (HIG PAT-06), style « Aucune » de l'application
+                // (HIG SYS-03) ou ne pas déranger : dans l'historique
+                // seulement, sauf critique dont l'application passe le
+                // Silence.
+                if n.urgency == Urgency::Low || silent || (self.toasts.dnd && !passes) {
                     // Sans bulle, une demande ne se pose pas : la notification,
                     // non remise, se ferme pour l'application — la suivante
                     // redemandera.
@@ -824,6 +845,7 @@ impl App {
                     n,
                     since: Instant::now(),
                     request,
+                    alert: stays,
                 };
                 match self.toasts.list.iter_mut().find(|o| o.n.id == t.n.id) {
                     Some(o) => *o = t,
@@ -1777,6 +1799,7 @@ mod tests {
             n: crate::notifications::build(1, "a", "", "s", "b", &[], &h, timeout),
             since: Instant::now(),
             request: None,
+            alert: false,
         }
     }
 
@@ -1835,6 +1858,7 @@ mod tests {
             n: crate::notifications::build(1, "a", "", "s", "b", actions, &HashMap::new(), -1),
             since: Instant::now(),
             request: None,
+            alert: false,
         };
         let sans = corps(&["default".into(), "Ouvrir".into()]);
         let avec = corps(&[
@@ -1869,6 +1893,7 @@ mod tests {
             n: crate::notifications::build(id, "a", "", "s", "b", &[], &HashMap::new(), -1),
             since: Instant::now(),
             request: None,
+            alert: false,
         };
         let deux = [bulle(1), bulle(2)];
         assert_eq!(
@@ -1907,6 +1932,7 @@ mod tests {
             n: crate::notifications::build(id, "a", "", "s", "b", &[], &HashMap::new(), -1),
             since: Instant::now(),
             request: None,
+            alert: false,
         };
         let deux = [bulle(1), bulle(2)];
         assert_eq!(
@@ -1918,6 +1944,7 @@ mod tests {
             deux[0].clone(),
             Toast {
                 request: Some("a".into()),
+                alert: false,
                 ..bulle(2)
             },
         ];
@@ -2409,6 +2436,69 @@ mod tests {
         );
     }
 
+    /// HIG SYS-03 : le style de remise de l'application accordée s'applique à
+    /// ses notifications ordinaires — « Alertes » garde la bulle jusqu'à sa
+    /// fermeture, « Aucune » passe par l'historique seul, « Bannières » garde
+    /// le délai ordinaire ; une critique garde ses règles, quel que soit le
+    /// style.
+    #[test]
+    fn le_style_de_remise_de_l_application_s_applique_a_ses_notifications() {
+        let _verrou = verrou_passage();
+        let accordee = |delivery| {
+            let key = cle();
+            Authorizations::load()
+                .set(
+                    &key,
+                    Authorization {
+                        granted: true,
+                        delivery,
+                    },
+                )
+                .save();
+            key
+        };
+        let (mut app, alertes, aucune, bannieres) = (
+            application(),
+            accordee(Delivery::Alert),
+            accordee(Delivery::Silent),
+            accordee(Delivery::Banner),
+        );
+        app.toasts.active = true;
+        let bulles = |app: &App| app.toasts.list.iter().map(|t| t.n.id).collect::<Vec<_>>();
+        // « Alertes » : la bulle reste.
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(1, &alertes))));
+        assert_eq!(bulles(&app), vec![1]);
+        assert_eq!(app.toasts.history.len(), 1);
+        app.toasts.list[0].since = Instant::now() - Duration::from_secs(600);
+        let _ = app.toasts_update(TMsg::Tick);
+        assert_eq!(
+            bulles(&app),
+            vec![1],
+            "« Alertes » : la bulle ne s'efface pas"
+        );
+        // « Aucune » : l'historique seul, sans bulle.
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(2, &aucune))));
+        assert_eq!(bulles(&app), vec![1], "« Aucune » : pas de bulle");
+        assert_eq!(
+            app.toasts.history.len(),
+            2,
+            "« Aucune » : l'historique seul"
+        );
+        // Une critique garde ses règles, quel que soit le style.
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(3, &aucune))));
+        assert_eq!(bulles(&app), vec![3, 1], "une critique garde sa bulle");
+        // « Bannières » : le délai ordinaire.
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(recue(4, &bannieres))));
+        assert_eq!(bulles(&app), vec![4, 3, 1]);
+        app.toasts.list[0].since = Instant::now() - Duration::from_secs(600);
+        let _ = app.toasts_update(TMsg::Tick);
+        assert_eq!(
+            bulles(&app),
+            vec![3, 1],
+            "« Bannières » : s'efface à son échéance"
+        );
+    }
+
     /// Une notification « a » avec ou sans action `default`, avec ou sans
     /// application d'origine (`desktop-entry`).
     fn carte(actions: &[&str], entry: Option<&str>) -> Notification {
@@ -2464,6 +2554,7 @@ mod tests {
             n: carte(&["default", "open"], None),
             since: Instant::now(),
             request: None,
+            alert: false,
         }];
         let _ = app.open_popover(bar, "clock".into(), Kind::Activity(1));
         assert!(app.activity_open(1), "la vue de la bulle 1 est ouverte");
@@ -2491,6 +2582,7 @@ mod tests {
             n: recue(2, "b"),
             since: Instant::now(),
             request: None,
+            alert: false,
         }];
         let _ = app.toasts_update(TMsg::Close(2));
         assert!(app.activity_open(1), "fermer une autre bulle laisse la vue");

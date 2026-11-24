@@ -1020,6 +1020,7 @@ impl Preview {
                     ),
                     since: std::time::Instant::now(),
                     request: None,
+                    alert: false,
                 },
                 super::toasts::Toast {
                     n: crate::notifications::build(
@@ -1034,6 +1035,7 @@ impl Preview {
                     ),
                     since: std::time::Instant::now(),
                     request: None,
+                    alert: false,
                 },
                 // Demande d'autorisation (HIG PAT-02) : la bulle de la première
                 // notification d'une application, « Refuser » et « Autoriser »
@@ -1051,6 +1053,7 @@ impl Preview {
                     ),
                     since: std::time::Instant::now(),
                     request: Some("thunderbird".into()),
+                    alert: false,
                 },
             ];
             // Première critique de son application : sa bulle explique le
@@ -2152,6 +2155,7 @@ impl Preview {
                         ),
                         since: std::time::Instant::now(),
                         request: None,
+                        alert: false,
                     }];
                 }
             }
@@ -2726,6 +2730,7 @@ impl Preview {
                     },
                     since: Instant::now(),
                     request: None,
+                    alert: false,
                 });
             }
         }
