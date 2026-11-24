@@ -52,7 +52,7 @@ Un fichier d'état de plus, sur l'idiome existant : aucune primitive d'interface
 
 1. **État** — faite (`ac7c95f`, A9) : `Delivery`, `Authorization`, `Authorizations` et leur fichier, oubliés par la remise à zéro ; tests (`autorisations_par_application`). Aucun comportement ne change. Relevé : `get(clé)` remonte la décision entière et `granted(clé)` en dérive — pas de `delivery` séparé ; le libellé de la remise à zéro (`Held::Notifications`) dit les autorisations, traduction suivie.
 2. **Demande et refus** (PAT-02) — faite (`a7b7c86`, A10) : la bulle de demande, ses deux réponses, le refus sans bulle ni historique, la demande qui prime sur l'explication du Silence ; quatre tests ; guides. Relevés : la demande est portée par `Toast::request` et la décision de l'interface par `Toasts::reception` — sans le service (`Toasts::active`, aperçu ou autre démon), rien ne se décide et les tests existants ne changent pas ; « Autoriser » fait de la bulle une bulle ordinaire (délai reparti, notification dans l'historique), « Refuser » la ferme comme « Fermer » (`Reason::Dismissed`) ; sans bulle à poser la demande (urgence basse, Silence), la notification se ferme pour l'application et la suivante redemande ; une demande critique passe le Silence ; la vue étendue de la pilule Island montre la demande et l'on y répond ; scène d'aperçu `notifications` (troisième bulle).
-3. **Style de remise** (SYS-03) : « Alertes » garde la bulle, « Aucune » passe par l'historique seul ; tests.
+3. **Style de remise** (SYS-03) — faite (`a285950`, A10) : « Alertes » garde la bulle, « Aucune » passe par l'historique seul ; test. Relevés : la décision et le style arrivent ensemble (`Toasts::reception` → `Reception::Delivered(Delivery)`) ; « Alertes » est porté par `Toast::alert`, qui rend le délai nul (`lifetime_or`) ; « Aucune » suit le chemin de la basse urgence ; une critique garde ses règles quel que soit le style. Rien de visible tant que la page de l'étape 4 ne règle pas le style : le fichier `notifications-apps` le porte déjà (`clé=1:alerte`, `clé=1:silencieux`).
 4. **Paquet « Notifications »** (PAT-07, D5) : la page et ses rangées, la révocation, « Effacer l'historique » ; enregistrement, recherche, scène d'aperçu ; `docs/PLUGINS.md`.
 5. **Documentation de design** : `DESIGN.md`, guides revus, `locales/en.toml` ; au registre, PAT-02, PAT-07 et SYS-03 passent `fait` ensemble.
 
@@ -86,6 +86,12 @@ Relecture du diff de l'étape 2 (`a7b7c86`), sans agent indépendant, après la 
 - **Le diff fait-il exactement ce que l'écart demande ?** Oui, pour l'étape 2 : la demande à la première notification, ses deux réponses, le refus sans bulle ni historique, la demande qui prime sur l'explication du Silence. Garder et révoquer aux Réglages reste aux étapes 3 et 4.
 - **Respecte-t-il `DESIGN.md` et les conventions du dépôt ?** Oui : la demande occupe la place de l'explication (même mesure `explain_height`, deux boutons de 28 px, HIG ACC-04, espacement de 4 px), boutons sans accent comme celui du passage du Silence, une seule famille de police ; français source, anglais dans `locales/en.toml`.
 - **Régression, test manquant ?** Les 22 tests antérieurs de `toasts.rs` passent, assertions inchangées (la signature de `card_height` et le champ `request` suivent) ; sans le service, rien ne se décide. Relevé, non traité ici : sur la capture, l'icône de l'application de la demande (Thunderbird) tombe sur la cloche de repli, faute d'icône au thème de cette machine — repli prévu (ICO-03), sans rapport avec l'écart.
+
+Relecture du diff de l'étape 3 (`a285950`), sans agent indépendant, après le test dédié.
+
+- **Le diff fait-il exactement ce que l'écart demande ?** Oui, pour l'étape 3 : le style de remise par application s'applique à la réception. Le régler depuis les Réglages est l'étape 4.
+- **Respecte-t-il `DESIGN.md` et les conventions du dépôt ?** Oui : aucun changement d'interface ; un champ et une variante de plus sur les propriétaires existants ; l'état se relit par `Authorizations::load()`, comme `Passage::load()`.
+- **Régression, test manquant ?** Les 26 tests antérieurs de `toasts.rs` passent. Sans le service, `reception` rend `Delivery::default()` : aperçu et autre démon ne changent pas. Test ajouté pour les trois styles et la critique.
 
 ## Documentation de design
 
