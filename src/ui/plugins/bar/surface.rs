@@ -173,6 +173,17 @@ pub(in crate::ui) fn clock_press(
 /// Clic droit sur un module de barre : son menu contextuel (HIG ENT-07). La
 /// carte s'ancre au module, sous la clé `menu_key(module)` : un clic droit ne
 /// bascule pas la carte du clic gauche.
+/// Cible d'un module de barre : la hauteur de la barre moins 8 px, sans
+/// descendre sous le minimum recommandé par la HIG (20 × 20 px), ni dépasser
+/// la barre (HIG ACC-09).
+const MODULE_TARGET: f32 = 20.0;
+
+fn module_target(bar_height: u16) -> f32 {
+    (bar_height as f32 - 8.0)
+        .max(MODULE_TARGET)
+        .min(bar_height as f32)
+}
+
 fn module_menu(bar: Id, module: &str) -> Msg {
     Msg::OpenPopover(
         bar,
@@ -1905,7 +1916,7 @@ impl App {
         let pal = self.bar_palette();
         let fg = color(pal.fg, alpha);
         let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
-        let h = (bar.height as f32 - 8.0).max(16.0);
+        let h = module_target(bar.height);
         let interactive = left.is_some() || right.is_some() || middle.is_some() || scroll.is_some();
         let b = button(
             container(content)
@@ -2735,6 +2746,17 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    /// Cible d'un module de barre : 20 px au moins, jamais plus haut que la
+    /// barre (HIG ACC-09).
+    #[test]
+    fn cible_d_un_module_de_barre() {
+        assert_eq!(module_target(36), 28.0);
+        assert_eq!(module_target(30), 22.0);
+        assert_eq!(module_target(28), MODULE_TARGET);
+        assert_eq!(module_target(24), MODULE_TARGET, "24 px : 20, plus 16");
+        assert_eq!(module_target(20), MODULE_TARGET);
+        assert_eq!(module_target(18), 18.0, "jamais plus haut que la barre");
+    }
 
     #[test]
     fn evenements_du_volume() {
