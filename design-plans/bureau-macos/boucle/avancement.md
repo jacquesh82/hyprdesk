@@ -48,6 +48,7 @@
 | 2026-11-24 | C4 | MENU-12, MENU-15 traités ; il en reste 35 dans ce couloir |
 | 2026-11-24 | C5 | MENU-01 (étapes 1 et 2 sur 3) traitées ; il en reste 35 dans ce couloir |
 | 2026-11-24 | C6 | MENU-01 (étape 3 sur 3) traité ; il en reste 34 dans ce couloir |
+| 2026-11-24 | C7 | MENU-07, MENU-09 traités ; il en reste 32 dans ce couloir |
 
 Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` le 23 novembre 2026 à 23 h 17 : code de sortie 0 ; précédente référence : `4d5193d`).
 
@@ -128,8 +129,8 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | MENU-05 | Menu Aide | ABSENT | M | haute | à faire | — | — |
 | MENU-01 | Barre des menus : inventaire des commandes du shell | ABSENT | L | haute | fait | 41aa821 | Plan en trois étapes (`boucle/plans/MENU-01.md`), toutes faites. Étapes 1 et 2 (C5) : « hyprdesk » toujours en tête de la zone amont (hors `BarItem`, priorité `layout::PINNED`), puis « Fenêtre » et « Espaces » comme menus titrés ; sans fenêtre active, « Fenêtre » reste affiché et inactif. Dépasse la colonne Correction : « À propos de hyprdesk » ouvre le menu (règle du menu d'application) ; le groupe de puissance est sans icône, faute d'icône sûre pour la mise en veille. Étape 3 (C6) : scène d'aperçu `bar-menu-shell`, le menu ouvert sous son titre, capturée aux trois largeurs par `scripts/verify.sh --visual`. |
 | MENU-06 | Menus contextuels d'une surface à l'autre | PISTE | S | moyenne | à faire | — | — |
-| MENU-07 | Titre de la fenêtre active dans la barre | PISTE | S | haute | à faire | — | — |
-| MENU-09 | Ordre des entrées du menu du dock | PISTE | S | moyenne | à faire | — | — |
+| MENU-07 | Titre de la fenêtre active dans la barre | PISTE | S | haute | fait | f4cea31 | Le titre de la fenêtre active passe en semibold, suivi d'un chevron (glyphe `go-down` ajouté au jeu de hyprdesk, demandé avec les icônes fixes de la barre) ; il reste atténué quand le menu est fermé. Dépasse la colonne Correction : par cohérence avec `DESIGN.md` (« titres de menus semibold »), les titres « hyprdesk », « Fenêtre » et « Espaces » de MENU-01 passent aussi en semibold, sans chevron (leurs libellés sont des noms de menus). La disparition du module sous 1000 px reste : l'accès au menu est assuré par le titre « Fenêtre » (MENU-01). |
+| MENU-09 | Ordre des entrées du menu du dock | PISTE | S | moyenne | fait | f4cea31 | Dock en bas (autonome, ou barre Graphite en bas qui porte le lanceur) : les groupes du menu d'une application s'inversent — épingler et fermer en tête de la carte, la liste des fenêtres contre le bouton ; l'ordre interne de chaque groupe ne change pas. Limite : carte plafonnée à l'écran (MENU-02), l'ordre reste celui d'origine, car le défilement part du haut et doit montrer les fenêtres ; inverser sans faire partir le défilement de la fin cacherait la liste. Test unitaire `menu_du_dock_ouvert_vers_le_haut` ; scène `menu-dock` de l'aperçu mise à jour (dock en bas dans l'aperçu). |
 | MENU-12 | Menu contextuel d'une icône du bureau | PISTE | S | haute | fait | cd5a220 | Preuve exacte (`icon_lines`, `src/ui/context.rs`). « Propriétés » et « Réglages des icônes… » passent au dernier groupe, avant « Retirer du bureau » et « Mettre à la corbeille » (toujours en dernier et en rouge) ; le groupe central retient Renommer…, Partager…, Copier le chemin, Définir comme fond d'écran, Épingler au dock, cinq au plus. Trois groupes toujours (`menu_d_un_fichier`). Test `proprietes_au_dernier_groupe`. |
 | MENU-19 | Rangée « Organiser les fenêtres… » | PISTE | S | haute | à faire | — | — |
 | ENT-07 | Menus contextuels (modules de barre, notifications, espaces de l'aperçu) | PISTE | M | haute | à faire | — | — |
