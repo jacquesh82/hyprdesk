@@ -53,9 +53,11 @@ editing it (`hyprland.lua.avant-hyprdesk-*.bak`). The final report shows
 which components are running and any actions still needed.
 
 On the first launch, a visual setup wizard walks through the essentials:
-language, screens, keyboard, theme and wallpaper, bar, desktop, performance,
-sleep, and default apps. Each choice applies at once. Reopen it from the
-**Assistant** button of Settings or with `hyprdesk wizard`.
+language, screens, keyboard, and default apps. Each choice applies at once;
+the Close button of its header, or Esc, leaves it at any step. Customization
+waits: theme and wallpaper, bar, desktop, performance, and sleep keep their
+defaults. The **Assistant** button of Settings or `hyprdesk wizard` reopen
+the wizard with every step.
 
 ### Installer options
 

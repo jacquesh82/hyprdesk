@@ -6,8 +6,12 @@
 //! Réglages concerné) ; un instantané d'historique « assistant », pris à
 //! l'ouverture, permet de tout annuler.
 //!
-//! Proposé au premier démarrage, relancé par le bouton « Assistant » de
-//! l'en-tête des Réglages ou `hyprdesk wizard`.
+//! Proposé au premier démarrage dans sa version courte (`ESSENTIAL` : langue,
+//! écrans, clavier, applications, récapitulatif) — la personnalisation est
+//! remise à plus tard (HIG DAT-01). Le bouton « Assistant » de l'en-tête des
+//! Réglages ou `hyprdesk wizard` le rouvrent avec toutes ses étapes. Il se
+//! quitte à toute étape : bouton Fermer de l'en-tête ou Échap, les choix
+//! restent.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -109,6 +113,23 @@ pub const IDLE: usize = 7;
 pub const APPS: usize = 8;
 pub const SUMMARY: usize = 9;
 
+/// Toutes les étapes : assistant rouvert depuis les Réglages ou `hyprdesk wizard`.
+pub const ALL: [usize; 10] = [
+    WELCOME,
+    SCREENS,
+    KEYBOARD,
+    LOOK,
+    BAR,
+    DESKTOP,
+    PERFORMANCE,
+    IDLE,
+    APPS,
+    SUMMARY,
+];
+/// Premier démarrage : l'indispensable seulement. Apparence, Barre, Bureau,
+/// Performance et Veille gardent leurs réglages par défaut (HIG DAT-01).
+pub const ESSENTIAL: [usize; 5] = [WELCOME, SCREENS, KEYBOARD, APPS, SUMMARY];
+
 /// Rôles proposés à l'étape Applications.
 const ROLES: [&str; 3] = ["terminal", "browser", "files"];
 /// Applications montrées par rôle.
@@ -140,6 +161,8 @@ pub struct Keyboard {
 pub struct Wizard {
     pub win: Id,
     pub step: usize,
+    /// Étapes parcourues, dans l'ordre : `ALL` ou `ESSENTIAL`.
+    pub steps: &'static [usize],
     /// Étapes déjà vues (pastilles cochées).
     pub seen: [bool; 10],
     /// Instantané d'historique pris à l'ouverture (`None` : pas encore, ou rien à garder).
@@ -163,6 +186,7 @@ impl Wizard {
         Wizard {
             win,
             step: 0,
+            steps: &ALL,
             seen,
             snapshot: None,
             before_settings: settings,
@@ -175,28 +199,45 @@ impl Wizard {
         }
     }
 
-    /// Va à l'étape `i` (bornée).
+    /// Rang de l'étape courante parmi les étapes parcourues.
+    pub fn pos(&self) -> usize {
+        self.steps.iter().position(|&s| s == self.step).unwrap_or(0)
+    }
+
+    /// Va à l'étape `i` (bornée) ; une étape hors du parcours mène à la
+    /// suivante qui en fait partie.
     pub fn go(&mut self, i: usize) {
-        self.step = i.min(STEPS.len() - 1);
+        let i = i.min(SUMMARY);
+        self.step = self
+            .steps
+            .iter()
+            .copied()
+            .find(|&s| s >= i)
+            .unwrap_or(SUMMARY);
         self.seen[self.step] = true;
     }
 
     /// Étape suivante ; `false` sur la dernière (il reste à terminer).
     pub fn next(&mut self) -> bool {
-        if self.step + 1 >= STEPS.len() {
-            return false;
+        match self.steps.get(self.pos() + 1) {
+            Some(&s) => {
+                self.go(s);
+                true
+            }
+            None => false,
         }
-        self.go(self.step + 1);
-        true
     }
 
     pub fn back(&mut self) {
-        self.go(self.step.saturating_sub(1));
+        let i = self.pos().saturating_sub(1);
+        self.go(self.steps[i]);
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum WMsg {
+    /// Premier démarrage : ouvre la version courte.
+    OpenFirstRun,
     Go(usize),
     Next,
     Back,
@@ -444,12 +485,19 @@ impl App {
 
     /// Ouvre l'assistant sur l'écran visé ; déjà ouvert : rien.
     pub(super) fn open_wizard(&mut self) -> Task<Msg> {
+        self.open_wizard_with(&ALL)
+    }
+
+    /// Ouvre l'assistant sur le parcours `steps` (`ALL` ou `ESSENTIAL`).
+    fn open_wizard_with(&mut self, steps: &'static [usize]) -> Task<Msg> {
         if self.wizard.is_some() {
             return Task::none();
         }
         let monitor = self.target_monitor().unwrap_or_default();
         let win = Id::unique();
-        self.wizard = Some(Wizard::new(win, self.settings.clone(), self.cfg.clone()));
+        let mut w = Wizard::new(win, self.settings.clone(), self.cfg.clone());
+        w.steps = steps;
+        self.wizard = Some(w);
         // Les Réglages laissent la place : les choix se voient sur le bureau.
         let panel = if self.panel.is_some() {
             self.close_panel()
@@ -539,10 +587,14 @@ impl App {
     // -- Messages ---------------------------------------------------------------
 
     pub(super) fn wizard_update(&mut self, m: WMsg) -> Task<Msg> {
+        if matches!(m, WMsg::OpenFirstRun) {
+            return self.open_wizard_with(&ESSENTIAL);
+        }
         let Some(w) = self.wizard.as_mut() else {
             return Task::none();
         };
         match m {
+            WMsg::OpenFirstRun => Task::none(),
             WMsg::Go(i) => {
                 w.go(i);
                 self.wizard_entered()
@@ -873,14 +925,15 @@ impl App {
         let info = &STEPS[w.step];
 
         // En-tête : étape, titre, pastilles des étapes.
-        let dots = row(STEPS.iter().enumerate().map(|(i, s)| {
+        let dots = row(w.steps.iter().enumerate().map(|(k, &i)| {
+            let s = &STEPS[i];
             let current = i == w.step;
             let seen = w.seen[i];
             let size = if narrow { 24.0 } else { 30.0 };
             let inner: Element<'_, Msg> = if seen && !current {
                 self.wz_icon("object-select", size * 0.45, p.accent)
             } else {
-                text((i + 1).to_string())
+                text((k + 1).to_string())
                     .font(self.title_font())
                     .size(if narrow { 11 } else { 13 })
                     .color(if current { p.on_accent } else { p.dim })
@@ -927,17 +980,24 @@ impl App {
         }))
         .spacing(if narrow { 4 } else { 8 })
         .align_y(Alignment::Center);
-        let close = button(self.wz_icon("window-close", 16.0, p.fg))
-            .padding(8)
-            .style(button::text)
-            .on_press(wrap(WMsg::Finish));
+        // Quitter à toute étape (Échap aussi) : les choix faits restent.
+        let close = tooltip(
+            button(self.wz_icon("window-close", 16.0, p.fg))
+                .padding(8)
+                .style(button::text)
+                .on_press(wrap(WMsg::Finish)),
+            text("Quitter l'assistant (Échap) : vos choix restent")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0)),
+            tooltip::Position::Bottom,
+        );
         let title = row![
             self.wz_badge(info.icon, 44.0),
             column![
                 text(crate::tr!(
                     "ASSISTANT DE CONFIGURATION · {n} / {total}",
-                    n = w.step + 1,
-                    total = STEPS.len()
+                    n = w.pos() + 1,
+                    total = w.steps.len()
                 ))
                 .font(self.title_font())
                 .size(crate::ui::tokens::ts(11.0))
@@ -986,7 +1046,7 @@ impl App {
             )
             .padding([9, 18])
             .style(button::secondary)
-            .on_press_maybe((w.step > 0).then(|| wrap(WMsg::Back))),
+            .on_press_maybe((w.pos() > 0).then(|| wrap(WMsg::Back))),
             Space::new().width(Length::Fill),
         ]
         .spacing(10)
@@ -1139,11 +1199,26 @@ impl App {
                         .font(self.title_font())
                         .size(crate::ui::tokens::ts(22.0))
                         .color(p.fg),
-                    self.wz_note(crate::i18n::tr(
-                        "Le bureau qui apparaît d'une touche sous vos fenêtres en tuiles. \
-                         Neuf étapes, une minute : vous pouvez en passer, et revenir à \
-                         chacune depuis les pastilles."
-                    )),
+                    self.wz_note(
+                        if self
+                            .wizard
+                            .as_ref()
+                            .is_some_and(|w| w.steps.len() < ALL.len())
+                        {
+                            crate::i18n::tr(
+                                "Le bureau qui apparaît d'une touche sous vos fenêtres en \
+                                 tuiles. Quatre étapes, l'essentiel seulement : la \
+                                 personnalisation attend les Réglages. Passez-en, ou quittez \
+                                 à tout moment.",
+                            )
+                        } else {
+                            crate::i18n::tr(
+                                "Le bureau qui apparaît d'une touche sous vos fenêtres en \
+                                 tuiles. Neuf étapes, une minute : vous pouvez en passer, et \
+                                 revenir à chacune depuis les pastilles.",
+                            )
+                        }
+                    ),
                 ]
                 .spacing(6)
                 .width(Length::Fill),
@@ -2567,7 +2642,11 @@ impl App {
     fn wz_summary<'a>(&'a self, w: &'a Wizard) -> Element<'a, Msg> {
         let p = self.wizard_pal();
         let tw = self.wizard_tile(3);
-        let tiles: Vec<Element<'_, Msg>> = (0..SUMMARY)
+        let tiles: Vec<Element<'_, Msg>> = w
+            .steps
+            .iter()
+            .copied()
+            .filter(|&i| i != SUMMARY)
             .map(|i| {
                 let now = self.wizard_value(i, &self.cfg);
                 let changed = now != self.wizard_value(i, &w.before);
@@ -2616,6 +2695,14 @@ impl App {
             })
             .collect();
         let mut col = column![self.wz_wrap(tiles)].spacing(14);
+        if w.steps.len() < ALL.len() {
+            // Personnalisation remise à plus tard : où la retrouver.
+            col = col.push(self.wz_note(crate::i18n::tr(
+                "Apparence, barre, bureau, performance et veille gardent leurs réglages \
+                 par défaut. Ils se retouchent dans les Réglages ; le bouton « Assistant » \
+                 de leur en-tête reprend toutes les étapes.",
+            )));
+        }
         if let Some(e) = &w.error {
             col = col.push(
                 text(crate::tr!("Annulation impossible : {e}", e = e))
@@ -2702,6 +2789,39 @@ mod tests {
         assert_eq!(step(&app), SUMMARY);
         let _ = app.wizard_update(WMsg::Next);
         assert!(app.wizard.is_none());
+    }
+
+    /// Premier démarrage : la version courte, sans les cinq étapes de
+    /// personnalisation, quittable à toute étape (HIG DAT-01).
+    #[test]
+    fn premier_demarrage_court() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.wizard_update(WMsg::OpenFirstRun);
+        assert_eq!(app.wizard.as_ref().unwrap().steps, &ESSENTIAL);
+        let mut seen = vec![step(&app)];
+        while app.wizard.as_ref().is_some_and(|w| w.step != SUMMARY) {
+            let _ = app.wizard_update(WMsg::Next);
+            seen.push(step(&app));
+        }
+        assert_eq!(seen, ESSENTIAL);
+        let _ = app.wizard_update(WMsg::Back);
+        assert_eq!(step(&app), APPS);
+        // Une étape hors du parcours mène à la suivante qui en fait partie.
+        let _ = app.wizard_update(WMsg::Go(LOOK));
+        assert_eq!(step(&app), APPS);
+        // Quitter dès la deuxième étape : l'assistant se ferme.
+        let _ = app.wizard_update(WMsg::Go(SCREENS));
+        let _ = app.wizard_update(WMsg::Finish);
+        assert!(app.wizard.is_none());
+        // Rouvert depuis les Réglages : toutes les étapes.
+        let _ = app.open_wizard();
+        assert_eq!(app.wizard.as_ref().unwrap().steps, &ALL);
     }
 
     /// Un choix passe par les réglages et s'applique aussitôt.

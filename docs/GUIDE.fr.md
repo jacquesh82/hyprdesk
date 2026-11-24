@@ -54,10 +54,12 @@ avant d'y toucher (`hyprland.lua.avant-hyprdesk-*.bak`). Le bilan final
 montre les composants en marche et ce qu'il reste à faire.
 
 Au premier démarrage, un assistant de configuration visuel passe en revue
-l'essentiel : langue, écrans, clavier, thème et fond d'écran, barre, bureau,
-performance, veille, applications par défaut. Chaque choix s'applique
-aussitôt. Il se rouvre par le bouton **Assistant** des Réglages ou
-`hyprdesk wizard`.
+l'essentiel : langue, écrans, clavier, applications par défaut. Chaque choix
+s'applique aussitôt ; le bouton Fermer de son en-tête, ou Échap, le quitte à
+toute étape. La personnalisation attend : thème et fond d'écran, barre,
+bureau, performance et veille gardent leurs réglages par défaut. Le bouton
+**Assistant** des Réglages ou `hyprdesk wizard` rouvrent l'assistant avec
+toutes ses étapes.
 
 ### Options d'installation
 

@@ -1202,10 +1202,11 @@ impl App {
         );
         let mut tasks = vec![app.load_config(), apps];
         if !preview && OPEN_WIZARD_AT_START.swap(false, std::sync::atomic::Ordering::Relaxed) {
-            // Écrans et configuration connus d'abord.
+            // Écrans et configuration connus d'abord ; la version courte
+            // (la personnalisation attend les Réglages, HIG DAT-01).
             tasks.push(Task::perform(
                 tokio::time::sleep(Duration::from_secs(2)),
-                |_| Msg::Control(control::Command::Wizard),
+                |_| Msg::Wizard(wizard::WMsg::OpenFirstRun),
             ));
         }
         let t = Task::batch(tasks);
