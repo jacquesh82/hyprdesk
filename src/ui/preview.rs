@@ -861,6 +861,7 @@ impl Preview {
                     monitor: crate::i18n::tr("APERÇU").into(),
                     key: "dock-pin:firefox".into(),
                     content: plugins::dock::PopupContent::Windows("firefox".into()),
+                    tip: None,
                     fade: self.app.launcher_transition(
                         if self.scene == 26 { 0.5 } else { 1.0 },
                         if self.scene == 26 { 0.5 } else { 1.0 },

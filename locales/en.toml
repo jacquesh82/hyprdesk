@@ -4881,6 +4881,7 @@
 "Tapez :r puis un mot pour aller droit à un réglage." = "Type :r then a word to go straight to a setting."
 "Tapez :clip pour retrouver ce que vous avez copié." = "Type :clip to find what you copied."
 "Glissez une fenêtre sur un autre espace pour l'y déplacer." = "Drag a window onto another workspace to move it there."
+"Faites un clic droit sur une icône pour ses actions : nouvelle fenêtre, épingler au dock ou l'en retirer." = "Right-click an icon for its actions: new window, pin to the dock or remove from it."
 "Fermer l'astuce" = "Close the tip"
 "erreur dans la commande d'ouverture" = "error in the open command"
 "fichier introuvable" = "file not found"

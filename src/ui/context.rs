@@ -1497,7 +1497,9 @@ impl App {
             return Task::none();
         };
         let close = self.close_launcher_popup();
-        Task::batch([close, self.spawn_menu(menu, at, true)])
+        // Le menu d'une application a servi : plus d'astuce (HIG DAT-07).
+        let used = self.tip_used("dock-clic-droit");
+        Task::batch([close, used, self.spawn_menu(menu, at, true)])
     }
 
     /// Clavier dans un menu ouvert : flèches et Début/Fin choisissent une

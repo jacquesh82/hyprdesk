@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 pub enum Surface {
     Launcher,
     Overview,
+    /// Bulle du dock, au survol d'une application.
+    Dock,
 }
 
 /// Une astuce : identifiant stable, surface, symbole de la fonction, texte.
@@ -49,6 +51,12 @@ pub const TIPS: &[Tip] = &[
         surface: Surface::Overview,
         icon: "view-grid",
         text: "Glissez une fenêtre sur un autre espace pour l'y déplacer.",
+    },
+    Tip {
+        id: "dock-clic-droit",
+        surface: Surface::Dock,
+        icon: "view-more",
+        text: "Faites un clic droit sur une icône pour ses actions : nouvelle fenêtre, épingler au dock ou l'en retirer.",
     },
 ];
 
@@ -206,6 +214,12 @@ mod tests {
             st.eligible(Surface::Overview, t0 + CADENCE).map(|t| t.id),
             Some("apercu-glisser")
         );
+        assert_eq!(
+            st.eligible(Surface::Dock, t0 + CADENCE).map(|t| t.id),
+            Some("dock-clic-droit")
+        );
+        st.mark_used("dock-clic-droit");
+        assert!(st.eligible(Surface::Dock, t0 + CADENCE).is_none());
     }
 
     #[test]

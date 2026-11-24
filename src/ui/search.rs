@@ -695,6 +695,11 @@ impl App {
         let Some(st) = self.tips.as_mut() else {
             return (None, Task::none());
         };
+        // Le fichier ne fait que retirer des astuces : rien d'éligible en
+        // mémoire, rien à lire (le dock demande à chaque bulle).
+        if st.eligible(surface, crate::tips::now()).is_none() {
+            return (None, Task::none());
+        }
         // Une autre instance a pu montrer une astuce : le fichier d'abord.
         st.merge(&crate::tips::State::load(&crate::tips::state_path()));
         let now = crate::tips::now();

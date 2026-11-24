@@ -159,6 +159,8 @@ pub struct Popup {
     pub monitor: String,
     pub key: String,
     pub content: PopupContent,
+    /// Astuce sous le nom d'une application (HIG DAT-07).
+    pub tip: Option<&'static crate::tips::Tip>,
     pub(in crate::ui) fade: crate::ui::Fade,
     pub(in crate::ui) shown: bool,
     pub(in crate::ui) placement: lifecycle::Placement,
@@ -1336,16 +1338,36 @@ impl App {
         else {
             return Task::none();
         };
-        let Some(m) = self.monitors.iter().find(|m| m.name == pending.monitor) else {
+        let Some(m) = self
+            .monitors
+            .iter()
+            .find(|m| m.name == pending.monitor)
+            .cloned()
+        else {
             return Task::none();
         };
+        let m = &m;
         let anchor = self.launcher_screen_anchor(m, local);
         let position = self.launcher_bar_position(&m.name);
         let lines = match &pending.content {
             PopupContent::Windows(class) => self.popup_windows(&pending.monitor, class).len(),
             PopupContent::Label(_) => 1,
         };
-        let (w, h) = popup_size(&pending.content, lines);
+        // Astuce du menu d'une application, dans la bulle de son nom : une
+        // fois, au plus une par jour (HIG DAT-07).
+        let (tip, saved) = if matches!(pending.content, PopupContent::Label(_))
+            && ["dock-pin:", "dock:"]
+                .iter()
+                .any(|p| pending.key.starts_with(p))
+        {
+            self.take_tip(crate::tips::Surface::Dock)
+        } else {
+            (None, Task::none())
+        };
+        let (mut w, h) = popup_size(&pending.content, lines);
+        if tip.is_some() {
+            w = w.max(360);
+        }
         let max_height = (m.height as f32 - m.reserved.1 - m.reserved.3 - 16.0).max(36.0);
         let placement = lifecycle::place_popup(
             position,
@@ -1360,6 +1382,7 @@ impl App {
             monitor: pending.monitor.clone(),
             key: pending.key,
             content: pending.content,
+            tip,
             fade: self.launcher_transition(0.0, 1.0, 160),
             shown: cfg!(test),
             placement,
@@ -1368,6 +1391,7 @@ impl App {
         let bounds = placement.bounds;
         Task::batch([
             close,
+            saved,
             Task::done(UiMsg::NewLayerShell {
                 settings: NewLayerShellSettings {
                     size: Some((bounds.width as u32, bounds.height as u32)),
@@ -1499,11 +1523,45 @@ impl App {
         };
         let body: Element<'_, UiMsg> = match &p.content {
             // Nom au survol : une infobulle, au rôle `tooltip` (HIG TYP-19).
-            PopupContent::Label(t) => text(t.clone())
-                .font(self.font)
-                .size(crate::ui::tokens::ts_tooltip(11.0))
-                .color(fg)
-                .into(),
+            PopupContent::Label(t) => {
+                let name = text(t.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts_tooltip(11.0))
+                    .color(fg);
+                match p.tip {
+                    // Astuce en pop-over : symbole de la fonction et une
+                    // phrase, sous le nom ; la bulle se ferme d'elle-même.
+                    Some(tip) => {
+                        let icon: Element<'_, UiMsg> = crate::ui::icons::get(tip.icon)
+                            .map(|h| {
+                                iced::widget::svg(h)
+                                    .width(16)
+                                    .height(16)
+                                    .style(move |_, _| iced::widget::svg::Style {
+                                        color: Some(dim),
+                                    })
+                                    .into()
+                            })
+                            .unwrap_or_else(|| Space::new().width(16).height(16).into());
+                        column![
+                            name,
+                            row![
+                                icon,
+                                text(crate::i18n::tr(tip.text))
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts_tooltip(11.0))
+                                    .color(dim)
+                                    .width(Length::Fill),
+                            ]
+                            .spacing(8)
+                            .align_y(Alignment::Center),
+                        ]
+                        .spacing(8)
+                        .into()
+                    }
+                    None => name.into(),
+                }
+            }
             PopupContent::Windows(class) => {
                 column(self.popup_windows(&p.monitor, class).into_iter().map(|c| {
                     let active =

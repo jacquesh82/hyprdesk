@@ -593,7 +593,8 @@ Clear à droite : un clic efface la requête et rend la main au champ.
 Au bas du lanceur, une astuce d'une phrase présente parfois l'un de ses
 modes (`:f`, `:r`, `:clip`) : au plus une par jour, une seule fois chacune,
 et plus jamais pour un mode que vous avez déjà tapé. L'écran des espaces fait
-de même pour le glisser d'une fenêtre vers un autre espace.
+de même pour le glisser d'une fenêtre vers un autre espace, et la bulle du
+survol d'une icône du dock, pour son menu au clic droit.
 
 L'index vit en arrière-plan, tenu à jour par inotify et un rescan
 périodique. Il se règle dans **Réglages → Index de fichiers** : racines,
