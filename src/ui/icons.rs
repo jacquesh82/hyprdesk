@@ -153,7 +153,7 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<path d="M10 3l1.8 5.2L17 10l-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8z"/><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z"/>"#
         }
         // À propos : un « i » dans un cercle.
-        "help-about" | "dialog-information" => {
+        "help-about" | "dialog-information" | "document-properties" => {
             r#"<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>"#
         }
         // Partage : une boîte, une flèche qui sort.
@@ -161,7 +161,7 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         "preferences-desktop-theme" => {
             r#"<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>"#
         }
-        "document-send" => {
+        "document-send" | "send-to" => {
             r#"<path d="M4 13v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6M12 3v12M7 8l5-5 5 5"/>"#
         }
         "application-x-addon" => {
@@ -335,6 +335,50 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         }
         "preferences-system-notifications" => {
             r#"<path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5ZM10 21h4"/>"#
+        }
+        // Menus du bureau, des fichiers, de la fenêtre et Panorama (HIG
+        // ICO-06) : même grille, même trait que le reste du jeu.
+        "document-open" => {
+            r#"<path d="M3 17V7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1M3 17l2.6-6.1A1.5 1.5 0 0 1 7 10h13a1 1 0 0 1 .9 1.4L18.4 18a1.5 1.5 0 0 1-1.4 1H5a2 2 0 0 1-2-2Z"/>"#
+        }
+        "edit-copy" => {
+            r#"<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>"#
+        }
+        "edit-cut" => {
+            r#"<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 7.5 20 19M8.5 16.5 20 5"/>"#
+        }
+        "edit-select-all" => {
+            r#"<path d="M4 7V6a2 2 0 0 1 2-2h1M11 4h2M17 4h1a2 2 0 0 1 2 2v1M20 11v2M20 17v1a2 2 0 0 1-2 2h-1M13 20h-2M7 20H6a2 2 0 0 1-2-2v-1M4 13v-2"/><rect x="8" y="8" width="8" height="8" rx="1.5"/>"#
+        }
+        "list-remove" => r#"<path d="M5 12h14"/>"#,
+        "go-jump" => {
+            r#"<path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/>"#
+        }
+        "mail-send" => r#"<path d="M21 3 10 14M21 3l-6.5 18-4.5-7-7-4.5Z"/>"#,
+        "phone" => {
+            r#"<path d="M5 3h3l2 5-2.5 1.5a11 11 0 0 0 7 7L16 14l5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2Z"/>"#
+        }
+        "preferences-desktop-wallpaper" => {
+            r#"<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9.5" r="1.5"/><path d="m20.5 15.5-4.5-4.5-9.5 9"/>"#
+        }
+        "window-minimize" => r#"<path d="M6 17h12"/>"#,
+        "window-maximize" => r#"<rect x="4" y="4" width="16" height="16" rx="3"/>"#,
+        "window-new" => {
+            r#"<path d="M13 5H6a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-8M3 10h10M19 2v6M16 5h6"/>"#
+        }
+        "view-fullscreen" => r#"<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>"#,
+        // Fenêtre flottante : une fenêtre décalée au-dessus d'une autre.
+        "focus-windows" => {
+            r#"<path d="M8 14H5.5A2.5 2.5 0 0 1 3 11.5v-6A2.5 2.5 0 0 1 5.5 3h8A2.5 2.5 0 0 1 16 5.5V10"/><rect x="8" y="10" width="13" height="11" rx="2.5"/>"#
+        }
+        "view-pin" => r#"<path d="M9 4h6M10 4v6l-3 4h10l-3-4V4M12 14v7"/>"#,
+        "media-seek-backward" => r#"<path d="M10.5 6 3 12l7.5 6ZM21 6l-7.5 6 7.5 6Z"/>"#,
+        "media-seek-forward" => r#"<path d="m13.5 6 7.5 6-7.5 6ZM3 6l7.5 6-7.5 6Z"/>"#,
+        "audio-x-generic" => {
+            r#"<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>"#
+        }
+        "video-x-generic" => {
+            r#"<rect x="2" y="6" width="14" height="12" rx="2.5"/><path d="m16 10 6-3v10l-6-3"/>"#
         }
         "notifications-disabled" => {
             r#"<path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5ZM10 21h4M4 4l16 16"/>"#
@@ -524,6 +568,10 @@ mod tests {
             root.join("src/ui/plugins/bar/popover.rs"),
             root.join("src/ui/widget_view.rs"),
             root.join("src/ui/osd.rs"),
+            // Menus du bureau, de la fenêtre et Panorama (HIG ICO-06).
+            root.join("src/ui/context.rs"),
+            root.join("src/ui/plugins/bar/window.rs"),
+            root.join("src/panorama/design.rs"),
         ];
         for e in std::fs::read_dir(root.join("assets/widgets/integres"))
             .unwrap()
@@ -531,13 +579,27 @@ mod tests {
         {
             files.push(e.path());
         }
+        let tests_last = [
+            "src/ui/context.rs",
+            "src/ui/plugins/bar/window.rs",
+            "src/panorama/design.rs",
+        ];
         let mut out = Vec::new();
         for f in files {
             let src = std::fs::read_to_string(&f).unwrap();
+            // Les noms des tests de ces fichiers sont ceux d'applications,
+            // pas de l'interface ; leurs tests sont en fin de fichier.
+            let src = if tests_last.iter().any(|t| f.ends_with(t)) {
+                src.split("#[cfg(test)]").next().unwrap_or_default()
+            } else {
+                &src
+            };
             for (i, _) in src.match_indices("-symbolic\"") {
                 let start = src[..i].rfind('"').unwrap() + 1;
                 let name = &src[start..i + "-symbolic".len()];
-                if !name.contains(['.', ' ']) && !name.starts_with('-') {
+                // Un gabarit de `format!` (icône d'une action d'application)
+                // n'est pas un nom.
+                if !name.contains(['.', ' ', '{']) && !name.starts_with('-') {
                     out.push(name.to_string());
                 }
             }
@@ -563,6 +625,37 @@ mod tests {
             "battery-caution-symbolic",
         ] {
             assert!(get(n).is_some(), "{n}");
+        }
+    }
+
+    /// HIG ICO-06 : les commandes des menus du bureau, de la fenêtre et du
+    /// Panorama ont leur glyphe dans le jeu.
+    #[test]
+    fn glyphes_des_menus() {
+        for name in [
+            "audio-x-generic",
+            "document-open",
+            "document-properties",
+            "edit-copy",
+            "edit-cut",
+            "edit-select-all",
+            "focus-windows",
+            "go-jump",
+            "list-remove",
+            "mail-send",
+            "media-seek-backward",
+            "media-seek-forward",
+            "phone",
+            "preferences-desktop-wallpaper",
+            "send-to",
+            "video-x-generic",
+            "view-fullscreen",
+            "view-pin",
+            "window-maximize",
+            "window-minimize",
+            "window-new",
+        ] {
+            assert!(get(&format!("{name}-symbolic")).is_some(), "{name}");
         }
     }
 
