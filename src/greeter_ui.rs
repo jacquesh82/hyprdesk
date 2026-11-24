@@ -763,6 +763,11 @@ impl Greeter {
                 if !matches!(self.phase, Phase::Ask(..)) {
                     return Task::none();
                 }
+                // Réponse requise (HIG DAT-06) : rien ne part à vide, le
+                // champ garde le focus.
+                if self.answer.is_empty() {
+                    return iced::widget::operation::focus(ANSWER_ID);
+                }
                 if self.demo {
                     crate::lock::pam::wipe(&mut self.answer);
                     if self.film {
@@ -994,7 +999,8 @@ impl Greeter {
                         .align_y(Alignment::Center),
                     )
                     .padding([10.0 * k, 18.0 * k])
-                    .on_press(GMsg::Begin),
+                    // Inactif sans identifiant : il est requis (HIG DAT-06).
+                    .on_press_maybe((!self.user.trim().is_empty()).then_some(GMsg::Begin)),
                 );
             }
         }
@@ -1448,6 +1454,9 @@ mod tests {
             wayland: true,
         }];
         let _ = g.update(GMsg::Begin);
+        assert!(matches!(g.phase, Phase::Ask(AuthKind::Secret, _)));
+        // Réponse vide : rien ne part, la question reste posée (HIG DAT-06).
+        let _ = g.update(GMsg::Send);
         assert!(matches!(g.phase, Phase::Ask(AuthKind::Secret, _)));
         let _ = g.update(GMsg::Answer("secret".into()));
         let _ = g.update(GMsg::Send);
