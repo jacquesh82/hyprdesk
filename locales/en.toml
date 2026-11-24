@@ -4863,3 +4863,6 @@
 "Ne pas déranger : activé, jusqu’à {hour}" = "Do not disturb: on, until {hour}"
 "il est déjà soir : « 1h » pour une heure, rien pour jusqu’à désactivation" = "it is already evening: \"1h\" for one hour, nothing for until turned off"
 "usage : hyprdesk notifications [list | dnd [on [1h|soir] | off] | clear]" = "usage: hyprdesk notifications [list | dnd [on [1h|evening] | off] | clear]"
+"Fermer toutes les fenêtres" = "Close all windows"
+"Mettre à la corbeille « {name} » ?" = "Move “{name}” to trash?"
+"hyprdesk : mettre à la corbeille — {e}" = "hyprdesk: move to trash — {e}"

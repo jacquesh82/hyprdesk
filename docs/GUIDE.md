@@ -302,10 +302,14 @@ first, never folded into “More commands”, and Settings → Bar does not move
 them.
 
 - **hyprdesk** gathers the shell commands: About hyprdesk, Settings…, Lock,
-  Workspaces, Organise windows…, then Sleep…, Restart… and Shut down…
-  Restart and Shut down ask for confirmation.
+  Move to trash, Workspaces, Organise windows…, then Sleep…, Restart… and
+  Shut down… Restart, Shut down and Move to trash ask for confirmation.
+  “Move to trash” targets the selected desktop icon (click or arrow keys)
+  when it is a file or a folder; otherwise it stays visible and inactive.
 - **Window** is the menu of the active window, the same as the one on its
   title in the bar. Without an active window it stays visible and inactive.
+  “Close all windows” closes the windows of its application; inactive when
+  it has only one.
 - **Workspaces** is the workspace card of the screen.
 
 These commands also remain where they already were: the window title, the

@@ -288,7 +288,7 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf, String> {
     Ok(to)
 }
 
-fn trash(path: &Path) -> Result<(), String> {
+pub(in crate::ui) fn trash(path: &Path) -> Result<(), String> {
     let o = std::process::Command::new("gio")
         .arg("trash")
         .arg(path)

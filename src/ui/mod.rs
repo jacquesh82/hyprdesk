@@ -2513,6 +2513,17 @@ impl App {
             .collect()
     }
 
+    /// Icône du bureau sélectionnée (clic ou flèches) quand c'est un fichier
+    /// ou un dossier : la cible de « Mettre à la corbeille » du menu
+    /// « hyprdesk » (HIG MENU-04).
+    fn selected_file(&self) -> Option<&IconDef> {
+        let (_, idx) = self.selected?;
+        self.cfg
+            .icons
+            .get(idx)
+            .filter(|d| matches!(d.kind, crate::config::IconKind::Path(_)))
+    }
+
     pub(super) fn reload_icons(&mut self) -> Task<Msg> {
         self.icons.clear();
         self.icon_imgs.clear();
@@ -4846,13 +4857,14 @@ impl App {
                         popover::Kind::Workspaces,
                     )),
                     // Menu « hyprdesk » (HIG MENU-01) : rien à lire, le contenu
-                    // est fixe.
+                    // est fixe ; seule « Mettre à la corbeille » dépend de
+                    // l'icône du bureau sélectionnée (HIG MENU-04).
                     popover::Request::Shell => Task::done(Msg::PopoverReady(
                         request,
                         bar_id,
                         key,
                         popover::Kind::Menu {
-                            entries: plugins::bar::menus::entries(),
+                            entries: plugins::bar::menus::entries(self.selected_file()),
                             source: popover::MenuSource::Shell,
                         },
                     )),

@@ -17,19 +17,38 @@ const FULLSCREEN: i64 = 3;
 const FLOAT: i64 = 4;
 const PIN: i64 = 5;
 const CLOSE: i64 = 6;
+/// Fermer toutes les fenêtres de l'application de la fenêtre active (HIG
+/// MENU-04 : la commande du clic droit du dock, dans la barre aussi).
+const CLOSE_ALL: i64 = 7;
 /// Déplacer vers l'espace `n` : `MOVE + n`.
 const MOVE: i64 = 1000;
 
 /// Fenêtre active : son adresse et son menu ; rien sans fenêtre active.
 pub(in crate::ui) fn read(workspaces: &[Workspace]) -> Option<(String, Vec<MenuEntry>)> {
     let v = ipc::query_json("activewindow").ok()?;
-    entries(&v, workspaces)
+    let same_app = ipc::query_json("clients")
+        .map(|c| same_application(&v, &c))
+        .unwrap_or(1);
+    entries(&v, workspaces, same_app)
 }
 
-/// Menu d'après l'état de la fenêtre (`hyprctl activewindow -j`).
+/// Fenêtres ouvertes de l'application de la fenêtre active, la sienne
+/// comprise ; une au moins.
+fn same_application(active: &Value, clients: &Value) -> usize {
+    let class = active["class"].as_str().unwrap_or("");
+    crate::hypr::parse_clients(clients)
+        .iter()
+        .filter(|c| c.class == class)
+        .count()
+        .max(1)
+}
+
+/// Menu d'après l'état de la fenêtre (`hyprctl activewindow -j`) et du nombre
+/// `same_app` de fenêtres de son application.
 pub(in crate::ui) fn entries(
     v: &Value,
     workspaces: &[Workspace],
+    same_app: usize,
 ) -> Option<(String, Vec<MenuEntry>)> {
     let tr = |s: &str| crate::i18n::tr(s).to_string();
     let address = v["address"].as_str().filter(|a| !a.is_empty())?.to_string();
@@ -111,6 +130,18 @@ pub(in crate::ui) fn entries(
         }));
     }
     out.push(MenuEntry::Separator);
+    // Toujours à sa place, inactive quand l'application n'a qu'une fenêtre :
+    // « Fermer » la ferme déjà. Le nombre de fenêtres visées suit le libellé.
+    let several = same_app > 1;
+    out.push(MenuEntry::Item {
+        label: tr("Fermer toutes les fenêtres"),
+        detail: several.then(|| same_app.to_string()),
+        icon: Some("window-close-symbolic".into()),
+        checked: None,
+        enabled: several,
+        action: Some(CLOSE_ALL),
+        confirm: None,
+    });
     out.push(item(
         tr("Fermer"),
         "window-close-symbolic",
@@ -130,6 +161,23 @@ pub(in crate::ui) fn act(address: &str, action: i64) -> Result<(), String> {
                 .map_err(|e| e.to_string());
         }
         CLOSE => return crate::hypr::close_window(address).map_err(|e| e.to_string()),
+        // Toutes les fenêtres de la même classe que la fenêtre active, comme
+        // le menu du dock les range.
+        CLOSE_ALL => {
+            if let Ok(v) = ipc::query_json("clients") {
+                let all = crate::hypr::parse_clients(&v);
+                let class = all
+                    .iter()
+                    .find(|c| c.address == address)
+                    .map(|c| c.class.clone());
+                if let Some(class) = class {
+                    for c in all.iter().filter(|c| c.class == class) {
+                        let _ = crate::hypr::close_window(&c.address);
+                    }
+                }
+            }
+            return Ok(());
+        }
         n if n > MOVE => {
             return crate::hypr::move_window(address, &(n - MOVE).to_string())
                 .map_err(|e| e.to_string());
@@ -175,7 +223,7 @@ mod tests {
                 "workspace":{"id":2,"name":"2"}}"#,
         )
         .unwrap();
-        let (address, e) = entries(&v, &[ws(1), ws(2), ws(3), ws(-98)]).unwrap();
+        let (address, e) = entries(&v, &[ws(1), ws(2), ws(3), ws(-98)], 1).unwrap();
         assert_eq!(address, "0xabc");
         let find = |a: i64| {
             e.iter().find_map(|x| match x {
@@ -201,6 +249,48 @@ mod tests {
                 ..
             })
         ));
-        assert!(entries(&serde_json::json!({}), &[]).is_none());
+        assert!(entries(&serde_json::json!({}), &[], 1).is_none());
+    }
+
+    #[test]
+    fn fermer_toutes_les_fenetres_de_l_application() {
+        let v: Value = serde_json::from_str(
+            r#"{"address":"0xabc","class":"firefox","workspace":{"id":1,"name":"1"}}"#,
+        )
+        .unwrap();
+        let close_all = |same_app: usize| {
+            entries(&v, &[], same_app)
+                .unwrap()
+                .1
+                .into_iter()
+                .find_map(|x| match x {
+                    MenuEntry::Item {
+                        action: Some(CLOSE_ALL),
+                        enabled,
+                        detail,
+                        ..
+                    } => Some((enabled, detail)),
+                    _ => None,
+                })
+        };
+        // Toujours dans le menu ; inactive tant que l'application n'a qu'une
+        // fenêtre, que « Fermer » ferme déjà. « Fermer » reste la dernière.
+        assert_eq!(close_all(1), Some((false, None)));
+        assert_eq!(close_all(3), Some((true, Some("3".into()))));
+        assert!(matches!(
+            entries(&v, &[], 3).unwrap().1.last(),
+            Some(MenuEntry::Item {
+                action: Some(CLOSE),
+                ..
+            })
+        ));
+        // Les fenêtres de la classe de la fenêtre active, pas les autres.
+        let clients: Value = serde_json::from_str(
+            r#"[{"address":"0xabc","class":"firefox"},{"address":"0xdef","class":"firefox"},
+                {"address":"0xfff","class":"thunar"}]"#,
+        )
+        .unwrap();
+        assert_eq!(same_application(&v, &clients), 2);
+        assert_eq!(same_application(&serde_json::json!({}), &clients), 1);
     }
 }

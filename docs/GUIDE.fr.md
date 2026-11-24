@@ -315,11 +315,15 @@ des modules : toujours en tête, jamais dans « Autres commandes », et la page
 Réglages → Barre ne les déplace pas.
 
 - **hyprdesk** rassemble les commandes du shell : À propos de hyprdesk,
-  Réglages…, Verrouiller, Espaces de travail, Organiser les fenêtres…, puis
-  Mise en veille…, Redémarrer… et Éteindre… Redémarrer et éteindre demandent
-  une confirmation.
+  Réglages…, Verrouiller, Mettre à la corbeille, Espaces de travail, Organiser
+  les fenêtres…, puis Mise en veille…, Redémarrer… et Éteindre… Redémarrer,
+  éteindre et mettre à la corbeille demandent une confirmation. « Mettre à la
+  corbeille » vise l'icône du bureau sélectionnée (clic ou flèches) quand
+  c'est un fichier ou un dossier ; sans cela, elle reste affichée et inactive.
 - **Fenêtre** est le menu de la fenêtre active, le même que celui de son
   titre dans la barre. Sans fenêtre active, il reste affiché et inactif.
+  « Fermer toutes les fenêtres » ferme celles de son application ; inactive
+  quand elle n'en a qu'une.
 - **Espaces** est la carte des espaces de travail de l'écran.
 
 Ces commandes restent aussi à leur emplacement d'origine : titre de la

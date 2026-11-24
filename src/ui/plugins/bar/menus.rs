@@ -4,10 +4,13 @@
 //! là où elles étaient (titre de la fenêtre, carte des espaces, centre de
 //! contrôle). La carte est celle de tous les menus de la barre.
 
+use std::path::Path;
+
 use iced::Task;
 
-use crate::config::MenuEntry;
+use crate::config::{IconDef, IconKind, MenuEntry};
 use crate::control::Command;
+use crate::ui::context;
 use crate::ui::plugins::bar::popover;
 use crate::ui::{App, Msg};
 
@@ -19,6 +22,7 @@ const ORGANIZE: i64 = 5;
 pub(in crate::ui) const SUSPEND: i64 = 6;
 pub(in crate::ui) const REBOOT: i64 = 7;
 pub(in crate::ui) const POWER_OFF: i64 = 8;
+const TRASH: i64 = 9;
 
 /// Titres des menus, dans l'ordre de la barre : clef d'ancre de la carte,
 /// libellé, contenu demandé. « Fenêtre » et « Espaces » ouvrent les menus
@@ -31,9 +35,16 @@ pub(in crate::ui) fn titles() -> Vec<(&'static str, &'static str, popover::Reque
     ]
 }
 
-/// Entrées du menu « hyprdesk ».
-pub(in crate::ui) fn entries() -> Vec<MenuEntry> {
+/// Entrées du menu « hyprdesk ». `selected` : l'icône du bureau sélectionnée
+/// (clic ou flèches) quand c'est un fichier ou un dossier ; « Mettre à la
+/// corbeille » la vise. L'entrée reste affichée, inactive, sans elle : une
+/// commande du clic droit a sa place dans la barre (HIG MENU-04).
+pub(in crate::ui) fn entries(selected: Option<&IconDef>) -> Vec<MenuEntry> {
     let tr = |s: &str| crate::i18n::tr(s).to_string();
+    let trashed = selected.and_then(|d| match &d.kind {
+        IconKind::Path(p) => Some(d.label.clone().unwrap_or_else(|| file_name(p))),
+        _ => None,
+    });
     let item = |label: &str, icon: &str, confirm: Option<&str>, action: i64| MenuEntry::Item {
         label: tr(label),
         detail: None,
@@ -51,6 +62,17 @@ pub(in crate::ui) fn entries() -> Vec<MenuEntry> {
         MenuEntry::Separator,
         item("Réglages…", "preferences-system-symbolic", None, SETTINGS),
         item("Verrouiller", "system-lock-screen", None, LOCK),
+        MenuEntry::Separator,
+        MenuEntry::Item {
+            label: tr("Mettre à la corbeille"),
+            detail: None,
+            icon: Some("user-trash-symbolic".into()),
+            checked: None,
+            enabled: trashed.is_some(),
+            action: Some(TRASH),
+            confirm: trashed
+                .map(|name| crate::tr!("Mettre à la corbeille « {name} » ?", name = name)),
+        },
         MenuEntry::Separator,
         item("Espaces de travail", "view-grid-symbolic", None, OVERVIEW),
         item(
@@ -86,8 +108,41 @@ pub(in crate::ui) fn act(app: &App, action: i64) -> Task<Msg> {
         OVERVIEW => Task::done(Msg::Control(Command::Overview)),
         ORGANIZE => Task::done(Msg::BarOrganize),
         SUSPEND | REBOOT | POWER_OFF => Task::perform(power(action), |_| Msg::Noop),
+        // Le fichier ou le dossier de l'icône sélectionnée, lu à l'action :
+        // celui que la confirmation a nommé.
+        TRASH => {
+            let Some(IconKind::Path(p)) = app.selected_file().map(|d| &d.kind) else {
+                return Task::none();
+            };
+            let p = p.clone();
+            Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || context::trash(&p))
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                },
+                |r| match r {
+                    Ok(()) => Msg::ConfigChanged,
+                    Err(e) => {
+                        crate::hypr::notify(
+                            0,
+                            5000,
+                            &crate::tr!("hyprdesk : mettre à la corbeille — {e}", e = e),
+                        );
+                        Msg::Noop
+                    }
+                },
+            )
+        }
         _ => Task::none(),
     }
+}
+
+/// Nom affiché d'un fichier ou d'un dossier de bureau : celui de son icône.
+fn file_name(p: &Path) -> String {
+    p.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| p.display().to_string())
 }
 
 /// Veille, redémarrage, extinction (`systemctl`), comme l'écran de
@@ -136,19 +191,19 @@ mod tests {
 
     #[test]
     fn menu_hyprdesk_rassemble_les_commandes_du_shell() {
-        let e = entries();
-        // À propos d'abord, éteindre en dernier, trois groupes.
+        let e = entries(None);
+        // À propos d'abord, éteindre en dernier, quatre groupes.
         assert_eq!(
             actions(&e),
             [
-                ABOUT, SETTINGS, LOCK, OVERVIEW, ORGANIZE, SUSPEND, REBOOT, POWER_OFF
+                ABOUT, SETTINGS, LOCK, TRASH, OVERVIEW, ORGANIZE, SUSPEND, REBOOT, POWER_OFF
             ]
         );
         assert_eq!(
             e.iter()
                 .filter(|x| matches!(x, MenuEntry::Separator))
                 .count(),
-            3
+            4
         );
         for (action, confirm, icon, enabled) in e.iter().filter_map(|x| match x {
             MenuEntry::Item {
@@ -160,13 +215,63 @@ mod tests {
             } => Some((*a, confirm.is_some(), icon.is_some(), *enabled)),
             _ => None,
         }) {
-            assert!(enabled);
+            // Sans icône sélectionnée, seule la corbeille est inactive.
+            assert_eq!(enabled, action != TRASH);
             // Seules les commandes qui perdent la session demandent confirmation.
             assert_eq!(confirm, matches!(action, REBOOT | POWER_OFF));
             // Un groupe porte des icônes à toutes ses lignes ou à aucune : le
             // groupe de puissance n'en a pas.
             assert_eq!(icon, !matches!(action, SUSPEND | REBOOT | POWER_OFF));
         }
+    }
+
+    #[test]
+    fn corbeille_vise_l_icone_du_bureau_selectionnee() {
+        // Une icône de fichier sélectionnée : la commande est active et sa
+        // confirmation nomme ce fichier (HIG MENU-04).
+        let file = IconDef {
+            origin: Default::default(),
+            sel: Default::default(),
+            id: "notes".into(),
+            label: Some("Notes".into()),
+            kind: IconKind::Path("/home/jean/Documents/notes.txt".into()),
+            icon: None,
+            pos: None,
+        };
+        let trash = |e: &[MenuEntry]| {
+            e.iter().find_map(|x| match x {
+                MenuEntry::Item {
+                    action: Some(TRASH),
+                    enabled,
+                    confirm,
+                    ..
+                } => Some((*enabled, confirm.clone())),
+                _ => None,
+            })
+        };
+        assert_eq!(
+            trash(&entries(Some(&file))),
+            Some((
+                true,
+                Some(crate::i18n::tr("Mettre à la corbeille « Notes » ?").to_string())
+            ))
+        );
+        // Sans libellé d'icône : le nom du fichier.
+        let unnamed = IconDef {
+            label: None,
+            ..file.clone()
+        };
+        assert!(matches!(
+            trash(&entries(Some(&unnamed))),
+            Some((true, Some(q))) if q.ends_with("notes.txt » ?")
+        ));
+        // Une application ou une commande du bureau ne va pas à la corbeille.
+        let app = IconDef {
+            kind: IconKind::App("firefox".into()),
+            ..file
+        };
+        assert_eq!(trash(&entries(Some(&app))), Some((false, None)));
+        assert_eq!(trash(&entries(None)), Some((false, None)));
     }
 
     #[test]

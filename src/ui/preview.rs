@@ -2222,7 +2222,18 @@ impl Preview {
             // icônes du menu sont résolues tout de suite. L'ancre est
             // provisoire ; le rendu du titre pose la sienne.
             if SCENES[self.scene] == "bar-menu-shell" {
-                for entry in super::plugins::bar::menus::entries() {
+                // Une icône de fichier du bureau est sélectionnée : « Mettre à
+                // la corbeille » y est active (HIG MENU-04).
+                let file = crate::config::IconDef {
+                    origin: Default::default(),
+                    sel: Default::default(),
+                    id: "apercu-notes".into(),
+                    label: Some("notes.txt".into()),
+                    kind: crate::config::IconKind::Path(std::path::PathBuf::from("/tmp/notes.txt")),
+                    icon: None,
+                    pos: None,
+                };
+                for entry in super::plugins::bar::menus::entries(Some(&file)) {
                     if let crate::config::MenuEntry::Item {
                         icon: Some(icon), ..
                     } = entry
@@ -2239,7 +2250,7 @@ impl Preview {
                     self.bar,
                     "menus:hyprdesk".into(),
                     popover::Kind::Menu {
-                        entries: super::plugins::bar::menus::entries(),
+                        entries: super::plugins::bar::menus::entries(Some(&file)),
                         source: popover::MenuSource::Shell,
                     },
                 );
