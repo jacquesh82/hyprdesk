@@ -195,6 +195,13 @@ turns itself off at its deadline, and its tile says until when ("Silence ·
 until 18:00"). From the command line: `hyprdesk notifications dnd on
 [1h|soir]`.
 
+The first critical notification from an application explains, in its bubble,
+that it gets through Silence and stays until it is closed; its "Block during
+Silence" button denies the bypass to that application: under Silence, its
+critical notifications then go to the history alone. Closing the bubble without
+blocking keeps the bypass. `hyprdesk config reset all --yes` forgets these
+decisions.
+
 **Orchestrated**: the external tool stays and hyprdesk drives it. This
 covers `hypridle` (config written and supervised), `cliphist` +
 `wl-clipboard` (the clipboard history behind `:clip`), `hyprsunset` (night

@@ -6,6 +6,9 @@
 //! d'elle-même après son délai (jamais pour une notification critique).
 //! Une notification de basse urgence ne montre pas de bulle : livrée
 //! discrètement, elle va à l'historique seul, comme sous Silence.
+//! La première notification critique d'une application explique, dans sa
+//! bulle, qu'elle traverse le Silence, et permet de le refuser pour cette
+//! application (`crate::notifications::Passage`).
 //!
 //! Si un autre démon de notifications tient le nom (wayle, mako…), rien
 //! n'est affiché ici : c'est lui qui montre les notifications.
@@ -23,7 +26,7 @@ use iced_layershell::reexport::{
 };
 
 use super::{App, Msg, color};
-use crate::notifications::{Event, Notification, Reason, SilenceEnd, Urgency};
+use crate::notifications::{Event, Notification, Passage, Reason, SilenceEnd, Urgency};
 use crate::ui::plugins::bar::surface::{URGENT_ICON, truncate};
 
 pub const NAMESPACE: &str = "hyprdesk-notifications";
@@ -54,6 +57,24 @@ const CRITICAL_MARK: f32 = 10.0;
 /// Cible tactile des boutons d'une bulle (HIG ACC-04) : 28 px — de côté pour
 /// la fermeture, de haut au moins pour les actions.
 const BUTTON_TARGET: f32 = 28.0;
+/// Lignes du texte qui explique le passage du Silence (HIG PAT-05) : deux, le
+/// bouton de refus doit rester lisible dans la carte de hauteur fixe.
+const EXPLAIN_LINES: f32 = 2.0;
+
+/// Hauteur de ces lignes, à la taille du corps d'une bulle.
+fn explain_text_height() -> f32 {
+    EXPLAIN_LINES
+        * crate::ui::tokens::line_height()
+            .to_absolute(iced::Pixels(crate::ui::tokens::ts(12.0)))
+            .0
+}
+
+/// Surcroît de la carte d'une bulle qui explique le passage du Silence (HIG
+/// PAT-05) : ses deux lignes, un espacement de colonne, le bouton de refus
+/// (28 px, HIG ACC-04), un autre espacement.
+fn explain_height() -> f32 {
+    8.0 + explain_text_height() + crate::ui::tokens::ts(BUTTON_TARGET)
+}
 /// Notifications de l'historique montrées dans la carte de la barre et le
 /// volet de Panorama (le centre Continuité en montre 12).
 pub(super) const HISTORY_SHOWN: usize = 30;
@@ -194,6 +215,24 @@ fn app_id(entry: &str) -> Option<&str> {
     (!id.is_empty() && !id.contains('/')).then_some(id)
 }
 
+/// Clé d'application du passage du Silence (HIG PAT-05) : l'identifiant
+/// `desktop-entry` quand il en est un, sinon le nom de l'émetteur. Ceux qui ne
+/// donnent ni l'un ni l'autre n'en forment qu'un, comme dans l'historique.
+fn passage_key(n: &Notification) -> String {
+    app_id(n.desktop_entry.as_deref().unwrap_or_default())
+        .map_or_else(|| n.app.clone(), str::to_string)
+        .replace(['\n', '\r'], " ")
+}
+
+/// Explication du passage du Silence (HIG PAT-05), portée par la bulle `id` de
+/// la première notification critique de l'application `key`. Elle ne se lit que
+/// sur cette bulle : partie, elle ne s'applique plus à rien.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Explain {
+    pub key: String,
+    pub id: u32,
+}
+
 fn card_click(n: &Notification) -> Option<CardClick> {
     if n.actions.iter().any(|(k, _)| k == "default") {
         return Some(CardClick::Default);
@@ -279,6 +318,8 @@ pub enum TMsg {
     /// Clic sur une carte du centre de notifications.
     Card(u32),
     Close(u32),
+    /// Refus du passage du Silence pour l'application de la bulle (HIG PAT-05).
+    Refuse(u32),
     Tick,
     Shown(Id),
     /// La fin programmée du Silence est atteinte (HIG PAT-04).
@@ -299,6 +340,10 @@ pub struct Toasts {
     /// Fin du Silence (HIG PAT-04) : échéance à l'horloge murale, en secondes
     /// depuis l'époque ; `None`, jusqu'à désactivation.
     pub dnd_until: Option<i64>,
+    /// Explications du passage du Silence (HIG PAT-05) portées par les bulles
+    /// ouvertes : chacune, celle de la première notification critique de son
+    /// application.
+    pub explain: Vec<Explain>,
     visibility: Option<super::Fade>,
     previous: Vec<Toast>,
     convex: bool,
@@ -407,6 +452,20 @@ impl Toasts {
         true
     }
 
+    /// Refus du passage du Silence (HIG PAT-05) : l'explication quitte la
+    /// bulle `id` ; `serving`, hyprdesk tient le service de notifications et
+    /// garde la décision (l'aperçu, un autre démon : rien ne se garde). Vrai
+    /// quand la bulle portait une explication.
+    fn refuse(&mut self, id: u32, serving: bool) -> bool {
+        let Some(e) = self.explain.extract_if(.., |e| e.id == id).next() else {
+            return false;
+        };
+        if serving {
+            Passage::load().set(&e.key, false).save();
+        }
+        true
+    }
+
     /// Applique une commande `hyprdesk notifications …` : `dnd [on [1h|soir]
     /// | off]`, `clear`. Sans mot de fin, le Silence dure jusqu'à
     /// désactivation (HIG PAT-04).
@@ -439,24 +498,33 @@ impl Toasts {
 const CARD_BODY_ACTIONS: f32 = 20.0;
 
 /// Hauteur de la carte d'une bulle : `CARD`, plus 20 px quand elle montre à la
-/// fois un corps et des boutons d'action (HIG ACC-04).
-fn card_height(n: &Notification) -> f32 {
+/// fois un corps et des boutons d'action (HIG ACC-04), plus l'explication du
+/// passage du Silence quand la bulle la porte (HIG PAT-05).
+fn card_height(n: &Notification, explained: bool) -> f32 {
     let actions = n.actions.iter().any(|(k, _)| k != "default");
+    let mut h = CARD;
     if actions && !n.body.is_empty() {
-        CARD + CARD_BODY_ACTIONS
-    } else {
-        CARD
+        h += CARD_BODY_ACTIONS;
     }
+    if explained {
+        h += explain_height();
+    }
+    h
 }
 
-fn height(list: &[Toast]) -> u32 {
-    height_of(list, VISIBLE)
+fn height(list: &[Toast], explain: &[Explain]) -> u32 {
+    height_of(list, VISIBLE, explain)
 }
 
 /// Hauteur de la surface des bulles, chacune à la hauteur de sa carte.
-fn height_of(list: &[Toast], visible: usize) -> u32 {
+fn height_of(list: &[Toast], visible: usize, explain: &[Explain]) -> u32 {
     let n = list.len().min(visible.max(1));
-    let cards: f32 = list.iter().take(n).map(|t| card_height(&t.n)).sum();
+    let explained = |t: &Toast| explain.iter().any(|e| e.id == t.n.id);
+    let cards: f32 = list
+        .iter()
+        .take(n)
+        .map(|t| card_height(&t.n, explained(t)))
+        .sum();
     (cards + n.saturating_sub(1) as f32 * GAP + 2.0 * SHADOW).ceil() as u32
 }
 
@@ -512,6 +580,10 @@ impl App {
             TMsg::Event(Event::Shown(n)) => {
                 // Le Silence a peut-être expiré pendant une veille.
                 self.toasts.silence_expire();
+                // Une explication sans sa bulle (fermée) ne s'applique plus à rien.
+                self.toasts
+                    .explain
+                    .retain(|e| self.toasts.list.iter().any(|t| t.n.id == e.id));
                 if !n.transient {
                     self.toasts.history.retain(|h| h.id != n.id);
                     self.toasts.history.insert(0, n.clone());
@@ -522,10 +594,29 @@ impl App {
                 // la sienne, sinon celle de son application (HIG ICO-03).
                 // Demandée aussi sous Silence : le centre montre la carte.
                 let app_icon = self.want_notif_icons(&n);
+                // Passage du Silence (HIG PAT-05), application par
+                // application. Première notification critique : accordé, et la
+                // bulle l'explique, avec moyen de le refuser.
+                let passes = if n.urgency == Urgency::Critical {
+                    let key = passage_key(&n);
+                    let mut passage = Passage::load();
+                    let first = passage.granted(&key).is_none();
+                    if first {
+                        passage = passage.set(&key, true);
+                        passage.save();
+                    }
+                    let passes = passage.granted(&key) != Some(false);
+                    if first {
+                        self.toasts.explain.push(Explain { key, id: n.id });
+                    }
+                    passes
+                } else {
+                    false
+                };
                 // Basse urgence (HIG PAT-06) ou ne pas déranger : dans
-                // l'historique seulement, sauf critique.
-                if n.urgency == Urgency::Low || (self.toasts.dnd && n.urgency != Urgency::Critical)
-                {
+                // l'historique seulement, sauf critique dont l'application
+                // passe le Silence.
+                if n.urgency == Urgency::Low || (self.toasts.dnd && !passes) {
                     return app_icon;
                 }
                 // Urgence critique : son repère doit être prêt dès la première image.
@@ -583,6 +674,15 @@ impl App {
                 send(Cmd::Dismiss(id, Reason::Dismissed));
                 self.toasts.list.retain(|t| t.n.id != id);
                 self.sync_toasts()
+            }
+            // La bulle refuse le passage du Silence à son application (HIG
+            // PAT-05) : décision gardée, explication retirée.
+            TMsg::Refuse(id) => {
+                if self.toasts.refuse(id, self.toasts.active) {
+                    self.sync_toasts()
+                } else {
+                    Task::none()
+                }
             }
             TMsg::Tick => {
                 let default = Layout::of(&self.cfg.general).timeout;
@@ -668,7 +768,7 @@ impl App {
         }
         self.toasts.previous = self.toasts.list.clone();
         let bh = self.cfg.bar.as_ref().map_or(48, |b| b.height) as u32;
-        let h = height(&self.toasts.list) + bh + 12;
+        let h = height(&self.toasts.list, &self.toasts.explain) + bh + 12;
         if let Some(win) = self.toasts.win {
             if let Some(f) = self.toasts.visibility.as_mut()
                 && f.to == 0.0
@@ -727,7 +827,7 @@ impl App {
                     id: win,
                     size: (
                         (l.width + 2.0 * SHADOW) as u32,
-                        height_of(&self.toasts.list, l.visible),
+                        height_of(&self.toasts.list, l.visible, &self.toasts.explain),
                     ),
                 })
             }
@@ -766,7 +866,7 @@ impl App {
                     settings: NewLayerShellSettings {
                         size: Some((
                             (l.width + 2.0 * SHADOW) as u32,
-                            height_of(&self.toasts.list, l.visible),
+                            height_of(&self.toasts.list, l.visible, &self.toasts.explain),
                         )),
                         layer: Layer::Overlay,
                         anchor,
@@ -988,10 +1088,38 @@ impl App {
             }
             col = col.push(r);
         }
+        // Première notification critique de l'application (HIG PAT-05) : la
+        // bulle explique son passage du Silence et permet de le refuser. Deux
+        // lignes au plus, comme le corps : le bouton reste dans la carte.
+        let explained = self.toasts.explain.iter().any(|e| e.id == id);
+        if explained {
+            col = col
+                .push(
+                    text(crate::i18n::tr(
+                        "Une notification critique traverse le Silence et reste jusqu'à sa fermeture.",
+                    ))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .line_height(crate::ui::tokens::line_height())
+                    .color(dim)
+                    .height(explain_text_height()),
+                )
+                .push(
+                    button(
+                        text(crate::i18n::tr("Bloquer pendant le Silence"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(11.0)),
+                    )
+                    // 28 px de haut (HIG ACC-04) : la carte calcule sa hauteur.
+                    .padding([crate::ui::tokens::ts(7.0), 10.0])
+                    .height(crate::ui::tokens::ts(BUTTON_TARGET))
+                    .on_press(Msg::Toasts(TMsg::Refuse(id))),
+                );
+        }
         let card = container(row![glyph, col].spacing(12).align_y(Alignment::Start))
             .padding([10, 14])
             .width(Layout::of(&self.cfg.general).width)
-            .height(card_height(&t.n))
+            .height(card_height(&t.n, explained))
             .clip(true)
             .style(move |_| {
                 if convex {
@@ -1254,9 +1382,9 @@ mod tests {
     #[test]
     fn hauteur_de_la_surface() {
         let une = [toast(1, -1)];
-        assert_eq!(height(&une), (CARD + 2.0 * SHADOW).ceil() as u32);
+        assert_eq!(height(&une, &[]), (CARD + 2.0 * SHADOW).ceil() as u32);
         let neufs: Vec<Toast> = (1..=9).map(|i| toast(i, -1)).collect();
-        assert_eq!(height(&neufs), height_of(&neufs, VISIBLE));
+        assert_eq!(height(&neufs, &[]), height_of(&neufs, VISIBLE, &[]));
     }
 
     /// HIG ACC-04 : les boutons d'une bulle ont 28 px. La carte qui montre un
@@ -1277,18 +1405,55 @@ mod tests {
         ]);
         let deux = [sans, avec];
         assert_eq!(
-            card_height(&deux[0].n),
+            card_height(&deux[0].n, false),
             CARD,
             "un corps sans action tient dans CARD"
         );
-        assert_eq!(card_height(&deux[1].n), CARD + CARD_BODY_ACTIONS);
+        assert_eq!(card_height(&deux[1].n, false), CARD + CARD_BODY_ACTIONS);
         assert_eq!(
-            height(&deux[1..]),
+            height(&deux[1..], &[]),
             (CARD + CARD_BODY_ACTIONS + 2.0 * SHADOW).ceil() as u32
         );
         assert_eq!(
-            height(&deux),
+            height(&deux, &[]),
             (2.0 * CARD + CARD_BODY_ACTIONS + GAP + 2.0 * SHADOW).ceil() as u32
+        );
+    }
+
+    /// HIG PAT-05 : la carte qui explique le passage du Silence gagne ses deux
+    /// lignes et son bouton, et la surface suit ; les autres bulles ne
+    /// changent pas.
+    #[test]
+    fn carte_plus_haute_quand_elle_explique_le_passage_du_silence() {
+        let bulle = |id: u32| Toast {
+            n: crate::notifications::build(id, "a", "", "s", "b", &[], &HashMap::new(), -1),
+            since: Instant::now(),
+        };
+        let deux = [bulle(1), bulle(2)];
+        assert_eq!(
+            card_height(&deux[1].n, true) - card_height(&deux[1].n, false),
+            explain_height()
+        );
+        assert_eq!(
+            explain_height(),
+            8.0 + explain_text_height() + BUTTON_TARGET
+        );
+        let explain = Explain {
+            key: "a".into(),
+            id: 2,
+        };
+        assert_eq!(
+            height_of(&deux, VISIBLE, std::slice::from_ref(&explain)),
+            (2.0 * CARD + explain_height() + GAP + 2.0 * SHADOW).ceil() as u32
+        );
+        // La bulle expliquée hors du nombre visible : la surface ne change pas.
+        assert_eq!(
+            height_of(&deux, 1, std::slice::from_ref(&explain)),
+            height_of(&deux, 1, &[])
+        );
+        assert_eq!(
+            height_of(&deux, 1, std::slice::from_ref(&explain)),
+            height(&deux[1..], &[])
         );
     }
 
@@ -1445,6 +1610,168 @@ mod tests {
         assert_eq!(app.toasts.list.len(), 1);
     }
 
+    /// Clé d'application propre à un test : le fichier du passage du Silence
+    /// est commun aux tests d'un même processus.
+    fn cle() -> String {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        format!(
+            "pat05-{}",
+            N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )
+    }
+
+    /// Le fichier du passage du Silence est commun aux tests d'un processus et
+    /// sa réécriture part d'une lecture : deux tests qui y écriraient à la fois
+    /// perdraient l'inscription de l'un d'eux. Tout test qui fait passer une
+    /// critique par `TMsg::Event(Event::Shown)` prend ce verrou, un seul à la
+    /// fois.
+    static VERROU_PASSAGE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Prend ce verrou pour tout le test.
+    fn verrou_passage() -> std::sync::MutexGuard<'static, ()> {
+        VERROU_PASSAGE.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn critique(id: u32, app: &str) -> Notification {
+        let mut h = HashMap::new();
+        h.insert("urgency".to_string(), zbus::zvariant::OwnedValue::from(2u8));
+        crate::notifications::build(id, app, "", "s", "", &[], &h, -1)
+    }
+
+    fn application() -> App {
+        App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-toast-tests/config.lua"),
+            true,
+        )
+        .0
+    }
+
+    /// HIG PAT-05 : la première notification critique d'une application
+    /// explique le passage du Silence dans sa bulle ; la seconde, non. La clé
+    /// est l'identifiant `desktop-entry` quand il en est un, sinon l'émetteur.
+    #[test]
+    fn la_premiere_critique_d_une_application_explique_le_passage_du_silence() {
+        let _verrou = verrou_passage();
+        let (mut app, autre) = (application(), cle());
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(1, &autre))));
+        let expliquee = Explain {
+            key: autre.clone(),
+            id: 1,
+        };
+        assert_eq!(app.toasts.explain, vec![expliquee.clone()]);
+        assert_eq!(
+            Passage::load().granted(&autre),
+            Some(true),
+            "accordé tant que la bulle n'est pas refusée"
+        );
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(2, &autre))));
+        assert_eq!(
+            app.toasts.explain,
+            vec![expliquee.clone()],
+            "la seconde critique de l'application n'est pas réexpliquée"
+        );
+        assert_eq!(app.toasts.list.len(), 2);
+        // Deux applications expliquées à la fois : chacune garde sa bulle.
+        let tierce = cle();
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(4, &tierce))));
+        let ids = |app: &App| app.toasts.explain.iter().map(|e| e.id).collect::<Vec<_>>();
+        assert_eq!(ids(&app), vec![1, 4]);
+        // Bulle fermée : le passage reste accordé, l'explication s'oublie.
+        let _ = app.toasts_update(TMsg::Event(Event::Closed(4)));
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(5, &tierce))));
+        assert_eq!(ids(&app), vec![1]);
+        assert_eq!(Passage::load().granted(&tierce), Some(true));
+        // Une application redémarrée (même émetteur, même identifiant) est
+        // reconnue ; un identifiant qui n'en est pas ne compte pas.
+        let mut h = HashMap::new();
+        h.insert("urgency".to_string(), zbus::zvariant::OwnedValue::from(2u8));
+        h.insert(
+            "desktop-entry".to_string(),
+            zbus::zvariant::OwnedValue::try_from(zbus::zvariant::Value::from(format!(
+                "{autre}.desktop"
+            )))
+            .unwrap(),
+        );
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(crate::notifications::build(
+            3,
+            "quiconque",
+            "",
+            "s",
+            "",
+            &[],
+            &h,
+            -1,
+        ))));
+        assert_eq!(app.toasts.explain, vec![expliquee]);
+        assert_eq!(passage_key(&recue(1, "un\nnom")), "un nom");
+    }
+
+    /// HIG PAT-05 : refusé depuis la bulle, le passage du Silence ne s'accorde
+    /// plus à l'application — sous Silence, ses critiques vont à l'historique
+    /// seules ; hors Silence, elles gardent leur bulle. Une autre application
+    /// passe, et est expliquée. Sans le service (aperçu, autre démon), le
+    /// refus retire l'explication sans rien garder.
+    #[test]
+    fn une_application_refusee_ne_passe_plus_le_silence() {
+        let _verrou = verrou_passage();
+        let (mut app, refusee, autre) = (application(), cle(), cle());
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(1, &refusee))));
+        assert!(app.toasts.refuse(1, true), "la bulle portait l'explication");
+        assert!(
+            app.toasts.explain.is_empty(),
+            "l'explication se retire avec le refus"
+        );
+        assert_eq!(Passage::load().granted(&refusee), Some(false));
+        assert!(
+            !app.toasts.refuse(1, true),
+            "plus rien à refuser sur cette bulle"
+        );
+        assert_eq!(
+            app.toasts.list.len(),
+            1,
+            "la notification déjà livrée reste"
+        );
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(2, &refusee))));
+        assert!(
+            app.toasts.explain.is_empty(),
+            "une application refusée n'est plus réexpliquée"
+        );
+        app.toasts.dnd = true;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(3, &refusee))));
+        assert_eq!(
+            app.toasts.list.len(),
+            2,
+            "sous Silence : plus de bulle pour elle"
+        );
+        assert_eq!(app.toasts.history.len(), 3, "l'historique garde");
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(4, &autre))));
+        assert_eq!(
+            app.toasts.list.len(),
+            3,
+            "une autre application passe le Silence"
+        );
+        assert_eq!(
+            app.toasts
+                .explain
+                .iter()
+                .map(|e| (e.key.as_str(), e.id))
+                .collect::<Vec<_>>(),
+            vec![(autre.as_str(), 4)],
+            "et c'est sa première fois : sa bulle explique"
+        );
+        app.toasts.dnd = false;
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(5, &refusee))));
+        assert_eq!(
+            app.toasts.list.len(),
+            4,
+            "hors Silence, la critique refusée garde sa bulle"
+        );
+        // Sans le service : l'explication se retire, la décision reste.
+        let _ = app.toasts.refuse(4, false);
+        assert!(app.toasts.explain.is_empty());
+        assert_eq!(Passage::load().granted(&autre), Some(true));
+    }
+
     /// Une notification « a » avec ou sans action `default`, avec ou sans
     /// application d'origine (`desktop-entry`).
     fn carte(actions: &[&str], entry: Option<&str>) -> Notification {
@@ -1571,6 +1898,7 @@ mod tests {
 
     #[test]
     fn seule_une_notification_critique_demande_son_repere() {
+        let _verrou = verrou_passage();
         let (mut app, _) = App::boot_with(
             std::path::PathBuf::from("/tmp/hyprdesk-toast-tests/config.lua"),
             true,

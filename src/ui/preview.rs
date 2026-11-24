@@ -963,6 +963,7 @@ impl Preview {
         // Les bulles n'appartiennent qu'à leur scène.
         if SCENES[self.scene] != "notifications" {
             self.app.toasts.list.clear();
+            self.app.toasts.explain.clear();
         }
         // Bulles de notifications : une ordinaire, une critique avec actions.
         if SCENES[self.scene] == "notifications" {
@@ -1024,6 +1025,12 @@ impl Preview {
                     since: std::time::Instant::now(),
                 },
             ];
+            // Première critique de son application : sa bulle explique le
+            // passage du Silence et permet de le refuser (HIG PAT-05).
+            self.app.toasts.explain = vec![super::toasts::Explain {
+                key: "Batterie".into(),
+                id: 2,
+            }];
         }
         // Fenêtre de détail d'un problème (mise à jour échouée, sans assistant).
         if SCENES[self.scene] == "probleme" {

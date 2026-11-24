@@ -199,6 +199,81 @@ impl Silence {
     }
 }
 
+/// Passage du Silence, application par application (HIG PAT-05) : ce que
+/// hyprdesk sait d'une application depuis sa première notification critique.
+/// Accordé, ses critiques traversent le Silence ; refusé, elles vont à
+/// l'historique seules, comme les autres. Une application absente n'a encore
+/// jamais envoyé de critique : son passage est accordé, et c'est la première
+/// fois — sa bulle l'explique et permet de le refuser.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Passage {
+    /// (clé d'application, passage accordé), dans l'ordre de leur inscription.
+    pub apps: Vec<(String, bool)>,
+}
+
+/// Fichier du passage du Silence : une ligne par application, `clé=1` (accordé)
+/// ou `clé=0` (refusé).
+pub fn passage_path() -> std::path::PathBuf {
+    crate::layout::state_dir().join("passage-silence")
+}
+
+impl Passage {
+    /// Relit le fichier gardé : rien, s'il manque ou s'il est illisible.
+    pub fn load() -> Self {
+        std::fs::read_to_string(passage_path())
+            .map(|t| Self::read(&t))
+            .unwrap_or_default()
+    }
+
+    /// Les lignes `clé=0|1` ; les autres sont ignorées.
+    fn read(text: &str) -> Self {
+        Self {
+            apps: text
+                .lines()
+                .filter_map(|l| {
+                    let (key, value) = l.rsplit_once('=')?;
+                    matches!(value.trim(), "0" | "1")
+                        .then(|| (key.trim().to_string(), value.trim() == "1"))
+                })
+                .collect(),
+        }
+    }
+
+    /// Décision d'une application ; `None` : elle n'a encore jamais envoyé de
+    /// notification critique.
+    pub fn granted(&self, key: &str) -> Option<bool> {
+        self.apps
+            .iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, granted)| *granted)
+    }
+
+    /// Inscrit ou remplace la décision d'une application.
+    pub fn set(mut self, key: &str, granted: bool) -> Self {
+        self.apps.retain(|(k, _)| k != key);
+        self.apps.push((key.to_string(), granted));
+        self
+    }
+
+    /// Garde l'état d'une session à l'autre.
+    pub fn save(&self) {
+        let p = passage_path();
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = std::fs::write(&p, self.render());
+    }
+
+    /// Le contenu du fichier gardé.
+    fn render(&self) -> String {
+        self.apps
+            .iter()
+            .map(|(k, g)| format!("{k}={}\n", u8::from(*g)))
+            .collect()
+    }
+}
+
 /// Texte de l'état : un champ par ligne, tabulations et sauts de ligne remplacés.
 pub fn render_state(dnd: bool, until: Option<i64>, history: &[Notification]) -> String {
     let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
@@ -827,6 +902,28 @@ mod tests {
         let out = render_state(true, Some(1_000_600), &[]);
         assert_eq!(out, "dnd=1\ncount=0\ndnd_until=1000600\n");
         assert_eq!(render_state(false, None, &[]), "dnd=0\ncount=0\n");
+    }
+
+    /// HIG PAT-05 : le passage du Silence se décide application par
+    /// application, à la première notification critique. Une application
+    /// absente n'a pas de décision ; un refus remplace un accord et survit à
+    /// une relecture.
+    #[test]
+    fn passage_du_silence_par_application() {
+        let mut passage = Passage::default();
+        assert_eq!(passage.granted("kitty"), None, "jamais vue : première fois");
+        assert_eq!(Passage::read(""), Passage::default());
+        passage = passage.set("kitty", true).set("org.example.Chat", true);
+        assert_eq!(passage.granted("kitty"), Some(true));
+        passage = passage.set("kitty", false);
+        assert_eq!(passage.render(), "org.example.Chat=1\nkitty=0\n");
+        let relu = Passage::read(&format!("{}\nbruit\ncassé=2\n\n", passage.render()));
+        assert_eq!(relu, passage, "une ligne par application, dans l'ordre");
+        assert_eq!(
+            relu.granted("cassé"),
+            None,
+            "une ligne illisible ne décide rien"
+        );
     }
 
     /// HIG SYS-17 : une action est destructrice par sa clé, préfixée

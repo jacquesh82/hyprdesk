@@ -193,6 +193,13 @@ désactivation. Il s'éteint seul à son échéance, et sa tuile dit jusqu'à qu
 (« Silence · jusqu'à 18:00 »). En ligne de commande :
 `hyprdesk notifications dnd on [1h|soir]`.
 
+La première notification critique d'une application explique, dans sa bulle,
+qu'elle traverse le Silence et reste jusqu'à sa fermeture ; son bouton
+« Bloquer pendant le Silence » refuse ce passage à cette application : sous
+Silence, ses critiques vont alors à l'historique seules. Fermer la bulle sans
+refuser garde le passage. `hyprdesk config reset all --yes` oublie ces
+décisions.
+
 **Orchestrés** : l'outil externe reste, hyprdesk le pilote. Cela vaut pour
 `hypridle` (configuration écrite et supervisée), `cliphist` + `wl-clipboard`
 (l'historique derrière `:clip`), `hyprsunset` (éclairage nocturne),

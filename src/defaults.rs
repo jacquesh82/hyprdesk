@@ -60,7 +60,8 @@ pub enum Held {
     WindowPlaces,
     /// Historique des lancements (suggestions du lanceur).
     Launches,
-    /// Notifications gardées et « Ne pas déranger » (remise globale).
+    /// Notifications gardées, « Ne pas déranger » et passage du Silence des
+    /// applications (remise globale).
     Notifications,
     /// Thèmes perso (`hyprdesk/themes`, remise globale).
     Themes,
@@ -80,7 +81,9 @@ impl Held {
             Held::DesktopModes => "mode du bureau de chaque workspace oublié",
             Held::WindowPlaces => "places des fenêtres oubliées",
             Held::Launches => "historique des lancements effacé",
-            Held::Notifications => "notifications gardées effacées, « Ne pas déranger » coupé",
+            Held::Notifications => {
+                "notifications gardées effacées, « Ne pas déranger » coupé, passage du Silence oublié"
+            }
             Held::Themes => "thèmes perso mis de côté",
             Held::UserWidgets => "widgets perso mis de côté",
         }
@@ -576,7 +579,10 @@ fn reset_held(
         }
         Held::WindowPlaces => remove(&crate::windows::places_path()),
         Held::Launches => remove(&crate::search::usage_path()),
-        Held::Notifications => remove(&crate::notifications::dnd_path()),
+        Held::Notifications => {
+            remove(&crate::notifications::dnd_path())?;
+            remove(&crate::notifications::passage_path())
+        }
         Held::Themes | Held::UserWidgets => {
             let name = if h == Held::Themes {
                 "themes"
