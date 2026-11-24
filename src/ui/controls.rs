@@ -149,6 +149,62 @@ impl App {
         } else {
             menu.clone()
         };
+        // Taille compacte : le symbole seul, qui garde son action ; titre et
+        // état en infobulle (HIG SYS-12).
+        if crate::design_options::flag(&self.cfg.general, "controls.compact") {
+            // L'erreur exacte, que la taille compacte ne montre pas sous la
+            // tuile, passe dans l'infobulle.
+            let tip = match error {
+                Some(e) => format!("{label} · {e}"),
+                None => format!("{label} · {}", detail.replace('\n', " · ")),
+            };
+            let pastille = button(orb)
+                .padding(4)
+                .on_press_maybe((!pending).then_some(action).flatten())
+                .style(move |_, status| iced::widget::button::Style {
+                    background: matches!(
+                        status,
+                        iced::widget::button::Status::Hovered
+                            | iced::widget::button::Status::Pressed
+                    )
+                    .then(|| {
+                        Color {
+                            a: 0.09 * alpha,
+                            ..fg
+                        }
+                        .into()
+                    }),
+                    text_color: fg,
+                    border: Border::default().rounded(design::SMALL_RADIUS),
+                    ..Default::default()
+                });
+            let bg = color(self.cfg.general.theme.bg, 1.0);
+            // Le menu de la commande, sans le bouton « › » : clic droit.
+            let mut pastille = iced::widget::mouse_area(pastille);
+            if can_toggle && let Some(menu) = menu {
+                pastille = pastille.on_right_press(menu);
+            }
+            let compact: Element<'_, Msg> = tooltip(
+                pastille,
+                text(tip)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts_tooltip(11.0))
+                    .color(fg),
+                iced::widget::tooltip::Position::Bottom,
+            )
+            .style(move |_| container::Style {
+                text_color: Some(Color { a: 1.0, ..fg }),
+                background: Some(bg.into()),
+                border: Border::default().rounded(design::SMALL_RADIUS),
+                ..Default::default()
+            })
+            .into();
+            return if self.convex_options().is_some() {
+                super::kinetic::feedback(compact, fg, self.bar_duration(130))
+            } else {
+                compact
+            };
+        }
         let body = row![
             orb,
             column![

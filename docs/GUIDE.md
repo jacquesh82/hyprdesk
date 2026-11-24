@@ -285,6 +285,10 @@ cards.
 from off to on; while a toggle is in progress, the control gently pulses
 until the answer arrives. With the “None” transition (Settings → Animations
 → Desktop), the change is immediate and the control shows “In progress…”.
+**Theme → Components → Quick settings → Compact controls** reduces Wi-Fi and
+Bluetooth to their symbol: hovering shows the title and state, a click
+toggles, and a right click (or the “›” button of the Continuity center) opens
+the menu.
 
 **The keyboard on every surface.** Four shortcuts put the keyboard on a
 shell surface without closing anything or changing mode: `CTRL + F2` goes to

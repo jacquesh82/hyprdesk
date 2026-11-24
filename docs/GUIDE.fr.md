@@ -287,7 +287,10 @@ suivante font défiler les cartes.
 à bascule passent de l'état éteint à l'état allumé en fondu ; tant que la
 bascule est en cours, la commande pulse doucement, jusqu'à la réponse. Avec
 la transition « Aucune » (Réglages → Animations → Bureau), le changement est
-immédiat et la commande affiche « En cours… ».
+immédiat et la commande affiche « En cours… ». **Thème → Composants →
+Réglages rapides → Commandes compactes** réduit Wi-Fi et Bluetooth à leur
+symbole : le survol dit le titre et l'état, le clic bascule, le clic droit
+(ou le bouton « › » du centre Continuité) ouvre le menu.
 
 **Le clavier à chaque surface.** Quatre raccourcis posent le clavier sur une
 surface du shell, sans en refermer ni changer de mode : `CTRL + F2` va à la

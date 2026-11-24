@@ -706,15 +706,31 @@ impl App {
             pal.muted
         };
         let fg = crate::ui::design::mix(rest, pal.ink, on).scale_alpha(beat);
-        let body = row![
-            self.dash_icon(icon, "•", 17.0, fg),
-            self.dash_label(label, 13.0, fg)
-                .font(self.ui_font(iced::font::Weight::Semibold))
-        ]
-        .align_y(Alignment::Center)
-        .spacing(7);
+        // Sans libellé (taille compacte, HIG SYS-12) : le symbole seul, dans
+        // une pilule carrée.
+        let compact = label.is_empty();
+        let body: Element<'_, Msg> = if compact {
+            container(self.dash_icon(icon, "•", 17.0, fg))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .into()
+        } else {
+            row![
+                self.dash_icon(icon, "•", 17.0, fg),
+                self.dash_label(label, 13.0, fg)
+                    .font(self.ui_font(iced::font::Weight::Semibold))
+            ]
+            .align_y(Alignment::Center)
+            .spacing(7)
+            .into()
+        };
         let button = button(body)
-            .padding([7, 11])
+            .padding(if compact { [0, 0] } else { [7, 11] })
+            .width(if compact {
+                Length::Fixed(39.0)
+            } else {
+                Length::Shrink
+            })
             .on_press_maybe(action.clone())
             .style(move |_, status| {
                 if on <= 0.0 && beat >= 1.0 {
@@ -791,9 +807,12 @@ impl App {
         let icon = crate::ui::controls::radio_symbol(type_id, rich.and_then(|r| r.toggled))
             .or_else(|| rich.and_then(|r| r.icon.as_deref()))
             .unwrap_or(fallback);
+        // Taille compacte : le symbole seul, le titre passe en infobulle
+        // (HIG SYS-12).
+        let compact = crate::design_options::flag(&self.cfg.general, "controls.compact");
         let pill = self.dashboard_pill_mix(
             pal,
-            (icon, &label),
+            (icon, if compact { "" } else { &label }),
             (on, pulse.unwrap_or(1.0)),
             (!pending).then_some(action),
         );
@@ -801,6 +820,11 @@ impl App {
             Some(Value::Error(e)) => Some(e.clone()),
             _ => rich.and_then(|r| r.tooltip.clone()),
         });
+        let detail = if compact {
+            Some(detail.map_or_else(|| label.clone(), |d| format!("{label} · {d}")))
+        } else {
+            detail
+        };
         let pill = match detail {
             Some(detail) => tooltip(
                 pill,

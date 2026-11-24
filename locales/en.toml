@@ -4941,3 +4941,5 @@
 "MPRIS Raise : {e}" = "MPRIS Raise: {e}"
 "Titre du morceau" = "Song title"
 "Artiste" = "Artist"
+"Commandes compactes" = "Compact controls"
+"on | off — commandes Wi-Fi et Bluetooth réduites à leur symbole, titre et état en infobulle" = "on | off — Wi-Fi and Bluetooth controls reduced to their symbol, title and state in a tooltip"

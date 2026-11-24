@@ -138,6 +138,15 @@ pub static OPTIONS: &[Opt] = &[
         "Largeur du panneau",
         "240..560 — largeur des réglages rapides (px)",
     ),
+    // Taille compacte des commandes : le symbole seul (HIG SYS-12).
+    opt(
+        "controls",
+        "compact",
+        Kind::Bool,
+        Def::Bool(false),
+        "Commandes compactes",
+        "on | off — commandes Wi-Fi et Bluetooth réduites à leur symbole, titre et état en infobulle",
+    ),
     // Notifications.
     opt(
         "notifications",
@@ -607,6 +616,15 @@ pub fn unset(s: &mut crate::settings::Settings, cfg: &Config, name: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Taille compacte des commandes : éteinte par défaut, se pose (HIG
+    /// SYS-12).
+    #[test]
+    fn commandes_compactes() {
+        let o = find("controls.compact").expect("option déclarée");
+        assert!(matches!(o.default, Def::Bool(false)));
+        assert!(!flag(&General::default(), "controls.compact"));
+    }
 
     #[test]
     fn registre_cohérent() {
