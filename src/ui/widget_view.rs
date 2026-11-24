@@ -13,6 +13,11 @@ use super::{App, Msg, chrono_locale, color, format_now};
 use crate::config::{Anchor, WidgetDef, WidgetKind};
 use crate::widgets;
 
+/// Une jauge est en alerte dès le seuil réglé (`monitoring.threshold`).
+fn gauge_alert(ratio: f32, threshold: f64) -> bool {
+    f64::from(ratio) >= threshold
+}
+
 impl App {
     /// Un widget du bureau : sa boîte, et où la poser (`desk_layout` la place
     /// sans recouvrir les autres).
@@ -75,7 +80,7 @@ impl App {
                 let size = if w.size > 0.0 { w.size } else { base };
                 match self.values.get(&w.id) {
                     Some(widgets::Value::Sys(lines)) => column(lines.iter().map(|l| {
-                        let mut c = column![row![
+                        let values = row![
                             text(l.label.clone())
                                 .font(self.font)
                                 .size(crate::ui::tokens::ts(size))
@@ -86,15 +91,20 @@ impl App {
                                 .size(crate::ui::tokens::ts_metric(size))
                                 .color(fg)
                                 .font(self.numeric_font(font.weight)),
-                        ]];
+                        ]
+                        .spacing(size * 0.3);
+                        let mut c = column![values];
                         // Monitoring (MLG-279) : jauges au choix, en alerte
                         // au-delà du seuil réglé.
+                        let mut alert = false;
                         if let Some(r) = l
                             .ratio
                             .filter(|_| crate::design_options::flag(g, "monitoring.bars"))
                         {
-                            let alert = f64::from(r)
-                                >= crate::design_options::num(g, "monitoring.threshold");
+                            alert = gauge_alert(
+                                r,
+                                crate::design_options::num(g, "monitoring.threshold"),
+                            );
                             let bar = if alert {
                                 Color {
                                     a: t,
@@ -114,6 +124,18 @@ impl App {
                                         border: Border::default().rounded(2),
                                     }),
                             );
+                        }
+                        // Ligne en alerte : un signe qui ne tient pas à la seule
+                        // couleur de la jauge, dans l'encre du texte (HIG SYS-16).
+                        // Sous la jauge : la largeur du widget ne bouge pas.
+                        if alert
+                            && let Some(sign) = crate::ui::icons::glyph(
+                                "dialog-warning",
+                                crate::ui::tokens::ts(size) * 0.9,
+                                fg,
+                            )
+                        {
+                            c = c.push(sign);
                         }
                         c.spacing(4).into()
                     }))

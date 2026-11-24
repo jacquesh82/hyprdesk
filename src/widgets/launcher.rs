@@ -5,7 +5,7 @@ use crate::config::Anchor;
 pub const DESCRIPTOR: Builtin = Builtin {
     id: "launcher",
     name: "Lanceur d’applications",
-    description: "Applications épinglées et ouvertes, recherche et vue des tâches.",
+    description: "Lancer les applications épinglées et ouvertes, rechercher et parcourir les tâches.",
     options: &[],
     interval: 60.0,
     anchor: Anchor::Bottom,

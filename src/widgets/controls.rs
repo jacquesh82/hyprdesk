@@ -5,7 +5,7 @@ use crate::config::Anchor;
 pub const DESCRIPTOR: Builtin = Builtin {
     id: "controls",
     name: "Centre de contrôle",
-    description: "Wi-Fi, Bluetooth, son, luminosité et affichage du bureau.",
+    description: "Piloter le Wi-Fi, le Bluetooth, le son, la luminosité et l'affichage du bureau.",
     options: &[],
     interval: 2.0,
     anchor: Anchor::TopRight,

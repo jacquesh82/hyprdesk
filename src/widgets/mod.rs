@@ -90,7 +90,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "clock",
         name: "Horloge",
-        description: "Heure (ou date) au format strftime.",
+        description: "Afficher l'heure ou la date, au format strftime.",
         options: &["format"],
         interval: 1.0,
         anchor: Anchor::TopRight,
@@ -99,7 +99,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "calendar",
         name: "Calendrier",
-        description: "Le mois en cours, aujourd'hui en évidence.",
+        description: "Parcourir le mois en cours, aujourd'hui en évidence.",
         options: &[],
         interval: 60.0,
         anchor: Anchor::Right,
@@ -108,7 +108,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "system",
         name: "Système",
-        description: "CPU, mémoire, disques, charge, durée d'allumage.",
+        description: "Surveiller le processeur, la mémoire, les disques, la charge et la durée d'allumage.",
         options: &["show"],
         interval: 2.0,
         anchor: Anchor::BottomRight,
@@ -117,7 +117,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "media",
         name: "Lecteur média",
-        description: "Titre en cours et commandes (MPRIS).",
+        description: "Afficher le titre en cours et commander le lecteur (MPRIS).",
         options: &["player"],
         interval: 1.0,
         anchor: Anchor::BottomLeft,
@@ -126,7 +126,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "command",
         name: "Commande",
-        description: "Sortie d'une commande shell (option exec, dans hyprdesk.lua).",
+        description: "Afficher la sortie d'une commande shell (option exec, dans hyprdesk.lua).",
         options: &["exec", "timeout"],
         interval: 60.0,
         anchor: Anchor::TopLeft,
@@ -135,7 +135,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "lua",
         name: "Fonction Lua",
-        description: "Texte rendu par une fonction Lua (option render, dans hyprdesk.lua).",
+        description: "Afficher un texte rendu par une fonction Lua (option render, dans hyprdesk.lua).",
         options: &["render", "on_click", "on_scroll", "menu", "on_toggle"],
         interval: 5.0,
         anchor: Anchor::Left,

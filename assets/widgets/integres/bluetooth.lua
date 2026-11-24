@@ -31,7 +31,7 @@ end
 
 return {
     name        = hd.t("Bluetooth"),
-    description = hd.t("Activation et appareils (connexion, déconnexion)."),
+    description = hd.t("Activer le Bluetooth et gérer ses appareils (connexion, déconnexion)."),
     interval    = 10,
     anchor      = "top-right",
     options     = { texte = false },

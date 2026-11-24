@@ -240,6 +240,10 @@ pub fn get(name: &str) -> Option<svg::Handle> {
             r#"<path d="m7 7 10 10-5 4V3l5 4L7 17" stroke-opacity="0.5"/><path d="M4 4l16 16"/>"#
         }
         "system-shutdown" => r#"<path d="M12 2v10M6 5a9 9 0 1 0 12 0"/>"#,
+        // Alerte : un triangle et son point d'exclamation (HIG SYS-16).
+        "dialog-warning" => {
+            r#"<path d="M10.4 4.4 2.9 17.6a1.9 1.9 0 0 0 1.6 2.9h15a1.9 1.9 0 0 0 1.6-2.9L13.6 4.4a1.9 1.9 0 0 0-3.2 0Z"/><path d="M12 9.5v4.5M12 17.3h.01"/>"#
+        }
         // Éclairage nocturne : un croissant de lune ; barré quand il est coupé.
         "night-light" => r#"<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>"#,
         "night-light-disabled" => {
@@ -459,6 +463,7 @@ mod tests {
             "media-playback-start",
             "media-playback-pause",
             "battery-level-40-charging",
+            "dialog-warning",
         ] {
             let g: Option<iced::Element<'_, ()>> = glyph(name, 16.0, iced::Color::BLACK);
             assert!(g.is_some(), "{name}");

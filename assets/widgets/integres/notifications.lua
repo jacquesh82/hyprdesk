@@ -53,7 +53,7 @@ end
 
 return {
     name        = hd.t("Notifications"),
-    description = hd.t("Ne pas déranger et dernières notifications (wayle, sinon hyprdesk)."),
+    description = hd.t("Régler le mode Ne pas déranger et relire les dernières notifications (wayle, sinon hyprdesk)."),
     interval    = 5,
     anchor      = "top-right",
     render = function()
