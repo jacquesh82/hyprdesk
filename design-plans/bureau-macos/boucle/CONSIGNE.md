@@ -1,11 +1,11 @@
 # Boucle HIG — consigne d'une itération
 
-> Version 3 : trois couloirs en parallèle. À lire en entier avant d'agir, puis à appliquer à la lettre. Une itération = un tour de boucle d'un couloir.
+> Version 3 : quatre couloirs en parallèle. À lire en entier avant d'agir, puis à appliquer à la lettre. Une itération = un tour de boucle d'un couloir.
 > Le propriétaire n'est pas là pour répondre : trancher avec le plan, ou marquer « bloqué ». Ne jamais poser de question.
 
 ## 1. Ton couloir, ton worktree — et où l'on ne touche pas
 
-- **Ton couloir** (A, B ou C) est donné par la consigne qui te lance. Chaque couloir a son worktree et sa branche : trouve la ligne de `git worktree list`, exécuté depuis le dépôt principal, dont la branche est `hig/plan-<couloir>`. Tout ton travail s'y passe : lecture, modification, compilation, commits.
+- **Ton couloir** (A, B, C ou D) est donné par la consigne qui te lance. Chaque couloir a son worktree et sa branche : trouve la ligne de `git worktree list`, exécuté depuis le dépôt principal, dont la branche est `hig/plan-<couloir>`. Tout ton travail s'y passe : lecture, modification, compilation, commits.
 - **Chaque commande shell repart du dépôt principal.** Commencer chaque commande par `cd <chemin de ton worktree> &&`, et éditer les fichiers par leur chemin absolu dans ton worktree.
 - **La branche d'intégration** est `hig/plan-d-action`, extraite dans le worktree `~/.cache/hyprdesk-wt-hig`. Tu n'y écris jamais, tu n'y lances jamais de commande qui modifie, hormis le `reset --hard` de la section 7.
 - **Interdits absolus** :
@@ -41,12 +41,13 @@ Marge de manœuvre accordée : « Modifie, déplace les widgets ; rien de ce qui
 | A | Notifications, shell, matière, accessibilité | `SYS`, `PAT`, `STA`, `FON`, `ACC` ; plus `LAY-02`, `LAY-03`, `LAY-04`, `ICO-03`, `ICO-07`, `TYP-19` |
 | B | Réglages, saisie, écriture, présentation | `SEL`, `NAV`, `TYP`, `LAY`, `PRES` ; plus `PAT-09`, `PAT-13`, `PAT-16`, `ACC-10` et la plupart des `DAT` |
 | C | Menus, icônes, entrées, bureau | `MENU`, `ENT`, `ICO` ; plus `PAT-12`, `PAT-14`, `TYP-17` et les `DAT` du glisser-déposer |
+| D | Typographie, écriture, présentation | `TYP` et `PRES`, sauf `TYP-17` (C) et `TYP-19` (A) |
 
-La règle complète est dans `.zcode/hig-boucle/prochain.py` (`--regles` l'affiche). Ce script dit aussi ce qui reste à faire : `python3 -I .zcode/hig-boucle/prochain.py <ton couloir> 6`, lancé depuis le dépôt principal. Les trois couloirs partagent le même registre ; ne lis jamais ce registre en entier.
+La règle complète est dans `.zcode/hig-boucle/prochain.py` (`--regles` l'affiche). Ce script dit aussi ce qui reste à faire : `python3 -I .zcode/hig-boucle/prochain.py <ton couloir> 6`, lancé depuis le dépôt principal. Les quatre couloirs partagent le même registre ; ne lis jamais ce registre en entier.
 
 ## 4. Début d'itération, dans cet ordre
 
-1. **Noter l'heure de début** (`date +%s`). L'itération dure 90 minutes au plus.
+1. **Noter l'heure de début** (`date +%s`). L'itération dure 2 heures au plus ; à 1 h 45, ne plus commencer d'écart.
 2. **Verrous**, dans `.zcode/hig-boucle/` du dépôt principal :
    - `verrou` : c'est celui de l'ancienne boucle à un seul couloir. S'il existe et a moins de trois heures, terminer tout de suite.
    - `verrou-<couloir>` : s'il existe et a moins de trois heures, une itération de ton couloir est en cours : terminer tout de suite. Sinon l'écrire (`date --iso-8601=seconds`). Il ne sera retiré qu'en fin d'itération.
@@ -67,9 +68,9 @@ La règle complète est dans `.zcode/hig-boucle/prochain.py` (`--regles` l'affic
 - Autour de cet écart, prendre dans ton couloir, dans la même phase et, autant que possible, dans la même surface : mêmes fichiers, même composant.
 - **Un lot** : un à trois écarts d'effort S, ou un écart M, ou une à deux étapes d'un écart L (section 6.4).
 - **Recouvrements** : plusieurs écarts peuvent décrire le même changement (par exemple `SEL-01` et `DAT-09`). Un seul changement ; toutes leurs lignes passent `fait` avec le même hash et un renvoi mutuel. Si l'un d'eux appartient à un autre couloir, c'est le couloir de l'écart traité qui corrige et écrit `sans objet : couvert par <ID>` sur la ligne de l'autre.
-- À 75 minutes, ne plus commencer d'écart ni d'étape.
-- **S'il reste 20 à 40 minutes et que le prochain écart est M ou L** : ne pas rester oisif. Écrire son plan d'implémentation (section 6.4), y compris la section « Étapes » pour un écart L, et le publier : c'est une étape à part entière. L'inscrire en remarque du registre (« plan écrit ») sans changer le statut, sauf pour un écart L, qui passe `en cours`.
-- **Économiser les tours et les sorties** : le budget de génération est la ressource rare et trois couloirs le partagent. Regrouper les commandes. Ne jamais afficher une sortie longue : la rediriger vers un fichier et n'en montrer que la queue ou les lignes d'erreur. Lire la seule ligne d'un écart (`grep -n '^| SYS-04 |' design-plans/bureau-macos/*.md`), jamais un document entier.
+- À 1 h 45, ne plus commencer d'écart ni d'étape.
+- **S'il reste 20 à 45 minutes avant 1 h 45 et que le prochain écart est M ou L** : ne pas rester oisif. Écrire son plan d'implémentation (section 6.4), y compris la section « Étapes » pour un écart L, et le publier : c'est une étape à part entière. L'inscrire en remarque du registre (« plan écrit ») sans changer le statut, sauf pour un écart L, qui passe `en cours`.
+- **Économiser les tours et les sorties** : le budget de génération est la ressource rare et quatre couloirs le partagent. Regrouper les commandes. Ne jamais afficher une sortie longue : la rediriger vers un fichier et n'en montrer que la queue ou les lignes d'erreur. Lire la seule ligne d'un écart (`grep -n '^| SYS-04 |' design-plans/bureau-macos/*.md`), jamais un document entier.
 
 ## 6. Traitement d'un écart
 
@@ -105,9 +106,9 @@ La règle complète est dans `.zcode/hig-boucle/prochain.py` (`--regles` l'affic
    - Corriger le plan, puis l'exécuter. À chaque itération, mettre à jour « Étapes ». Quand la dernière est faite, l'écart passe `fait`.
 5. **Réaliser** le changement minimal, borné à l'écart. Préserver ce qui est valide : options Lua, commandes en ligne, autres styles de barre, réglages existants.
 6. **Documenter** : mettre à jour la documentation du projet quand le comportement ou le design visible change (`docs/GUIDE.fr.md` et `docs/GUIDE.md`, `docs/PLUGINS.md`, `docs/THEME-ENGINE.md`, `DESIGN.md`, `locales/en.toml`).
-7. **Vérifier**, en deux étapes, toujours avec `CARGO_BUILD_JOBS=6` devant la commande (trois couloirs compilent en même temps sur la même machine) :
-   - **Contrôle rapide, avant la porte** : `CARGO_BUILD_JOBS=6 cargo fmt --all && CARGO_BUILD_JOBS=6 cargo clippy --locked --workspace --all-targets -- -D warnings`. Une erreur corrigée à ce stade, avertissement `clippy` compris, ne compte pas comme une tentative.
-   - **Porte complète** : `CARGO_BUILD_JOBS=6 bash scripts/verify.sh > /tmp/hig-verify-<couloir>.log 2>&1; echo "exit=$?"`, puis `tail -n 20` du journal en cas d'échec. Le code de sortie doit être 0. Pour un écart visuel, `scripts/verify.sh --visual /tmp/hig-visual-<couloir>` de la même façon, puis regarder les captures des scènes concernées. Les scènes d'aperçu n'exécutent pas les tâches : une icône à résoudre l'est immédiatement, selon l'idiome déjà présent dans `src/ui/preview.rs`.
+7. **Vérifier**, en deux étapes, toujours avec `CARGO_BUILD_JOBS=5` devant la commande (quatre couloirs compilent en même temps sur la même machine) :
+   - **Contrôle rapide, avant la porte** : `CARGO_BUILD_JOBS=5 cargo fmt --all && CARGO_BUILD_JOBS=5 cargo clippy --locked --workspace --all-targets -- -D warnings`. Une erreur corrigée à ce stade, avertissement `clippy` compris, ne compte pas comme une tentative.
+   - **Porte complète** : `CARGO_BUILD_JOBS=5 bash scripts/verify.sh > /tmp/hig-verify-<couloir>.log 2>&1; echo "exit=$?"`, puis `tail -n 20` du journal en cas d'échec. Le code de sortie doit être 0. Pour un écart visuel, `scripts/verify.sh --visual /tmp/hig-visual-<couloir>` de la même façon, puis regarder les captures des scènes concernées. Les scènes d'aperçu n'exécutent pas les tâches : une icône à résoudre l'est immédiatement, selon l'idiome déjà présent dans `src/ui/preview.rs`.
    - Retenir l'arbre vérifié : `git rev-parse HEAD^{tree}`.
 8. **Relire**. Obligatoire pour un écart M ou L, et dès qu'un propriétaire partagé est modifié (`tokens.rs`, `design.rs`, `menu.rs`, `bar/popover.rs`, `panel.rs`, `src/notifications.rs`). Si l'outil `Agent` est disponible, un agent indépendant relit le diff (`git diff HEAD~1`), en lecture seule. Sinon, le relire soi-même à froid, en écrivant explicitement les réponses. Trois questions : le diff fait-il exactement ce que l'écart demande ? respecte-t-il `DESIGN.md` et les conventions du dépôt ? introduit-il une régression, manque-t-il un test ? Corriger ce qui est réel, puis repasser la porte.
 9. **Échec** : deux tentatives au plus, une par itération. Une porte qui échoue sur une erreur mince (un test, une traduction, une mise en forme) se corrige et se repasse dans la même itération : jusqu'à trois passages de la porte par lot, sans compter pour une tentative. Si la porte échoue encore après le troisième passage : `git reset --hard HEAD`, statut `à reprendre`, « échec 1 : la cause » en remarque. À la tentative suivante, même chose ; si la porte échoue encore, `bloqué` (« échec 2 »).

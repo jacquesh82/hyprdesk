@@ -2,8 +2,8 @@
 """Next findings of a lane, read from the loop ledger.
 
 Usage (from the main checkout):
-    python3 -I .zcode/hig-boucle/prochain.py <A|B|C> [nombre]   next findings of the lane
-    python3 -I .zcode/hig-boucle/prochain.py <A|B|C> --tous      every pending finding of the lane
+    python3 -I .zcode/hig-boucle/prochain.py <A|B|C|D> [nombre]   next findings of the lane
+    python3 -I .zcode/hig-boucle/prochain.py <A|B|C|D> --tous      every pending finding of the lane
     python3 -I .zcode/hig-boucle/prochain.py --bilan             counts for every lane
     python3 -I .zcode/hig-boucle/prochain.py --regles            the lane rules
 
@@ -17,7 +17,7 @@ import sys
 
 LEDGER = "~/.cache/hyprdesk-wt-hig-{lane}/design-plans/bureau-macos/boucle/avancement.md"
 PREFIX = {"SYS": "A", "PAT": "A", "STA": "A", "FON": "A", "ACC": "A",
-          "SEL": "B", "NAV": "B", "TYP": "B", "LAY": "B", "PRES": "B",
+          "SEL": "B", "NAV": "B", "LAY": "B", "TYP": "D", "PRES": "D",
           "MENU": "C", "ENT": "C", "ICO": "C", "DAT": "C"}
 EXTRA_A = {"LAY-02", "LAY-03", "LAY-04", "ICO-03", "ICO-07", "TYP-19"}
 EXTRA_B = {"PAT-09", "PAT-13", "PAT-16", "ACC-10",
@@ -74,23 +74,24 @@ def main():
     args = sys.argv[1:]
     if "--regles" in args:
         print("Couloir A (notifications, shell, matière, accessibilité) : " + ", ".join(sorted(p for p in PREFIX if PREFIX[p] == "A")) + " ; plus " + ", ".join(sorted(EXTRA_A)))
-        print("Couloir B (réglages, saisie, écriture, présentation) : " + ", ".join(sorted(p for p in PREFIX if PREFIX[p] == "B")) + " ; plus " + ", ".join(sorted(EXTRA_B)))
+        print("Couloir B (réglages et saisie) : " + ", ".join(sorted(p for p in PREFIX if PREFIX[p] == "B")) + " ; plus " + ", ".join(sorted(EXTRA_B)))
+        print("Couloir D (typographie, écriture, présentation) : " + ", ".join(sorted(p for p in PREFIX if PREFIX[p] == "D")))
         print("Couloir C (menus, icônes, entrées, bureau) : " + ", ".join(sorted(p for p in PREFIX if PREFIX[p] == "C")) + " ; plus " + ", ".join(sorted(EXTRA_C)))
         return
     if "--bilan" in args:
         every = rows("bilan")
-        for lane in "ABC":
+        for lane in "ABCD":
             count = collections.Counter(r[5] for r in every if r[1] == lane)
             print(f"couloir {lane} : " + ", ".join(f"{k} {v}" for k, v in sorted(count.items())))
         left = [r for r in every if r[5] in PENDING]
         print("reste à traiter, tous couloirs :", len(left), "| en cours :", sum(1 for r in left if r[5] == "en cours"))
-        for lane in "ABC":  # work published by nobody: still on the lane branch only
+        for lane in "ABCD":  # work published by nobody: still on the lane branch only
             ahead = subprocess.run(["git", "rev-list", "--count", "refs/heads/hig/plan-d-action..refs/heads/hig/plan-" + lane],
                                    capture_output=True, text=True).stdout.strip()
             if ahead not in ("", "0"):
                 print(f"ATTENTION : le couloir {lane} a {ahead} commit(s) sur sa branche qui ne sont pas sur l'intégration")
         return
-    if not args or args[0] not in ("A", "B", "C"):
+    if not args or args[0] not in ("A", "B", "C", "D"):
         print(__doc__)
         sys.exit(2)
     lane = args[0]
