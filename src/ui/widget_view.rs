@@ -10,7 +10,7 @@ use iced::widget::{Space, button, column, container, mouse_area, progress_bar, r
 use iced::{Alignment, Background, Border, Color, Element, Length, mouse};
 
 use super::{App, Msg, chrono_locale, color, format_now};
-use crate::config::{Anchor, WidgetDef, WidgetKind};
+use crate::config::{Anchor, WidgetDef, WidgetFamily, WidgetKind};
 use crate::widgets;
 
 /// Une jauge est en alerte dès le seuil réglé (`monitoring.threshold`).
@@ -60,34 +60,82 @@ impl App {
             .into(),
             WidgetKind::Clock { format } => {
                 let size = if w.size > 0.0 { w.size } else { 56.0 };
+                let layers = clock_layers(
+                    w.family,
+                    format,
+                    crate::design_options::flag(g, "clock.date"),
+                );
                 let time = text(format_now(format))
                     .font(self.numeric_font(iced::font::Weight::Light))
                     .size(crate::ui::tokens::ts_metric(size))
                     .color(fg);
+                let small = (size * 0.22).clamp(13.0, 20.0);
+                let mut c = column![time].spacing(2).align_x(Alignment::Center);
                 // Date sous l'heure, au choix (MLG-279).
-                if format == "%H:%M" && crate::design_options::flag(g, "clock.date") {
-                    column![
-                        time,
+                if layers.date {
+                    c = c.push(
                         text(format_now("%A %-d %B"))
                             .font(font)
-                            .size((size * 0.22).clamp(13.0, 20.0))
-                            .color(dim)
+                            .size(small)
+                            .color(dim),
+                    );
+                }
+                // Grand : le jour de l'année et la semaine (HIG SYS-15).
+                if layers.day_week {
+                    c = c.push(
+                        text(crate::tr!(
+                            "Jour {jour} · semaine {semaine}",
+                            jour = format_now("%-j"),
+                            semaine = format_now("%-V")
+                        ))
+                        .font(font)
+                        .size(small)
+                        .color(dim),
+                    );
+                }
+                // Très grand : la grille du mois, celle du calendrier.
+                if layers.month {
+                    c = c
+                        .push(Space::new().height(8))
+                        .push(self.view_calendar(base, fg, dim, accent, None, None));
+                }
+                c.into()
+            }
+            WidgetKind::Calendar => {
+                let size = if w.size > 0.0 { w.size } else { base };
+                match calendar_months(w.family) {
+                    // Petit : le jour et sa date, sans la grille (HIG SYS-15).
+                    0 => column![
+                        text(format_now("%A")).font(font).size(size).color(dim),
+                        text(format_now("%-d"))
+                            .font(self.numeric_font(iced::font::Weight::Light))
+                            .size(crate::ui::tokens::ts_metric(size * 3.0))
+                            .color(fg),
+                        text(format_now("%B")).font(font).size(size).color(dim),
                     ]
                     .spacing(2)
                     .align_x(Alignment::Center)
-                    .into()
-                } else {
-                    time.into()
+                    .into(),
+                    1 => self.view_calendar(size, fg, dim, accent, None, None),
+                    // Grand, très grand : les mois suivants à côté, sans
+                    // agrandir le premier.
+                    n => row((0..n as i32).map(|m| {
+                        if m == 0 {
+                            self.view_calendar(size, fg, dim, accent, None, None)
+                        } else {
+                            let first = month_start(Local::now().date_naive(), m);
+                            column![
+                                self.month_title(first, size, fg),
+                                self.view_calendar(size, fg, dim, accent, None, Some(m)),
+                            ]
+                            .spacing(6)
+                            .into()
+                        }
+                    }))
+                    .spacing(24)
+                    .into(),
                 }
             }
-            WidgetKind::Calendar => self.view_calendar(
-                if w.size > 0.0 { w.size } else { base },
-                fg,
-                dim,
-                accent,
-                None,
-                None,
-            ),
             WidgetKind::System { .. } => {
                 let size = if w.size > 0.0 { w.size } else { base };
                 match self.values.get(&w.id) {
@@ -430,16 +478,9 @@ impl App {
         let this_month = months == 0;
         let offset = first.weekday().num_days_from_monday();
         let w = width.map(|width| width / 7.0).unwrap_or(size * 2.2);
-        let title = format!("{}", first.format_localized("%B %Y", chrono_locale()));
         let mut grid = column![].spacing(6);
         if with_title {
-            grid = grid.push(
-                text(title)
-                    .font(self.font)
-                    .size(size * 1.1)
-                    .color(fg)
-                    .font(self.title_font()),
-            );
+            grid = grid.push(self.month_title(first, size, fg));
         }
         // Initiales des jours, lundi d'abord, dans la langue de l'utilisateur.
         let monday = first - chrono::Duration::days(offset as i64);
@@ -496,6 +537,50 @@ impl App {
             grid = grid.push(r);
         }
         grid.into()
+    }
+
+    /// Titre d'un mois du calendrier (« novembre 2026 »).
+    fn month_title(&self, first: chrono::NaiveDate, size: f32, fg: Color) -> Element<'_, Msg> {
+        text(format!(
+            "{}",
+            first.format_localized("%B %Y", chrono_locale())
+        ))
+        .size(size * 1.1)
+        .color(fg)
+        .font(self.title_font())
+        .into()
+    }
+}
+
+/// Ce que montre l'horloge selon sa taille (HIG SYS-15) : `Medium` est
+/// l'affichage historique, chaque taille au-dessus ajoute une couche.
+#[derive(Debug, PartialEq, Eq)]
+struct ClockLayers {
+    /// La date sous l'heure (format `%H:%M` et option `clock.date`).
+    date: bool,
+    /// Le jour de l'année et la semaine.
+    day_week: bool,
+    /// La grille du mois.
+    month: bool,
+}
+
+fn clock_layers(family: WidgetFamily, format: &str, date_option: bool) -> ClockLayers {
+    use WidgetFamily as F;
+    ClockLayers {
+        date: family != F::Small && format == "%H:%M" && date_option,
+        day_week: matches!(family, F::Large | F::XLarge),
+        month: family == F::XLarge,
+    }
+}
+
+/// Mois que montre le calendrier selon sa taille (HIG SYS-15) : aucun en
+/// petit (le jour seul), puis un, deux ou trois à partir du mois en cours.
+fn calendar_months(family: WidgetFamily) -> u32 {
+    match family {
+        WidgetFamily::Small => 0,
+        WidgetFamily::Medium => 1,
+        WidgetFamily::Large => 2,
+        WidgetFamily::XLarge => 3,
     }
 }
 
@@ -557,5 +642,42 @@ mod calendar_tests {
         // Novembre 2026 commence un dimanche : 6 lignes.
         assert_eq!(month_weeks(d(2026, 11, 1)), 6);
         assert_eq!(month_weeks(d(2027, 2, 1)), 4);
+    }
+
+    /// Taille moyenne : l'affichage d'avant les tailles (HIG SYS-15) ; les
+    /// autres ajoutent ou retirent une couche sans toucher à l'heure.
+    #[test]
+    fn couches_par_taille() {
+        use WidgetFamily as F;
+        let l = |date, day_week, month| ClockLayers {
+            date,
+            day_week,
+            month,
+        };
+        assert_eq!(
+            clock_layers(F::Medium, "%H:%M", true),
+            l(true, false, false)
+        );
+        assert_eq!(
+            clock_layers(F::Medium, "%H:%M", false),
+            l(false, false, false)
+        );
+        assert_eq!(
+            clock_layers(F::Medium, "%H:%M:%S", true),
+            l(false, false, false)
+        );
+        assert_eq!(
+            clock_layers(F::Small, "%H:%M", true),
+            l(false, false, false)
+        );
+        assert_eq!(clock_layers(F::Large, "%H:%M", true), l(true, true, false));
+        assert_eq!(
+            clock_layers(F::XLarge, "%H:%M", false),
+            l(false, true, true)
+        );
+        assert_eq!(calendar_months(F::Medium), 1);
+        assert_eq!(calendar_months(F::Small), 0);
+        assert_eq!(calendar_months(F::Large), 2);
+        assert_eq!(calendar_months(F::XLarge), 3);
     }
 }

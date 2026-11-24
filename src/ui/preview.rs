@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 178] = [
+const SCENES: [&str; 180] = [
     "desktop",
     "typography",
     "icons",
@@ -211,6 +211,10 @@ const SCENES: [&str; 178] = [
     // Échelle des curseurs des Réglages (HIG SEL-09) : Thème → Composants,
     // bornes sous chaque curseur, graduations sous ceux de dix pas au plus.
     "reglages-echelle",
+    // Tailles des widgets du bureau (HIG SYS-15) : horloge très grande et
+    // calendrier grand, puis les deux en petit.
+    "widgets-tailles",
+    "widgets-petits",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -281,6 +285,40 @@ pub fn run(output: Option<PathBuf>) -> iced::Result {
         Subscription::batch([frames, capture])
     })
     .run()
+}
+
+/// Relevé simulé du widget système de l'aperçu, à sa taille (HIG SYS-15) :
+/// les lignes que le démon relèverait, avec des valeurs fixes.
+fn preview_system(family: config::WidgetFamily) -> widgets::Value {
+    use config::SysItem;
+    let items = widgets::system_items(&[SysItem::Cpu, SysItem::Ram], family);
+    widgets::Value::Sys(
+        items
+            .iter()
+            .map(|item| {
+                let (label, value, ratio) = match item {
+                    SysItem::Cpu => (crate::i18n::tr("CPU").to_string(), "12 %", Some(0.12)),
+                    SysItem::Ram => (
+                        crate::i18n::tr("RAM").to_string(),
+                        "4,2 / 16 Gio",
+                        Some(0.26),
+                    ),
+                    SysItem::Load => (
+                        crate::i18n::tr("Charge").to_string(),
+                        "0.42 0.38 0.31",
+                        None,
+                    ),
+                    SysItem::Uptime => (crate::i18n::tr("Allumé").to_string(), "3 h 12", None),
+                    SysItem::Disk(mount) => (mount.clone(), "182 / 476 Gio", Some(0.38)),
+                };
+                widgets::SysLine {
+                    label,
+                    value: value.into(),
+                    ratio,
+                }
+            })
+            .collect(),
+    )
 }
 
 fn widget(id: &str, kind: WidgetKind, anchor: Anchor) -> WidgetDef {
@@ -513,21 +551,8 @@ impl Preview {
             let icon = app.builtin_icon(name);
             app.named_icons.insert(name.to_string(), icon);
         }
-        app.values.insert(
-            "system".into(),
-            widgets::Value::Sys(vec![
-                widgets::SysLine {
-                    label: crate::i18n::tr("CPU").into(),
-                    value: "12 %".into(),
-                    ratio: Some(0.12),
-                },
-                widgets::SysLine {
-                    label: crate::i18n::tr("RAM").into(),
-                    value: "4,2 / 16 Gio".into(),
-                    ratio: Some(0.26),
-                },
-            ]),
-        );
+        app.values
+            .insert("system".into(), preview_system(Default::default()));
         app.workspaces = (1..=4)
             .map(|id| hypr::Workspace {
                 id,
@@ -684,6 +709,21 @@ impl Preview {
         cfg.widgets
             .retain(|w| !w.id.starts_with("preview-module-") && w.id != "barlauncher");
         cfg.general.clipboard_history = SCENES[self.scene] == "bar-controls";
+        // Tailles des widgets (HIG SYS-15) : moyenne partout ailleurs.
+        for w in cfg.widgets.iter_mut().filter(|w| !w.in_bar) {
+            use crate::config::WidgetFamily as F;
+            w.family = match (SCENES[self.scene], w.id.as_str()) {
+                ("widgets-tailles", "clock" | "system") => F::XLarge,
+                ("widgets-tailles", "calendar") => F::Large,
+                ("widgets-petits", "clock" | "calendar" | "system") => F::Small,
+                _ => F::Medium,
+            };
+            if w.id == "system" {
+                self.app
+                    .values
+                    .insert(w.id.clone(), preview_system(w.family));
+            }
+        }
         if let Some(w) = cfg.widgets.iter_mut().find(|w| w.id == "barclock") {
             w.kind = WidgetKind::Clock {
                 format: "%a %-d %b  ·  %H:%M".into(),

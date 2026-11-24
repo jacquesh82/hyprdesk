@@ -4963,3 +4963,4 @@
 "Moyen" = "Medium"
 "Grand" = "Large"
 "Très grand" = "Extra large"
+"Jour {jour} · semaine {semaine}" = "Day {jour} · week {semaine}"

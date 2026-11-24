@@ -3504,7 +3504,8 @@ impl App {
                     | WidgetKind::Controls
                     | WidgetKind::Launcher => None,
                     WidgetKind::System { show } => {
-                        let show = show.clone();
+                        // Lignes selon la taille du widget (HIG SYS-15).
+                        let show = widgets::system_items(show, w.family);
                         Some(Task::perform(
                             async move {
                                 tokio::task::spawn_blocking(move || widgets::sample_system(&show))
