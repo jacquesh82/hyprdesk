@@ -50,7 +50,7 @@ Un fichier d'état de plus, sur l'idiome existant : aucune primitive d'interface
 
 ## Étapes
 
-1. **État** : `Delivery`, `Authorization`, `Authorizations` et leur fichier, oubliés par la remise à zéro ; tests. Aucun comportement ne change.
+1. **État** — faite (`ac7c95f`, A9) : `Delivery`, `Authorization`, `Authorizations` et leur fichier, oubliés par la remise à zéro ; tests (`autorisations_par_application`). Aucun comportement ne change. Relevé : `get(clé)` remonte la décision entière et `granted(clé)` en dérive — pas de `delivery` séparé ; le libellé de la remise à zéro (`Held::Notifications`) dit les autorisations, traduction suivie.
 2. **Demande et refus** (PAT-02) : la bulle de demande, ses deux réponses, le refus sans bulle ni historique, la demande qui prime sur l'explication du Silence ; tests ; guides.
 3. **Style de remise** (SYS-03) : « Alertes » garde la bulle, « Aucune » passe par l'historique seul ; tests.
 4. **Paquet « Notifications »** (PAT-07, D5) : la page et ses rangées, la révocation, « Effacer l'historique » ; enregistrement, recherche, scène d'aperçu ; `docs/PLUGINS.md`.
