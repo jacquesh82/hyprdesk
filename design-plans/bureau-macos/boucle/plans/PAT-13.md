@@ -80,3 +80,14 @@ Relu après avoir revérifié dans le code les trois appuis du plan : `open_pane
 - **Qu'est-ce qui casse ?** Le passage au genre 4 passe par le même aiguillage que les autres genres (`view_kind` aux lignes 796, 807, 1016 et 1020 : changement de genre, retour de focus au champ) : sans texte de substitution propre, le champ garderait celui des applications — ajouté au changement 3. `Search(q)` du tiroir affiche la liste des résultats ; `SearchOpen` la quitte : inverser les deux ouvrirait la liste, pas le paquet — l'ordre est écrit. Rien d'autre ne bouge : sans préfixe, `view_kind` rend ce qu'il rend aujourd'hui.
 - **Que manque-t-il ?** Les traductions des deux chaînes nouvelles (invite, substitution) — elles sont au changement 5, et `catalogue_complet` les réclame. Un plafond de liste : inutile, la carte défile comme celle du presse-papiers. Un test de vue : aucun, la vue n'est pas testée ailleurs ; l'analyse du préfixe, elle, a son test. Le cas « tiroir déjà ouvert sur un autre écran » : `open_panel` le ramène, comportement actuel, à vérifier dans Validation.
 - **Le plan résout-il l'écart ?** Oui, pour la correction telle qu'elle est écrite — les résultats des réglages entrent au lanceur par `settings_search`, et le tiroir s'ouvre sur le réglage choisi. Limite, dite en Incertitude : c'est derrière un préfixe ; les réglages dans les résultats généraux, à la Spotlight, sont une autre décision, qui n'appartient pas à cet écart.
+
+## Relèvements à l'exécution (itération B15)
+
+Exécuté comme écrit, à quatre points près que le code a imposés :
+
+- **Plafond de liste.** La relecture ci-dessus disait la carte défilante : seule la carte du mode convexe l'est (`scrollable` dans `search_card`) ; la carte standard enveloppe la liste d'un simple conteneur (`tokens::content`), et le presse-papiers est plafonné par `rank_clips`. La liste des réglages est donc plafonnée à `SHOWN` (huit lignes), comme les quatre autres modes.
+- **Classement.** Huit lignes seulement, et l'ordre du tiroir groupe par paquet : pour « fond », les huit premières entrées seraient celles des premiers paquets, sans la page « Fond d'écran ». `settings_search::launcher` garde l'index et le filtre de `search`, et classe par nature (page, onglet, libellé, aide), puis par libellé le plus court. Le tiroir garde son groupement.
+- **Textes longs.** Une rangée tient sur une ligne (`ROW`) : un libellé de plus de 44 caractères — les textes d'aide — est coupé d'une ellipse, après traduction.
+- **Découverte.** Le texte de substitution du champ des applications, du presse-papiers et du coffre liste `:r`.
+
+`marked` s'est partagé en `marked_with` (requête donnée) : le surlignage du lanceur est celui du tiroir, sur la requête du lanceur. Le focus clavier du tiroir après l'ouverture n'a pas pu être regardé à l'exécution (la porte ne lance pas le démon) : il suit le chemin de `hyprdesk settings ?mots`.
