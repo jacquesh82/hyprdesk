@@ -189,6 +189,28 @@ impl Panel {
 }
 
 impl App {
+    /// Affiche un paquet dans le tiroir ouvert ; c'est désormais le dernier
+    /// consulté, celui de la réouverture (HIG PAT-09).
+    fn panel_show(&mut self, tab: Tab) -> Task<Msg> {
+        let Some(panel) = self.panel.as_mut() else {
+            return Task::none();
+        };
+        self.panel_tab = tab;
+        panel.tab = tab;
+        plugins::on_show(self, tab)
+    }
+
+    /// Paquet où le tiroir rouvre : le dernier consulté, s'il est encore
+    /// affiché (plugin actif, configuration avancée suffisante) ; sinon le
+    /// Bureau.
+    fn panel_restore(&self) -> Tab {
+        if self.cfg.plugin_on(self.panel_tab) && plugins::visible(self.panel_tab, self.advanced()) {
+            self.panel_tab
+        } else {
+            plugins::desktop::INFO.id
+        }
+    }
+
     /// Ouvre le tiroir des réglages sur l'écran principal, dans sa propre
     /// surface au-dessus des fenêtres : le mode du bureau ne change pas.
     pub(super) fn open_panel(&mut self) -> Task<Msg> {
@@ -271,6 +293,9 @@ impl App {
             return Task::batch([iced::window::close(old), self.open_panel_at(win)]);
         }
         let mut p = Panel::new(win);
+        // Le tiroir rouvre sur le dernier paquet consulté (HIG PAT-09).
+        p.tab = self.panel_restore();
+        let tab = p.tab;
         let mut create = Task::none();
         p.surface = match reuse {
             Some(id) => id,
@@ -327,6 +352,13 @@ impl App {
             // Options de Hyprland : valeurs en vigueur, lignes de hyprland.lua.
             self.load_hypr_current(),
             self.load_hypr_source(),
+            // Paquet rouvert autre que le Bureau : ses données se chargent,
+            // comme à chaque arrivée sur un onglet.
+            if tab == plugins::desktop::INFO.id {
+                Task::none()
+            } else {
+                plugins::on_show(self, tab)
+            },
             Task::perform(
                 async {
                     tokio::task::spawn_blocking(launch::font_families)
@@ -443,13 +475,7 @@ impl App {
 
     pub(super) fn panel_update(&mut self, msg: PanelMsg) -> Task<Msg> {
         match msg {
-            PanelMsg::Tab(t) => {
-                let Some(panel) = self.panel.as_mut() else {
-                    return Task::none();
-                };
-                panel.tab = t;
-                plugins::on_show(self, t)
-            }
+            PanelMsg::Tab(t) => self.panel_show(t),
             PanelMsg::SubTab(pkg, tab) => {
                 self.subtabs.insert(pkg, tab);
                 Task::none()
@@ -465,12 +491,10 @@ impl App {
                 if let Some(t) = tab {
                     self.subtabs.insert(pkg, t);
                 }
-                let Some(p) = self.panel.as_mut() else {
-                    return Task::none();
-                };
-                p.search_list = false;
-                p.tab = pkg;
-                plugins::on_show(self, pkg)
+                if let Some(p) = self.panel.as_mut() {
+                    p.search_list = false;
+                }
+                self.panel_show(pkg)
             }
             PanelMsg::SearchBack => {
                 if let Some(p) = self.panel.as_mut() {
@@ -489,11 +513,13 @@ impl App {
             PanelMsg::Tour(m) => self.tour_update(m),
             PanelMsg::Advanced(v) => {
                 self.settings.advanced_settings = Some(v);
-                // Paquet affiché devenu avancé : retour au Bureau.
+                // Paquet affiché devenu avancé : retour au Bureau, qui reste
+                // celui de la réouverture.
                 if !v
                     && let Some(p) = self.panel.as_mut()
                     && !plugins::visible(p.tab, false)
                 {
+                    self.panel_tab = plugins::desktop::INFO.id;
                     p.tab = plugins::desktop::INFO.id;
                 }
                 self.commit()
@@ -1521,4 +1547,48 @@ pub(in crate::ui) async fn defaults_job(
     })
     .await
     .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Le tiroir rouvre sur le dernier paquet consulté (HIG PAT-09) ; un
+    /// paquet que la configuration ne montre plus ramène au Bureau.
+    #[test]
+    fn le_tiroir_rouvre_sur_le_dernier_paquet_consulte() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let shown = |app: &App| app.panel.as_ref().map(|p| p.tab);
+        let _ = app.open_panel();
+        assert_eq!(
+            shown(&app),
+            Some(plugins::desktop::INFO.id),
+            "première ouverture : le Bureau"
+        );
+        let _ = app.panel_update(PanelMsg::Tab("bar"));
+        assert_eq!(shown(&app), Some("bar"));
+
+        // Fermé (fin du fondu), puis rouvert : même paquet.
+        app.panel = None;
+        app.panel_fade = None;
+        let _ = app.open_panel();
+        assert_eq!(shown(&app), Some("bar"), "rouvert sur le dernier consulté");
+
+        // « share » n'apparaît qu'en configuration avancée.
+        let _ = app.panel_update(PanelMsg::Tab("share"));
+        app.panel = None;
+        app.panel_fade = None;
+        let _ = app.open_panel();
+        assert_eq!(
+            shown(&app),
+            Some(plugins::desktop::INFO.id),
+            "paquet devenu invisible : le Bureau"
+        );
+    }
 }

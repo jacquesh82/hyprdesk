@@ -617,7 +617,21 @@ impl Agent {
         iced::Subscription::batch([
             iced::Subscription::run(stream).map(|e| AMsg::P(PMsg::Event(e))),
             iced::window::close_events().map(AMsg::Closed),
+            // Échap annule la demande, comme « Annuler » (HIG PRES-01).
+            iced::event::listen_with(|e, _, _| touche(e)),
         ])
+    }
+}
+
+/// Touche qui agit sur la carte : Échap annule ; toute autre touche (dont
+/// Entrée, qui envoie la saisie) reste au champ.
+fn touche(e: iced::Event) -> Option<AMsg> {
+    match e {
+        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+            key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+            ..
+        }) => Some(AMsg::P(PMsg::Cancel)),
+        _ => None,
     }
 }
 
@@ -681,6 +695,37 @@ pub const COMPONENT: &str = "polkit-agent";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Échap, et elle seule, annule la demande (HIG PRES-01).
+    #[test]
+    fn echap_annule() {
+        let pressed = |key: iced::keyboard::Key| {
+            touche(iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                modified_key: key.clone(),
+                physical_key: iced::keyboard::key::Physical::Code(
+                    iced::keyboard::key::Code::Escape,
+                ),
+                location: iced::keyboard::Location::Standard,
+                modifiers: iced::keyboard::Modifiers::default(),
+                text: None,
+                repeat: false,
+                key,
+            }))
+        };
+        assert!(matches!(
+            pressed(iced::keyboard::Key::Named(
+                iced::keyboard::key::Named::Escape
+            )),
+            Some(AMsg::P(PMsg::Cancel))
+        ));
+        assert!(
+            pressed(iced::keyboard::Key::Named(
+                iced::keyboard::key::Named::Enter
+            ))
+            .is_none(),
+            "Entrée reste au champ"
+        );
+    }
 
     #[tokio::test]
     async fn la_reponse_rejoint_l_agent() {

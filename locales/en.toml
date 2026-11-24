@@ -1632,6 +1632,7 @@
 
 # Menu contextuel des icônes du bureau (MLG-19).
 "Nom invalide." = "Invalid name."
+"Choisissez un nom non vide, sans barre oblique (/)" = "Choose a name that isn’t empty and contains no slash"
 "Un fichier porte déjà ce nom." = "A file already has this name."
 "Nouveau nom" = "New name"
 "corbeille : {e}" = "trash: {e}"

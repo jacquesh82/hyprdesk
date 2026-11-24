@@ -262,7 +262,7 @@ pub fn valid_name(name: &str) -> bool {
 /// Renomme dans le même dossier, sans écraser un fichier existant.
 pub fn rename(path: &Path, name: &str) -> Result<PathBuf, String> {
     if !valid_name(name) {
-        return Err(crate::i18n::tr("Nom invalide.").into());
+        return Err(crate::i18n::tr("Choisissez un nom non vide, sans barre oblique (/)").into());
     }
     let to = path
         .parent()

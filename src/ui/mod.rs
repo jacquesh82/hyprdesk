@@ -468,6 +468,9 @@ pub struct App {
     chat_session: u64,
     /// Onglet choisi dans chaque paquet de réglages (retenu d'une ouverture à l'autre).
     subtabs: HashMap<&'static str, &'static str>,
+    /// Dernier paquet consulté dans le tiroir des réglages : c'est sur lui
+    /// que le tiroir rouvre (HIG PAT-09).
+    panel_tab: &'static str,
     /// Surface survolée par un glisser-déposer de fichiers, et fichiers déjà
     /// posés pendant ce dépôt (pour les ranger côte à côte).
     drop_hover: Option<Id>,
@@ -1035,6 +1038,7 @@ impl App {
             chat: None,
             chat_session: 0,
             subtabs: HashMap::new(),
+            panel_tab: plugins::desktop::INFO.id,
             drop_hover: None,
             drop_count: 0,
             apps: Arc::new(Vec::new()),
@@ -5390,6 +5394,11 @@ impl App {
                     return self.launcher_key(id, &key);
                 }
                 if key == keyboard::Key::Named(keyboard::key::Named::Escape) {
+                    // Alerte d'un problème : au-dessus de tout, Échap la ferme
+                    // comme son bouton (HIG PRES-01).
+                    if self.problem.is_some() {
+                        return self.problem_update(problem::PrMsg::Close);
+                    }
                     if self.icon_menu.is_some() {
                         return self.close_icon_menu();
                     }
@@ -5460,6 +5469,7 @@ impl App {
                     p.select_widget(&wid);
                     // Son éditeur est dans l'onglet « Sur ce bureau ».
                     self.subtabs.insert(plugins::widgets::INFO.id, "bureau");
+                    self.panel_tab = plugins::widgets::INFO.id;
                 }
                 self.wdrag = Some(WidgetDrag {
                     win,

@@ -226,3 +226,25 @@ impl App {
         container(card).padding(SHADOW).into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Échap ferme l'alerte, comme son bouton (HIG PRES-01).
+    #[test]
+    fn echap_ferme_l_alerte() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        let _ = app.show_problem_from("Mises à jour", "détail du problème".into(), false);
+        assert!(app.problem.is_some());
+        let _ = app.update_inner(Msg::Key(
+            Id::unique(),
+            iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+        ));
+        assert!(app.problem.is_none());
+    }
+}
