@@ -36,6 +36,7 @@
 | 2026-11-24 | B6 | SEL-03 traité ; LAY-05 non traité (effort corrigé S → M, plan à écrire) ; il en reste 43 dans ce couloir |
 | 2026-11-24 | B7 | LAY-05 traité ; il en reste 42 dans ce couloir |
 | 2026-11-24 | B8 | SEL-05, SEL-07 traités ; il en reste 40 dans ce couloir |
+| 2026-11-24 | B9 | LAY-07 traité ; il en reste 39 dans ce couloir |
 
 ### Couloir C
 
@@ -157,7 +158,7 @@ Référence verte : `b7c6f1f` (code vérifié par `scripts/verify.sh --visual` l
 | ICO-06 | Menus (bureau, fenêtre, widget) et Panorama | ÉCART | M | haute | à faire | — | — |
 | LAY-01 | Disclosure controls | ABSENT | M | haute | à faire | — | — |
 | SEL-02 | Puits de couleur | ABSENT | M | haute | à faire | — | — |
-| LAY-07 | Split views — onglet courant | PISTE | S | moyenne | à faire | — | — |
+| LAY-07 | Split views — onglet courant | PISTE | S | moyenne | fait | 05b21d1 | dans le tiroir large, l'onglet courant d'un paquet porte en permanence le voile de sélection du paquet courant (accent à 16 %), et non plus seulement au survol (`panel.rs`, sous-entrées de la navigation). Dépassement noté : son texte passe de l'accent au texte plein, comme le paquet choisi — l'accent sur son propre fond teinté se lit mal ; la graisse semibold marque toujours l'onglet courant. Propriétaire partagé `panel.rs` : relu à froid — le diff fait ce que demande l'écart ; aucune chaîne à traduire ; pas de test (style de vue), vérifié sur la capture `bureau` à 1440 (`--visual`). |
 | LAY-08 | Labels — texte secondaire | PISTE | S | haute | à faire | — | — |
 | LAY-12 | Labels — boutons à glyphe seul | PISTE | S | haute | à faire | — | — |
 | NAV-07 | Recherche des Réglages : colonne de navigation | PISTE | S | moyenne | à faire | — | — |
