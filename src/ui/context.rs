@@ -253,6 +253,15 @@ pub fn is_wallpaper(path: &Path) -> bool {
         .is_some_and(|e| matches!(e.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp"))
 }
 
+/// Icône d'une action d'application : le nom symbolique de celle qu'elle
+/// déclare, jamais un chemin (le menu ne charge que des noms).
+fn action_icon(a: &crate::launch::DesktopAction) -> Option<String> {
+    a.icon
+        .as_deref()
+        .filter(|i| !i.contains('/'))
+        .map(|i| format!("{}-symbolic", i.trim_end_matches("-symbolic")))
+}
+
 /// Nouveau nom acceptable : non vide, sans « / », ni « . » ni « .. ».
 pub fn valid_name(name: &str) -> bool {
     let n = name.trim();
@@ -689,7 +698,7 @@ impl App {
                         .into(),
                     );
                 }
-                open.extend(self.action_lines(m));
+                let actions = self.place_actions(&mut open, m);
                 let mut keep: Vec<Line<CMsg>> = Vec::new();
                 if m.path.is_some() || m.own.is_some() {
                     keep.push(
@@ -716,25 +725,24 @@ impl App {
                 if let Some(a) = &m.app {
                     keep.extend(self.pin_line(a));
                 }
-                keep.push(
+                // Dernier groupe : ce qui ne porte pas sur le contenu du
+                // fichier, puis ce qui le retire (HIG MENU-12).
+                let mut tail: Vec<Line<CMsg>> = vec![
                     Item::new(
                         tr("Propriétés"),
                         "document-properties-symbolic",
                         CMsg::Properties,
                     )
                     .into(),
-                );
-                keep.push(
                     Item::new(
                         tr("Réglages des icônes…"),
                         "preferences-system-symbolic",
                         CMsg::Settings,
                     )
                     .into(),
-                );
-                let mut remove: Vec<Line<CMsg>> = Vec::new();
+                ];
                 if m.own.is_some() {
-                    remove.push(
+                    tail.push(
                         Item::new(
                             tr("Retirer du bureau"),
                             "list-remove-symbolic",
@@ -744,7 +752,7 @@ impl App {
                     );
                 }
                 if m.path.is_some() {
-                    remove.push(
+                    tail.push(
                         Item::new(
                             if m.confirm {
                                 tr("Confirmer : mettre à la corbeille")
@@ -758,7 +766,7 @@ impl App {
                         .into(),
                     );
                 }
-                groups(vec![open, keep, remove])
+                groups(vec![open, actions, keep, tail])
             }
         }
     }
@@ -775,25 +783,37 @@ impl App {
         })
     }
 
-    /// Actions `.desktop` de l'application visée (MLG-308).
+    /// Actions `.desktop` de l'application visée (MLG-308). Elles portent des
+    /// icônes seulement si chacune en déclare une qui la représente : tous ou
+    /// aucune, jamais d'icône de secours (HIG MENU-15).
     fn action_lines(&self, m: &IconMenu) -> Vec<Line<CMsg>> {
-        m.entry
+        let actions: Vec<&crate::launch::DesktopAction> =
+            m.entry.iter().flat_map(|e| e.actions.iter()).collect();
+        let icons = actions.iter().all(|a| action_icon(a).is_some());
+        actions
             .iter()
-            .flat_map(|e| e.actions.iter())
             .map(|a| {
-                Item::new(
-                    a.name.clone(),
-                    a.icon
-                        .as_deref()
-                        .filter(|i| !i.contains('/'))
-                        .map(|i| format!("{}-symbolic", i.trim_end_matches("-symbolic")))
-                        .as_deref()
-                        .unwrap_or("application-x-executable-symbolic"),
-                    CMsg::Action(a.id.clone()),
-                )
-                .into()
+                let icon = if icons {
+                    action_icon(a).unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                Item::new(a.name.clone(), &icon, CMsg::Action(a.id.clone())).into()
             })
             .collect()
+    }
+
+    /// Rangée des actions d'une application : dans `open`, avec leurs icônes,
+    /// comme « Ouvrir » ; sinon un groupe à part, sans icônes.
+    fn place_actions(&self, open: &mut Vec<Line<CMsg>>, m: &IconMenu) -> Vec<Line<CMsg>> {
+        let mut actions = self.action_lines(m);
+        let icons = actions
+            .first()
+            .is_some_and(|l| matches!(l, Line::Item(i) if i.icon.is_some()));
+        if icons {
+            open.append(&mut actions);
+        }
+        actions
     }
 
     /// Fenêtres ouvertes de l'application, la plus récente d'abord.
@@ -856,7 +876,7 @@ impl App {
                 );
             }
         }
-        open.extend(self.action_lines(m));
+        let actions = self.place_actions(&mut open, m);
         let mut keep: Vec<Line<CMsg>> = Vec::new();
         if let Some(id) = &a.id {
             keep.extend(self.pin_line(id));
@@ -882,7 +902,7 @@ impl App {
                 .into(),
             ),
         }
-        groups(vec![windows, open, keep])
+        groups(vec![windows, open, actions, keep])
     }
 
     /// Destinations de « Partager… » : seules celles qu'on peut utiliser.
@@ -2252,6 +2272,99 @@ mod tests {
         );
         assert!(it.iter().any(|i| matches!(i.msg, CMsg::Share)));
         assert_eq!(it.iter().filter(|i| i.danger).count(), 1);
+    }
+
+    fn action(id: &str, icon: Option<&str>) -> crate::launch::DesktopAction {
+        crate::launch::DesktopAction {
+            id: id.into(),
+            name: id.into(),
+            icon: icon.map(str::to_string),
+            exec: String::new(),
+        }
+    }
+
+    fn action_items(lines: &[Line<CMsg>]) -> Vec<&super::super::menu::Item<CMsg>> {
+        items(lines)
+            .into_iter()
+            .filter(|i| matches!(i.msg, CMsg::Action(_)))
+            .collect()
+    }
+
+    /// Les actions d'une application portent des icônes tous ou aucune :
+    /// sans icône claire pour l'une, aucune n'en a, pas même de secours, et
+    /// le groupe se sépare de « Ouvrir ».
+    #[test]
+    fn actions_tous_ou_aucune_icone() {
+        let app = app();
+        let mut m = IconMenu::new(MenuTarget::Icon, Id::unique());
+        m.app = Some("exemple".into());
+        let mut entry = crate::launch::DesktopEntry {
+            actions: vec![
+                action("new-window", Some("window-new")),
+                action("bench", None),
+            ],
+            ..Default::default()
+        };
+        m.entry = Some(entry.clone());
+        let lines = app.icon_menu_lines(&m);
+        let acts = action_items(&lines);
+        assert_eq!(acts.len(), 2);
+        assert!(acts.iter().all(|i| i.icon.is_none()));
+        assert!(
+            items(&lines)
+                .iter()
+                .all(|i| i.icon.as_deref() != Some("application-x-executable-symbolic"))
+        );
+        assert!(matches!(
+            &lines[..3],
+            [Line::Item(_), Line::Separator, Line::Item(_)]
+        ));
+
+        entry.actions[1].icon = Some("applications-science-symbolic".into());
+        m.entry = Some(entry);
+        let lines = app.icon_menu_lines(&m);
+        let acts = action_items(&lines);
+        assert_eq!(acts.len(), 2);
+        assert_eq!(acts[0].icon.as_deref(), Some("window-new-symbolic"));
+        assert_eq!(
+            acts[1].icon.as_deref(),
+            Some("applications-science-symbolic")
+        );
+        // Avec leurs icônes, les actions suivent « Ouvrir » sans séparateur.
+        assert!(matches!(&lines[..2], [Line::Item(_), Line::Item(_)]));
+    }
+
+    /// Le groupe central garde au plus cinq commandes : « Propriétés » et
+    /// « Réglages des icônes… » passent au dernier groupe, avant la corbeille.
+    #[test]
+    fn proprietes_au_dernier_groupe() {
+        let app = app();
+        let mut m = IconMenu::new(MenuTarget::Icon, Id::unique());
+        m.path = Some("/tmp/hyprdesk-menus-tests/fond.jpg".into());
+        m.app = Some("exemple".into());
+        let lines = app.icon_menu_lines(&m);
+        let seps: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(i, l)| matches!(l, Line::Separator).then_some(i))
+            .collect();
+        assert_eq!(seps.len(), 2, "trois groupes");
+        let middle = &lines[seps[0] + 1..seps[1]];
+        assert!(middle.len() <= 5, "{} commandes au centre", middle.len());
+        assert!(middle.iter().all(|l| match l {
+            Line::Item(i) => !matches!(i.msg, CMsg::Properties | CMsg::Settings),
+            Line::Separator => false,
+        }));
+        assert!(matches!(
+            &lines[seps[1] + 1..seps[1] + 3],
+            [Line::Item(a), Line::Item(b)]
+                if matches!(a.msg, CMsg::Properties) && matches!(b.msg, CMsg::Settings)
+        ));
+        assert!(
+            items(&lines)
+                .last()
+                .is_some_and(|i| i.danger && matches!(i.msg, CMsg::Trash))
+        );
     }
 
     /// Application du dock avec deux fenêtres : elles d'abord, la sienne au
