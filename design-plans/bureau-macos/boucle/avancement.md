@@ -90,6 +90,7 @@
 | --- | --- | --- |
 | 2026-11-24 | D1 | TYP-08 traité ; il en reste 19 dans ce couloir |
 | 2026-11-24 | D2 | TYP-06, TYP-14 traités ; il en reste 17 dans ce couloir |
+| 2026-11-24 | D3 | TYP-10, TYP-12 traités ; il en reste 15 dans ce couloir |
 
 Référence verte : `06a2180` (code vérifié par `scripts/verify.sh --visual` le 24 novembre 2026 à 19 h 15 : code de sortie 0 ; précédente référence : `b7c6f1f`, le 23 novembre 2026 à 23 h 17).
 
@@ -237,8 +238,8 @@ Référence verte : `06a2180` (code vérifié par `scripts/verify.sh --visual` l
 | SEL-13 | Largeur des segments « Affichage du bureau » | PISTE | S | haute | à faire | — | — |
 | TYP-05 | Typographie — graisse des titres | PISTE | S | moyenne | à faire | — | — |
 | TYP-09 | Typographie — barre et échelle de texte | PISTE | S | moyenne | à faire | — | — |
-| TYP-10 | Écriture — boutons du conflit de raccourcis | PISTE | S | haute | à faire | — | — |
-| TYP-12 | Écriture — fin de parcours | PISTE | S | haute | à faire | — | — |
+| TYP-10 | Écriture — boutons du conflit de raccourcis | PISTE | S | haute | fait | 77cd1b2 | « hyprdesk le prend » devient « Donner à hyprdesk » (en « Give to hyprdesk »), aux deux endroits de `plugins/keys.rs` et au conflit du lanceur (`plugins/launcher.rs`, hors preuve) ; « Désactiver plutôt » devient « Désactiver le raccourci » (« Disable the shortcut »). « Rendre » devient « Rendre la combinaison » (« Give the combination back ») et non « Rendre à l'application » : celui qui tient la combinaison est souvent une ligne de hyprland.lua, pas une application. Pas de capture : aucune scène d'aperçu ne montre un conflit. |
+| TYP-12 | Écriture — fin de parcours | PISTE | S | haute | fait | 77cd1b2 | « Terminé » partout où un parcours s'achève : la visite guidée (`tour.rs`) et l'assistant de premier démarrage (`wizard.rs`, hors preuve), qui portaient « Terminer ». Preuve inexacte : le « Terminer » de Panorama (`plugins/panorama/surface/dashboard.rs`) termine un processus de sa liste, ce n'est pas une fin de parcours ; il reste. |
 | TYP-14 | Écriture — vocabulaire des états | PISTE | S | haute | fait | 0ef9e75 | Un terme par état, dans les deux langues, tenu par la même table : « coupé » et « inactif » cèdent la place à « Désactivé », terme déjà celui de la page Raccourcis ; « actif » de la page Plugins devient « Activé ». « Arrêté » reste le terme d'un composant de la session qui ne tourne pas : ce n'est pas un réglage qu'on éteint, et le composant en marche est « Actif (pid n) ». Les anciennes clés quittent le catalogue quand plus rien ne les emploie. Recouvrement : même commit que TYP-06. |
 | TYP-18 | Disposition — ajustement du fond d'écran | PISTE | S | moyenne | à faire | — | — |
 | ICO-12 | Graisse des glyphes | PISTE | M | haute | à faire | — | — |
