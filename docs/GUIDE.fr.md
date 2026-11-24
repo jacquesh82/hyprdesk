@@ -386,6 +386,17 @@ Réglages → Barre ne les déplace pas.
 Ces commandes restent aussi à leur emplacement d'origine : titre de la
 fenêtre, centre de contrôle, carte des espaces.
 
+Un clic droit ouvre aussi un menu court — deux commandes au plus, toutes
+présentes ailleurs dans l'interface ; une commande qui ne s'applique pas se
+retire. Sur le titre ou le fond d'une carte de l'aperçu des espaces :
+« Afficher l'espace », « Renommer… ». Sur une carte de notification du centre :
+« Ouvrir » (quand la carte mène quelque part) et « Fermer ». Sur un module de
+la barre : « Couper le son » ou « Rétablir le son », puis « Réglages du son… »
+(volume), « Réglages d'énergie… » (luminosité), « Réglages de date et
+d'heure… » (horloge et calendrier), « Tout marquer comme lu » (sans non-lue,
+l'entrée se retire) et « Ne pas déranger » (widget de notifications sans
+fonction `menu`) ; sur le titre de la fenêtre active, le menu **Fenêtre**.
+
 Une ligne suivie d'un chevron « › » ouvre un sous-menu, à un seul niveau. Il
 s'ouvre au survol (au clic sur un écran tactile), dans une colonne à côté de
 la liste, qui ne bouge pas ; près du bord droit de l'écran, la colonne passe

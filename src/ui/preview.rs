@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 170] = [
+const SCENES: [&str; 173] = [
     "desktop",
     "typography",
     "icons",
@@ -196,6 +196,11 @@ const SCENES: [&str; 170] = [
     "bar-unread",
     "bar-island-unread",
     "reglages-valeur-saisie",
+    // Menus contextuels (HIG ENT-07) : carte d'espace, carte de notification,
+    // module de barre.
+    "menu-espace",
+    "menu-notification",
+    "bar-menu-module",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -2412,6 +2417,35 @@ impl Preview {
                     let _ = self.app.refresh_popover_anchor();
                 }
             }
+            // Menu contextuel d'un module de barre (HIG ENT-07) : celui de
+            // l'horloge, ancré au module comme la carte de son clic gauche.
+            // Même idiome : icônes résolues tout de suite.
+            if SCENES[self.scene] == "bar-menu-module" {
+                let entries = super::plugins::bar::menus::module_entries(&self.app, "barclock");
+                let gen_ = self.app.icons_gen;
+                for e in &entries {
+                    if let crate::config::MenuEntry::Item {
+                        icon: Some(name), ..
+                    } = e
+                        && !self.app.named_icons.contains_key(name)
+                    {
+                        let path = launch::lookup_icon(name, None, 32)
+                            .or_else(|| launch::lookup_icon(name, Some("Adwaita"), 32));
+                        let _ = self
+                            .app
+                            .update_inner(Msg::IconResolved(gen_, name.clone(), path));
+                    }
+                }
+                let _ = self.app.open_popover(
+                    self.bar,
+                    popover::menu_key("barclock"),
+                    popover::Kind::Menu {
+                        entries,
+                        source: popover::MenuSource::Module,
+                    },
+                );
+                let _ = self.app.refresh_popover_anchor();
+            }
             // Menu « Aide » ouvert (HIG MENU-05) : le champ de recherche en
             // tête, l'aide du shell, « À propos de hyprdesk ». Même idiome :
             // icône résolue tout de suite, ancre provisoire (quatrième titre).
@@ -2453,7 +2487,10 @@ impl Preview {
             // groupé par application, une boîte par application. Même idiome :
             // icônes résolues tout de suite (pas de tâche dans l'aperçu). La
             // carte se passe d'ancre : elle se centre.
-            if SCENES[self.scene] == "bar-notifications" {
+            if matches!(
+                SCENES[self.scene],
+                "bar-notifications" | "menu-notification"
+            ) {
                 let gen_ = self.app.icons_gen;
                 for icon in ["firefox", "signal"] {
                     if !self.app.named_icons.contains_key(icon) {
@@ -2514,6 +2551,28 @@ impl Preview {
                     "notifications".into(),
                     popover::Kind::Notifications,
                 );
+            }
+            // Clic droit sur une carte du centre de notifications (HIG ENT-07) :
+            // son menu court, « Ouvrir » quand la carte mène quelque part. Même
+            // idiome : icônes résolues tout de suite.
+            if SCENES[self.scene] == "menu-notification" {
+                let mut m = super::context::IconMenu::new(
+                    super::context::MenuTarget::Notification(super::context::NotificationRef {
+                        id: 2,
+                        openable: true,
+                    }),
+                    Id::unique(),
+                );
+                m.hover = Some(0);
+                for name in super::menu::icons(&self.app.icon_menu_lines(&m)) {
+                    if !self.app.named_icons.contains_key(&name) {
+                        let path = launch::lookup_icon(&name, None, 32)
+                            .or_else(|| launch::lookup_icon(&name, Some("Adwaita"), 32));
+                        let gen_ = self.app.icons_gen;
+                        let _ = self.app.update_inner(Msg::IconResolved(gen_, name, path));
+                    }
+                }
+                self.app.icon_menu = Some(m);
             }
             // Ovale des non-lues sur l'horloge (HIG SYS-02) : trois non lues,
             // aucune liste ouverte.
@@ -2621,6 +2680,7 @@ impl Preview {
             SCENES[self.scene],
             "overview"
                 | "menu-fenetre"
+                | "menu-espace"
                 | "bar-selector-relief"
                 | "bar-selector-rail"
                 | "bar-selector-miniatures"
@@ -2629,7 +2689,10 @@ impl Preview {
         ) {
             self.demo_window_data();
         }
-        if matches!(SCENES[self.scene], "overview" | "menu-fenetre") {
+        if matches!(
+            SCENES[self.scene],
+            "overview" | "menu-fenetre" | "menu-espace"
+        ) {
             let win = Id::unique();
             self.app.overview = Some(overview::Overview::new(
                 win,
@@ -2656,9 +2719,10 @@ impl Preview {
             });
             self.app.cursor.insert(win, Point::new(560.0, 560.0));
         }
-        if SCENES[self.scene] == "menu-fenetre" {
-            // Clic droit sur une fenêtre de l'aperçu des espaces : son menu,
-            // celui de la barre (HIG MENU-06).
+        if matches!(SCENES[self.scene], "menu-fenetre" | "menu-espace") {
+            // Clic droit dans une carte de l'aperçu des espaces : sur une
+            // fenêtre, son menu, celui de la barre (HIG MENU-06) ; sur le titre
+            // ou le fond de la carte, celui de l'espace (HIG ENT-07).
             if let Some(o) = self.app.overview.as_mut() {
                 o.press = None;
             }
@@ -2671,21 +2735,31 @@ impl Preview {
                     fullscreen: false,
                 })
                 .collect();
-            let mut m = super::context::IconMenu::new(
-                super::context::MenuTarget::Window(super::context::WindowRef {
-                    address: "0x6".into(),
-                    state: serde_json::json!({
-                        "address": "0x6",
-                        "class": "kitty",
-                        "floating": false,
-                        "pinned": false,
-                        "fullscreen": 0,
-                        "workspace": { "id": 1, "name": "1" }
+            let mut m = if SCENES[self.scene] == "menu-espace" {
+                super::context::IconMenu::new(
+                    super::context::MenuTarget::Space(super::context::SpaceRef {
+                        card: 1,
+                        name: "Projet 2".into(),
                     }),
-                    same_app: 1,
-                }),
-                Id::unique(),
-            );
+                    Id::unique(),
+                )
+            } else {
+                super::context::IconMenu::new(
+                    super::context::MenuTarget::Window(super::context::WindowRef {
+                        address: "0x6".into(),
+                        state: serde_json::json!({
+                            "address": "0x6",
+                            "class": "kitty",
+                            "floating": false,
+                            "pinned": false,
+                            "fullscreen": 0,
+                            "workspace": { "id": 1, "name": "1" }
+                        }),
+                        same_app: 1,
+                    }),
+                    Id::unique(),
+                )
+            };
             m.monitor = self.app.monitors[0].name.clone();
             m.hover = Some(0);
             // Icônes résolues tout de suite (pas de tâche dans l'aperçu).

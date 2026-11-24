@@ -62,11 +62,18 @@ pub struct Press {
     pub title: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Win {
     pub address: String,
     pub class: String,
     pub title: String,
+}
+
+/// Ce que vise un clic droit dans une carte de l'aperçu.
+#[derive(Debug, PartialEq)]
+enum Aim {
+    Window(Win),
+    Space,
 }
 
 #[derive(Debug, Clone)]
@@ -76,9 +83,12 @@ pub enum OMsg {
     Geos(Vec<crate::hypr::WindowGeo>),
     /// Pressé dans une carte : (carte, sur le titre).
     Grab(usize, bool),
-    /// Clic droit dans la minimap d'une carte : menu de la fenêtre sous le
-    /// curseur (HIG MENU-06).
+    /// Clic droit dans une carte : menu de la fenêtre sous le curseur (HIG
+    /// MENU-06), sinon de l'espace (HIG ENT-07).
     Context(usize),
+    /// Clic droit sur le titre ou la marge d'une carte : menu de l'espace
+    /// (HIG ENT-07) ; une fenêtre sous le curseur rend la main à `Context`.
+    CardContext(usize),
     /// Une carte est cliquée : afficher ce workspace.
     Pick(String),
     /// Titre pressé deux fois : renommer l'espace.
@@ -368,6 +378,24 @@ impl App {
             })
     }
 
+    /// Ce que vise un clic droit en `at` dans la carte `card` (HIG MENU-06,
+    /// ENT-07) : la fenêtre de la minimap sous le curseur ; sinon l'espace —
+    /// fond de la minimap, titre, marge de la carte ; hors de la carte, rien.
+    fn overview_aim(&self, card: usize, at: Point) -> Option<Aim> {
+        if let Some(w) = self.overview_window_at(card, at) {
+            return Some(Aim::Window(w));
+        }
+        let surface = self
+            .overview
+            .as_ref()
+            .map(|o| self.overview_surface(o))
+            .unwrap_or_default();
+        self.overview_layout(surface)
+            .get(card)
+            .is_some_and(|(rect, _)| rect.contains(at))
+            .then_some(Aim::Space)
+    }
+
     pub(super) fn overview_update(&mut self, m: OMsg) -> Task<Msg> {
         match m {
             OMsg::Geos(list) => {
@@ -397,7 +425,7 @@ impl App {
                 }
                 Task::none()
             }
-            OMsg::Context(card) => {
+            OMsg::Context(card) | OMsg::CardContext(card) => {
                 let Some(o) = self.overview.as_ref() else {
                     return Task::none();
                 };
@@ -405,11 +433,22 @@ impl App {
                     return Task::none();
                 }
                 let at = self.cursor.get(&o.win).copied().unwrap_or_default();
-                let Some(win) = self.overview_window_at(card, at) else {
-                    return Task::none();
-                };
                 let (surface, monitor) = (o.win, o.monitor.clone());
-                self.open_window_menu(surface, &monitor, &win.address)
+                match self.overview_aim(card, at) {
+                    // La fenêtre a pu fermer depuis la dernière lecture des
+                    // géométries : rien alors.
+                    Some(Aim::Window(win)) => {
+                        self.open_window_menu(surface, &monitor, &win.address)
+                    }
+                    Some(Aim::Space) => {
+                        let name = self.overview_cards().get(card).map(|c| c.name.clone());
+                        match name {
+                            Some(name) => self.open_space_menu(surface, &monitor, card, &name),
+                            None => Task::none(),
+                        }
+                    }
+                    None => Task::none(),
+                }
             }
             OMsg::Pick(name) => {
                 let close = self.close_overview();
@@ -991,6 +1030,8 @@ impl App {
                 .align_y(Alignment::Center),
             )
             .on_press(Msg::Overview(OMsg::Grab(i, true)))
+            // Clic droit sur le titre : menu de l'espace (HIG ENT-07).
+            .on_right_press(Msg::Overview(OMsg::CardContext(i)))
             .into()
         };
 
@@ -1089,7 +1130,7 @@ impl App {
                     ..fg
                 })
         };
-        container(
+        let card = container(
             column![
                 container(header)
                     .height(40.0)
@@ -1124,8 +1165,12 @@ impl App {
             },
             text_color: Some(fg),
             ..Default::default()
-        })
-        .into()
+        });
+        // Clic droit sur la marge de la carte : menu de l'espace (HIG ENT-07) ;
+        // le titre et la minimap gardent leur propre clic droit.
+        mouse_area(card)
+            .on_right_press(Msg::Overview(OMsg::CardContext(i)))
+            .into()
     }
 }
 
@@ -1242,5 +1287,80 @@ mod tests {
             "la carte d'où vient la fenêtre"
         );
         assert!(!is_drop_target(glisse, 2, false), "hors du curseur");
+    }
+
+    /// Clic droit dans une carte (HIG MENU-06, ENT-07) : sur une fenêtre de
+    /// la minimap, son menu ; sur le fond de la minimap, le titre ou la marge
+    /// de la carte, celui de l'espace ; hors de la carte, rien.
+    #[test]
+    fn le_clic_droit_vise_la_fenetre_ou_l_espace() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-apercu-tests/config.lua"),
+            true,
+        )
+        .0;
+        app.monitors = vec![crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 1440,
+            height: 900,
+            workspace: "Projet 1".into(),
+            base: String::new(),
+            focused: true,
+            scale: 1.0,
+            reserved: (0.0, 0.0, 0.0, 0.0),
+            x: 0.0,
+            y: 0.0,
+        }];
+        let win = Id::unique();
+        app.overview = Some(Overview::new(
+            win,
+            "A".into(),
+            Fade {
+                from: 1.0,
+                to: 1.0,
+                start: Instant::now(),
+                dur: std::time::Duration::ZERO,
+            },
+        ));
+        app.workspaces = (1..=2)
+            .map(|id| crate::hypr::Workspace {
+                id,
+                name: format!("Projet {id}"),
+                monitor: "A".into(),
+                windows: 1,
+                fullscreen: false,
+            })
+            .collect();
+        // Une seule fenêtre dans l'espace 1 : sa miniature couvre le centre
+        // de la minimap.
+        app.ws_geos = vec![crate::hypr::WindowGeo {
+            address: "0x6".into(),
+            class: "kitty".into(),
+            title: "zsh".into(),
+            workspace: "Projet 1".into(),
+            floating: false,
+            rect: (0, 0, 800, 600),
+        }];
+        let cards = app.overview_layout(Size::new(1440.0, 900.0));
+        let (r0, _) = cards[0];
+        let (r1, _) = cards[1];
+        assert!(
+            matches!(app.overview_aim(0, r0.center()), Some(Aim::Window(_))),
+            "la fenêtre sous le curseur"
+        );
+        assert_eq!(
+            app.overview_aim(0, Point::new(r0.x + 20.0, r0.y + 20.0)),
+            Some(Aim::Space),
+            "le titre"
+        );
+        assert_eq!(
+            app.overview_aim(0, Point::new(r0.x + 4.0, r0.y + r0.height - 4.0)),
+            Some(Aim::Space),
+            "la marge de la carte"
+        );
+        assert_eq!(app.overview_aim(1, r1.center()), Some(Aim::Space));
+        assert_eq!(app.overview_aim(0, r1.center()), None, "hors de sa carte");
+        assert_eq!(app.overview_aim(7, r0.center()), None, "carte inconnue");
     }
 }

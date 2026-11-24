@@ -20,7 +20,7 @@ use iced_layershell::reexport::{
 use super::motion;
 use crate::config::{BarItem, BarPosition, RenderState, Rgba, WidgetKind};
 use crate::ui::design;
-use crate::ui::plugins::bar::popover::Request;
+use crate::ui::plugins::bar::popover::{self, Request};
 use crate::ui::{App, IconImg, Msg, color, format_now};
 use crate::{control, hypr, widgets};
 
@@ -168,6 +168,17 @@ pub(in crate::ui) fn clock_press(
         }
         _ => Msg::OpenPopover(bar, module.to_string(), Request::Calendar),
     }
+}
+
+/// Clic droit sur un module de barre : son menu contextuel (HIG ENT-07). La
+/// carte s'ancre au module, sous la clé `menu_key(module)` : un clic droit ne
+/// bascule pas la carte du clic gauche.
+fn module_menu(bar: Id, module: &str) -> Msg {
+    Msg::OpenPopover(
+        bar,
+        popover::menu_key(module),
+        Request::ModuleMenu(module.to_string()),
+    )
 }
 
 /// `wpctl get-volume` → (volume 0..1, coupé).
@@ -2029,13 +2040,17 @@ impl App {
                     .color(fg)
                     // Titres de menus : semibold (DESIGN.md, HIG MENU-07).
                     .font(self.ui_font(iced::font::Weight::Semibold));
+                // Clic droit sur « Fenêtre » : le menu du clic gauche, sous la
+                // même clé — un contenu, une carte (HIG ENT-07).
+                let right = (actionable && matches!(request, Request::Window))
+                    .then(|| Msg::OpenPopover(id, key.into(), request.clone()));
                 motion::anchor(
                     self.module(
                         s,
                         1.0,
                         title.into(),
                         actionable.then(|| Msg::OpenPopover(id, key.into(), request)),
-                        None,
+                        right,
                         None,
                         None,
                         None,
@@ -2120,7 +2135,8 @@ impl App {
                     alpha,
                     content,
                     Some(Msg::OpenPopover(bar_id, "window".into(), Request::Window)),
-                    None,
+                    // Clic droit : le menu du clic gauche, même carte (HIG ENT-07).
+                    Some(Msg::OpenPopover(bar_id, "window".into(), Request::Window)),
                     None,
                     None,
                     None,
@@ -2256,7 +2272,7 @@ impl App {
                     alpha,
                     content.into(),
                     Some(Msg::OpenPopover(bar_id, "volume".into(), Request::Volume)),
-                    None,
+                    Some(module_menu(bar_id, "volume")),
                     Some(Msg::VolumeMute),
                     Some(Box::new(|d| Msg::VolumeStep(d as i32 * 5))),
                     None,
@@ -2286,7 +2302,7 @@ impl App {
                         "brightness".into(),
                         Request::Brightness,
                     )),
-                    None,
+                    Some(module_menu(bar_id, "brightness")),
                     None,
                     target.map(|t| {
                         Box::new(move |d: i64| Msg::LightStep(t, d as i32 * 5))
@@ -2445,7 +2461,7 @@ impl App {
                             alpha,
                             shown,
                             Some(press),
-                            None,
+                            Some(module_menu(bar_id, id)),
                             None,
                             None,
                             tip,
@@ -2484,7 +2500,7 @@ impl App {
                         alpha,
                         self.label(format_now("%a %-d %b"), size, fg),
                         Some(Msg::OpenPopover(bar_id, id.clone(), Request::Calendar)),
-                        None,
+                        Some(module_menu(bar_id, id)),
                         None,
                         None,
                         None,
@@ -2655,10 +2671,13 @@ impl App {
                             )
                         });
                         let click_msg = click.map(|f| Msg::LuaCall(id.clone(), f, None));
+                        // Widget de notifications sans fonction `menu` (HIG
+                        // ENT-07) : son menu court à lui ; avec elle, le sien.
+                        let notif = menu.is_none() && w.type_id == "notifications";
                         let (left, right) = match (menu_msg, click_msg) {
                             (Some(m), Some(c)) => (Some(c), Some(m)),
                             (Some(m), None) => (Some(m), None),
-                            (None, c) => (c, None),
+                            (None, c) => (c, notif.then(|| module_menu(bar_id, id))),
                         };
                         let wid = id.clone();
                         let scroll_cb: Option<Box<dyn Fn(i64) -> Msg + 'a>> = scroll.map(|f| {
@@ -2682,10 +2701,12 @@ impl App {
         }
     }
 
+    /// Carte de `key` ouverte sur la barre. Le menu contextuel d'un module
+    /// (HIG ENT-07) porte la clé `menu_key(module)` : il allume son module.
     fn bar_menu_open(&self, bar: Id, key: &str) -> bool {
         self.popover
             .as_ref()
-            .is_some_and(|p| p.bar == bar && p.key == key && !p.closing())
+            .is_some_and(|p| p.bar == bar && popover::module_key(&p.key) == key && !p.closing())
     }
 
     fn tray_icon(

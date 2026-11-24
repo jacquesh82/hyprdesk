@@ -4888,6 +4888,24 @@ impl App {
                             source: popover::MenuSource::Shell,
                         },
                     )),
+                    // Menu contextuel d'un module de barre (HIG ENT-07) : les
+                    // commandes du module, lues à l'ouverture ; hors d'un
+                    // module qui en a un, rien.
+                    popover::Request::ModuleMenu(module) => {
+                        let entries = plugins::bar::menus::module_entries(self, &module);
+                        if entries.is_empty() {
+                            return Task::none();
+                        }
+                        Task::done(Msg::PopoverReady(
+                            request,
+                            bar_id,
+                            key,
+                            popover::Kind::Menu {
+                                entries,
+                                source: popover::MenuSource::Module,
+                            },
+                        ))
+                    }
                     // Menu « Aide » (HIG MENU-05) : contenu fixe ; « Documentation »
                     // ne s'active que si le paquet a installé le guide.
                     popover::Request::Help => Task::done(Msg::PopoverReady(

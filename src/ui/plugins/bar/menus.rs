@@ -29,6 +29,19 @@ pub(in crate::ui) const HELP_SEARCH: i64 = 10;
 const HELP_TOUR: i64 = 11;
 const HELP_KEYS: i64 = 12;
 const HELP_DOCS: i64 = 13;
+// Menus contextuels des modules de barre (HIG ENT-07), à la suite.
+const MODULE_MUTE: i64 = 20;
+const MODULE_SOUND: i64 = 21;
+const MODULE_ENERGY: i64 = 22;
+const MODULE_DATETIME: i64 = 23;
+const MODULE_READ: i64 = 24;
+const MODULE_DND: i64 = 25;
+
+/// Clé du module de volume, du module de luminosité (ancre de leur carte) ;
+/// type au catalogue du widget de notifications.
+const VOLUME: &str = "volume";
+const BRIGHTNESS: &str = "brightness";
+const NOTIFICATIONS: &str = "notifications";
 
 /// Dossier des documents du shell, tel que le paquet l'installe.
 const GUIDE_DIR: &str = "/usr/share/doc/hyprdesk";
@@ -221,6 +234,127 @@ pub(in crate::ui) fn act(app: &App, action: i64) -> Task<Msg> {
     }
 }
 
+/// Entrées du menu contextuel d'un module de barre (HIG ENT-07). `module` :
+/// la clé du module. Deux commandes au plus, toutes prises ailleurs dans
+/// l'interface — le clic milieu, les Réglages, le centre de contrôle (HIG
+/// MENU-04 : jamais un menu contextuel seule voie). Hors des modules qui ont
+/// un menu (volume, luminosité, horloge, calendrier, widget de
+/// notifications) : rien, la carte n'ouvre pas.
+pub(in crate::ui) fn module_entries(app: &App, module: &str) -> Vec<MenuEntry> {
+    let tr = |s: &str| crate::i18n::tr(s).to_string();
+    let item = |label: &str, icon: &str, action: i64| MenuEntry::Item {
+        label: tr(label),
+        detail: None,
+        icon: (!icon.is_empty()).then(|| icon.to_string()),
+        checked: None,
+        enabled: true,
+        action: Some(action),
+        confirm: None,
+    };
+    let muted = app.volume.is_some_and(|(_, m)| m);
+    let widget = app.cfg.widgets.iter().find(|w| w.id == module);
+    match module {
+        VOLUME => vec![
+            item(
+                if muted {
+                    "Rétablir le son"
+                } else {
+                    "Couper le son"
+                },
+                super::surface::volume_icon(app.volume),
+                MODULE_MUTE,
+            ),
+            MenuEntry::Separator,
+            item(
+                "Réglages du son…",
+                "preferences-system-symbolic",
+                MODULE_SOUND,
+            ),
+        ],
+        BRIGHTNESS => vec![item(
+            "Réglages d'énergie…",
+            "preferences-system-symbolic",
+            MODULE_ENERGY,
+        )],
+        // Horloge, calendrier, widget de notifications : des widgets, leur
+        // clé est l'id.
+        _ => match widget {
+            // Sans non-lue, « Tout marquer comme lu » se retire ; la coche
+            // marque le Silence en cours.
+            Some(w) if w.type_id == NOTIFICATIONS => {
+                let mut e = Vec::new();
+                if app.toasts.unread() > 0 {
+                    e.push(item(
+                        "Tout marquer comme lu",
+                        "preferences-system-notifications-symbolic",
+                        MODULE_READ,
+                    ));
+                    e.push(MenuEntry::Separator);
+                }
+                e.push(MenuEntry::Item {
+                    label: tr("Ne pas déranger"),
+                    detail: None,
+                    icon: Some(
+                        if app.toasts.dnd {
+                            "notifications-disabled-symbolic"
+                        } else {
+                            "preferences-system-notifications-symbolic"
+                        }
+                        .into(),
+                    ),
+                    checked: Some(app.toasts.dnd),
+                    enabled: true,
+                    action: Some(MODULE_DND),
+                    confirm: None,
+                });
+                e
+            }
+            Some(w)
+                if matches!(
+                    w.kind,
+                    crate::config::WidgetKind::Clock { .. } | crate::config::WidgetKind::Calendar
+                ) =>
+            {
+                vec![item(
+                    "Réglages de date et d'heure…",
+                    "preferences-system-symbolic",
+                    MODULE_DATETIME,
+                )]
+            }
+            _ => Vec::new(),
+        },
+    }
+}
+
+/// Applique l'entrée `action` du menu contextuel d'un module de barre.
+pub(in crate::ui) fn module_act(app: &App, action: i64) -> Task<Msg> {
+    let settings = |page: &str| Task::done(Msg::Control(Command::Settings(page.into())));
+    match action {
+        // Le clic milieu du module.
+        MODULE_MUTE => Task::done(Msg::VolumeMute),
+        MODULE_SOUND => settings("son"),
+        MODULE_ENERGY => settings("energie"),
+        MODULE_DATETIME => settings("date-heure"),
+        MODULE_READ => Task::done(Msg::Toasts(crate::ui::toasts::TMsg::Read)),
+        // La bascule du centre de contrôle : le Silence en cours se coupe ;
+        // sans lui, sa fin se choisit dans sa propre carte.
+        MODULE_DND => {
+            if app.toasts.dnd {
+                Task::done(Msg::Control(Command::Notifications("dnd off".into())))
+            } else {
+                app.popover.as_ref().map_or_else(Task::none, |p| {
+                    Task::done(Msg::OpenPopover(
+                        p.bar,
+                        "silence".into(),
+                        popover::Request::Silence,
+                    ))
+                })
+            }
+        }
+        _ => Task::none(),
+    }
+}
+
 /// Nom affiché d'un fichier ou d'un dossier de bureau : celui de son icône.
 fn file_name(p: &Path) -> String {
     p.file_name()
@@ -270,6 +404,154 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    fn libelles(e: &[MenuEntry]) -> Vec<String> {
+        e.iter()
+            .filter_map(|x| match x {
+                MenuEntry::Item { label, .. } => Some(label.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn icone(e: &[MenuEntry], i: usize) -> Option<String> {
+        match &e[i] {
+            MenuEntry::Item { icon, .. } => icon.clone(),
+            _ => None,
+        }
+    }
+
+    /// Le menu contextuel du volume (HIG ENT-07) suit l'état du son — «
+    /// Rétablir le son » coupé, « Couper le son » sinon, l'icône du module —
+    /// puis mène aux Réglages du son. Luminosité, horloge et calendrier :
+    /// leurs Réglages, une seule entrée. Tout autre module : rien, la carte
+    /// n'ouvre pas.
+    #[test]
+    fn menu_du_module_de_volume_selon_l_etat() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-menus-tests/config.lua"),
+            true,
+        )
+        .0;
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        app.volume = Some((0.8, false));
+        let e = module_entries(&app, VOLUME);
+        assert_eq!(actions(&e), [MODULE_MUTE, MODULE_SOUND]);
+        assert_eq!(libelles(&e), [tr("Couper le son"), tr("Réglages du son…")]);
+        assert_eq!(icone(&e, 0).as_deref(), Some("audio-volume-high-symbolic"));
+        // Le groupe des Réglages porte des icônes à toutes ses lignes.
+        assert!(
+            e.iter()
+                .all(|x| !matches!(x, MenuEntry::Item { icon: None, .. }))
+        );
+        app.volume = Some((0.8, true));
+        let e = module_entries(&app, VOLUME);
+        assert_eq!(libelles(&e)[0], tr("Rétablir le son"));
+        assert_eq!(icone(&e, 0).as_deref(), Some("audio-volume-muted-symbolic"));
+        // Chaque entrée fait ce que fait la commande dont elle vient.
+        assert_eq!(
+            module_entries(&app, BRIGHTNESS)
+                .iter()
+                .filter_map(|x| match x {
+                    MenuEntry::Item { label, .. } => Some(label.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            [tr("Réglages d'énergie…").as_str()]
+        );
+        for kind in [
+            crate::config::WidgetKind::Calendar,
+            crate::config::WidgetKind::Clock {
+                format: String::new(),
+            },
+        ] {
+            std::sync::Arc::make_mut(&mut app.cfg)
+                .widgets
+                .push(crate::config::WidgetDef {
+                    origin: Default::default(),
+                    sel: Default::default(),
+                    id: "horloge".into(),
+                    type_id: "clock".into(),
+                    kind,
+                    anchor: Default::default(),
+                    x: 0.0,
+                    y: 0.0,
+                    size: 13.0,
+                    interval: std::time::Duration::from_secs(1),
+                    card: false,
+                    in_bar: true,
+                    screen: Default::default(),
+                    if_missing: Default::default(),
+                });
+            assert_eq!(
+                libelles(&module_entries(&app, "horloge")),
+                [tr("Réglages de date et d'heure…")]
+            );
+            std::sync::Arc::make_mut(&mut app.cfg).widgets.clear();
+        }
+        // Widget de notifications (HIG ENT-07) : sans non-lue, « Tout marquer
+        // comme lu » se retire ; « Ne pas déranger » bascule, sa coche marque
+        // le Silence en cours.
+        std::sync::Arc::make_mut(&mut app.cfg)
+            .widgets
+            .push(crate::config::WidgetDef {
+                origin: Default::default(),
+                sel: Default::default(),
+                id: "notif".into(),
+                type_id: NOTIFICATIONS.into(),
+                kind: crate::config::WidgetKind::Lua {
+                    func: 0,
+                    click: None,
+                    scroll: None,
+                    menu: None,
+                    toggle: None,
+                },
+                anchor: Default::default(),
+                x: 0.0,
+                y: 0.0,
+                size: 13.0,
+                interval: std::time::Duration::from_secs(1),
+                card: false,
+                in_bar: true,
+                screen: Default::default(),
+                if_missing: Default::default(),
+            });
+        assert_eq!(
+            libelles(&module_entries(&app, "notif")),
+            [tr("Ne pas déranger")],
+            "sans non-lue"
+        );
+        app.toasts.history = vec![crate::notifications::build(
+            1,
+            "Signal",
+            "",
+            "s",
+            "",
+            &[],
+            &std::collections::HashMap::new(),
+            -1,
+        )];
+        let e = module_entries(&app, "notif");
+        assert_eq!(actions(&e), [MODULE_READ, MODULE_DND]);
+        let dermier = |e: &[MenuEntry]| match e.last() {
+            Some(MenuEntry::Item { label, checked, .. }) => (label.clone(), *checked),
+            other => panic!("pas une entrée : {other:?}"),
+        };
+        assert_eq!(
+            dermier(&e),
+            (tr("Ne pas déranger"), Some(false)),
+            "en dernier, sans Silence"
+        );
+        app.toasts.dnd = true;
+        let e = module_entries(&app, "notif");
+        assert_eq!(dermier(&e).1, Some(true), "la coche marque le Silence");
+        app.toasts.history.clear();
+        app.toasts.dnd = false;
+        assert!(
+            module_entries(&app, "tray:1").is_empty(),
+            "hors d'un module à menu : rien"
+        );
     }
 
     #[test]

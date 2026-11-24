@@ -373,6 +373,17 @@ them.
 These commands also remain where they already were: the window title, the
 control center, the workspace card.
 
+A right-click opens a short menu too — two commands at most, each of them
+also found elsewhere in the interface; a command that does not apply is left
+out. On the title or the background of a card in the spaces overview:
+“Show space”, “Rename…”. On a notification card in the notification center:
+“Open” (when the card leads somewhere) and “Close”. On a bar module: “Mute”
+or “Unmute”, then “Sound settings…” (volume), “Energy settings…” (brightness),
+“Date and time settings…” (clock and calendar), “Mark all as read” (left out
+without an unread notification) and “Do not disturb” (notifications widget
+without a `menu` function); on the title of the active window, the **Window**
+menu.
+
 A line followed by a “›” chevron opens a submenu, one level only. It opens on
 hover (on click, on a touchscreen), in a column beside the list, which stays
 in place; near the right edge of the screen, the column opens on the left.

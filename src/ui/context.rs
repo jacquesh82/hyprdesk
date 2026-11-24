@@ -28,7 +28,9 @@ use iced_layershell::reexport::{
 };
 
 use super::menu::{Item, Line, groups};
+use super::overview::OMsg;
 use super::plugins::bar::window;
+use super::toasts::TMsg;
 use super::{App, Msg, color};
 use crate::config::IconKind;
 
@@ -84,6 +86,29 @@ pub enum MenuTarget {
     Edit(EditRef),
     /// Fenêtre de l'aperçu des espaces (HIG MENU-06).
     Window(WindowRef),
+    /// Carte d'espace de l'aperçu : son titre ou son fond (HIG ENT-07).
+    Space(SpaceRef),
+    /// Carte de notification du centre de notifications (HIG ENT-07).
+    Notification(NotificationRef),
+}
+
+/// Espace visé par le menu de sa carte dans l'aperçu : le rang de sa carte et
+/// son nom, lus à l'ouverture. Le rang peut vieillir (un espace fermé depuis
+/// décale les cartes) : le nom retrouve la carte à l'action.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpaceRef {
+    pub card: usize,
+    pub name: String,
+}
+
+/// Notification visée par le menu de sa carte dans le centre : son
+/// identifiant, et `openable` quand un clic sur la carte mène quelque part
+/// (action `default`, ou l'application). Fermée depuis, un message qui porte
+/// son identifiant ne fait rien.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NotificationRef {
+    pub id: u32,
+    pub openable: bool,
 }
 
 /// Fenêtre visée par le menu de l'aperçu : son adresse, son état lu à
@@ -267,6 +292,14 @@ pub enum CMsg {
     WindowAct(i64),
     /// « Déplacer vers l'espace » : ses espaces (libellé, action), à la place des entrées.
     WindowSpaces(Vec<(String, i64)>),
+    /// Carte d'espace de l'aperçu (HIG ENT-07) : ce que font le clic sur le
+    /// fond de la carte, le double-clic sur son titre.
+    SpaceShow,
+    SpaceRename,
+    /// Carte de notification du centre (HIG ENT-07) : ce que font le clic sur
+    /// la carte, son bouton de fermeture.
+    NotifOpen(u32),
+    NotifClose(u32),
     Close,
     Done(Result<(), String>),
 }
@@ -736,6 +769,35 @@ impl App {
             }
             MenuTarget::App(a) => self.app_lines(m, a),
             MenuTarget::Window(w) => self.window_lines(w),
+            // Deux entrées, celles des gestes de la carte (HIG ENT-07).
+            MenuTarget::Space(_) => groups(vec![vec![
+                Item::new(tr("Afficher l'espace"), "go-jump-symbolic", CMsg::SpaceShow).into(),
+                Item::new(tr("Renommer…"), "document-edit-symbolic", CMsg::SpaceRename).into(),
+            ]]),
+            // « Ouvrir » seulement quand la carte mène quelque part : une
+            // commande sans effet dans le contexte se retire (HIG Context
+            // menus).
+            MenuTarget::Notification(n) => groups(vec![
+                n.openable
+                    .then(|| {
+                        Item::new(
+                            tr("Ouvrir"),
+                            "document-open-symbolic",
+                            CMsg::NotifOpen(n.id),
+                        )
+                        .into()
+                    })
+                    .into_iter()
+                    .collect(),
+                vec![
+                    Item::new(
+                        tr("Fermer"),
+                        "window-close-symbolic",
+                        CMsg::NotifClose(n.id),
+                    )
+                    .into(),
+                ],
+            ]),
             MenuTarget::Edit(e) => groups(vec![
                 vec![
                     Item::new(
@@ -1056,6 +1118,54 @@ impl App {
         self.spawn_menu(menu, at, false)
     }
 
+    /// Clic droit sur le titre ou le fond d'une carte de l'aperçu des espaces
+    /// (HIG ENT-07) : deux entrées, celles des gestes de la carte.
+    pub(super) fn open_space_menu(
+        &mut self,
+        surface: Id,
+        monitor: &str,
+        card: usize,
+        name: &str,
+    ) -> Task<Msg> {
+        let at = self.cursor.get(&surface).copied().unwrap_or_default();
+        let mut menu = IconMenu::new(
+            MenuTarget::Space(SpaceRef {
+                card,
+                name: name.to_string(),
+            }),
+            surface,
+        );
+        menu.monitor = monitor.to_string();
+        self.spawn_menu(menu, at, false)
+    }
+
+    /// Clic droit sur une carte de notification du centre (HIG ENT-07), dans
+    /// la surface `surface` qui la montre : « Ouvrir » quand la carte mène
+    /// quelque part, « Fermer » toujours. Fermée depuis, rien.
+    pub(super) fn open_notification_menu(
+        &mut self,
+        surface: Id,
+        monitor: &str,
+        id: u32,
+    ) -> Task<Msg> {
+        let Some(openable) = self
+            .toasts
+            .history
+            .iter()
+            .find(|n| n.id == id)
+            .map(super::toasts::card_openable)
+        else {
+            return Task::none();
+        };
+        let at = self.cursor.get(&surface).copied().unwrap_or_default();
+        let mut menu = IconMenu::new(
+            MenuTarget::Notification(NotificationRef { id, openable }),
+            surface,
+        );
+        menu.monitor = monitor.to_string();
+        self.spawn_menu(menu, at, false)
+    }
+
     /// Titre de la carte (vide : pas de titre).
     fn icon_menu_title(&self, m: &IconMenu) -> String {
         let name = match &m.target {
@@ -1087,8 +1197,10 @@ impl App {
             }
             MenuTarget::Desktop => crate::i18n::tr("Bureau").to_string(),
             MenuTarget::App(a) => a.name.clone(),
-            // Sans titre : la fenêtre vient d'être cliquée, elle est sous le curseur.
+            // Sans titre : la fenêtre vient d'être cliquée, elle est sous le
+            // curseur ; la carte d'espace, la carte de notification aussi.
             MenuTarget::Window(_) => String::new(),
+            MenuTarget::Space(_) | MenuTarget::Notification(_) => String::new(),
             MenuTarget::Edit(_) => String::new(),
         };
         if m.share.is_some() && !name.is_empty() {
@@ -1229,11 +1341,16 @@ impl App {
         menu.origin = Point::new(x, y);
         menu.win = Id::unique();
         menu.catcher = Id::unique();
-        // Dock, grille, champs, aperçu des espaces : leur surface peut être
-        // au-dessus de la couche « Top » ; le capteur passe alors par-dessus elle.
+        // Dock, grille, champs, aperçu des espaces, carte de la barre : leur
+        // surface peut être au-dessus de la couche « Top » ; le capteur passe
+        // alors par-dessus elle.
         let over = matches!(
             menu.target,
-            MenuTarget::App(_) | MenuTarget::Edit(_) | MenuTarget::Window(_)
+            MenuTarget::App(_)
+                | MenuTarget::Edit(_)
+                | MenuTarget::Window(_)
+                | MenuTarget::Space(_)
+                | MenuTarget::Notification(_)
         );
         let monitor = menu.monitor.clone();
         for name in super::menu::icons(&self.icon_menu_lines(&menu)) {
@@ -1888,6 +2005,47 @@ impl App {
                 m.hover = None;
                 Task::batch([close, self.reopen_icon_menu(m)])
             }
+            // Carte d'espace de l'aperçu (HIG ENT-07) : le clic sur le fond de
+            // la carte, puis le double-clic sur son titre. La carte est
+            // retrouvée par son nom : son rang a pu vieillir.
+            CMsg::SpaceShow => {
+                let name = match &menu.target {
+                    MenuTarget::Space(s) => Some(s.name.clone()),
+                    _ => None,
+                };
+                let close = self.close_icon_menu();
+                match name {
+                    Some(name) => Task::batch([close, self.overview_update(OMsg::Pick(name))]),
+                    None => close,
+                }
+            }
+            CMsg::SpaceRename => {
+                let r = match &menu.target {
+                    MenuTarget::Space(s) => Some(s.clone()),
+                    _ => None,
+                };
+                let close = self.close_icon_menu();
+                let Some(r) = r else {
+                    return close;
+                };
+                let card = self
+                    .overview_cards()
+                    .iter()
+                    .position(|c| c.name == r.name)
+                    .unwrap_or(r.card);
+                Task::batch([close, self.overview_update(OMsg::RenameStart(card))])
+            }
+            // Carte de notification du centre (HIG ENT-07) : ce que font le
+            // clic sur la carte, son bouton de fermeture. L'identifiant est
+            // celui du menu : fermée depuis, ces commandes ne font rien.
+            CMsg::NotifOpen(id) => {
+                let close = self.close_icon_menu();
+                Task::batch([close, self.toasts_update(TMsg::Card(id))])
+            }
+            CMsg::NotifClose(id) => {
+                let close = self.close_icon_menu();
+                Task::batch([close, self.toasts_update(TMsg::Close(id))])
+            }
             CMsg::Close => self.close_icon_menu(),
             CMsg::Done(r) => {
                 if let Err(e) = r {
@@ -1996,7 +2154,11 @@ impl App {
                 ));
             }
             // Pas de « Propriétés » dans ces menus.
-            MenuTarget::App(_) | MenuTarget::Edit(_) | MenuTarget::Window(_) => {}
+            MenuTarget::App(_)
+            | MenuTarget::Edit(_)
+            | MenuTarget::Window(_)
+            | MenuTarget::Space(_)
+            | MenuTarget::Notification(_) => {}
             MenuTarget::Desktop => {
                 if let Some(m) = self.monitor(desk) {
                     v.push((
@@ -2771,6 +2933,135 @@ mod tests {
         assert_eq!(labels, ["Projet 2", "Projet 3"]);
         assert!(matches!(spaces[0].msg, CMsg::WindowAct(1002)));
         assert!(matches!(spaces[1].msg, CMsg::WindowAct(1003)));
+    }
+
+    /// Carte d'espace de l'aperçu (HIG ENT-07) : deux entrées, celles des
+    /// gestes de la carte — afficher l'espace, le renommer ; sans titre.
+    #[test]
+    fn menu_d_une_carte_d_espace() {
+        let mut app = app();
+        app.monitors = vec![ecran(1080)];
+        let mut m = IconMenu::new(
+            MenuTarget::Space(SpaceRef {
+                card: 1,
+                name: "Projet 2".into(),
+            }),
+            Id::unique(),
+        );
+        m.monitor = "A".into();
+        app.icon_menu = Some(m);
+        let lines = app.icon_menu_lines(app.icon_menu.as_ref().unwrap());
+        let it = items(&lines);
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        let labels: Vec<String> = it.iter().map(|i| i.label.clone()).collect();
+        assert_eq!(labels, [tr("Afficher l'espace"), tr("Renommer…")]);
+        assert_eq!(it[0].icon.as_deref(), Some("go-jump-symbolic"));
+        assert_eq!(it[1].icon.as_deref(), Some("document-edit-symbolic"));
+        assert!(it.iter().all(|i| i.enabled));
+        assert!(matches!(it[0].msg, CMsg::SpaceShow));
+        assert!(matches!(it[1].msg, CMsg::SpaceRename));
+        // Court : un seul groupe.
+        assert!(
+            lines.iter().all(|l| !matches!(l, Line::Separator)),
+            "deux entrées, sans groupe"
+        );
+        assert!(
+            app.icon_menu_title(app.icon_menu.as_ref().unwrap())
+                .is_empty()
+        );
+    }
+
+    /// Carte de notification du centre (HIG ENT-07) : « Ouvrir » quand la
+    /// carte mène quelque part, « Fermer » toujours. Sans cible, l'entrée se
+    /// retire : une commande sans effet dans le contexte ne se grise pas.
+    #[test]
+    fn menu_d_une_carte_de_notification() {
+        let mut app = app();
+        app.monitors = vec![ecran(1080)];
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        for (openable, attendu) in [
+            (true, vec![tr("Ouvrir"), tr("Fermer")]),
+            (false, vec![tr("Fermer")]),
+        ] {
+            let mut m = IconMenu::new(
+                MenuTarget::Notification(NotificationRef { id: 4, openable }),
+                Id::unique(),
+            );
+            m.monitor = "A".into();
+            app.icon_menu = Some(m);
+            let lines = app.icon_menu_lines(app.icon_menu.as_ref().unwrap());
+            let it = items(&lines);
+            let labels: Vec<String> = it.iter().map(|i| i.label.clone()).collect();
+            assert_eq!(labels, attendu);
+            // « Fermer » vient en dernier, toujours ; « Ouvrir » en tête.
+            let fermer = it.len() - 1;
+            assert_eq!(it[fermer].icon.as_deref(), Some("window-close-symbolic"));
+            assert!(matches!(it[fermer].msg, CMsg::NotifClose(4)));
+            if openable {
+                assert_eq!(it[0].icon.as_deref(), Some("document-open-symbolic"));
+                assert!(matches!(it[0].msg, CMsg::NotifOpen(4)));
+            }
+        }
+        assert!(
+            app.icon_menu_title(app.icon_menu.as_ref().unwrap())
+                .is_empty()
+        );
+    }
+
+    /// Les entrées du menu d'une carte d'espace (HIG ENT-07) font ce que font
+    /// les gestes de la carte, et le menu se ferme : « Renommer… » ouvre le
+    /// renommage de la carte — retrouvée par son nom quand son rang a vieilli
+    /// —, « Afficher l'espace » referme l'aperçu.
+    #[test]
+    fn les_entrees_du_menu_d_espace_agissent_comme_la_carte() {
+        let mut app = app();
+        app.monitors = vec![ecran(1080)];
+        app.workspaces = (1..=3)
+            .map(|id| crate::hypr::Workspace {
+                id,
+                name: format!("Projet {id}"),
+                monitor: "A".into(),
+                windows: 1,
+                fullscreen: false,
+            })
+            .collect();
+        let menu = |card: usize| {
+            let mut m = IconMenu::new(
+                MenuTarget::Space(SpaceRef {
+                    card,
+                    name: "Projet 3".into(),
+                }),
+                Id::unique(),
+            );
+            m.monitor = "A".into();
+            m
+        };
+        app.overview = Some(super::super::overview::Overview::new(
+            Id::unique(),
+            "A".into(),
+            super::super::Fade {
+                from: 1.0,
+                to: 1.0,
+                start: std::time::Instant::now(),
+                dur: std::time::Duration::ZERO,
+            },
+        ));
+        // Le rang lu à l'ouverture a vieilli : la carte est la troisième.
+        app.icon_menu = Some(menu(0));
+        let _ = app.icon_menu_update(CMsg::SpaceRename);
+        assert!(app.icon_menu.is_none(), "le menu se ferme");
+        assert_eq!(
+            app.overview.as_ref().and_then(|o| o.renaming.clone()),
+            Some((2, "Projet 3".to_string()))
+        );
+        app.overview.as_mut().unwrap().renaming = None;
+        app.icon_menu = Some(menu(2));
+        let _ = app.icon_menu_update(CMsg::SpaceShow);
+        assert!(app.icon_menu.is_none());
+        assert!(
+            app.overview.as_ref().is_none_or(|o| o.visibility.to == 0.0),
+            "l'aperçu se referme"
+        );
     }
 
     #[test]

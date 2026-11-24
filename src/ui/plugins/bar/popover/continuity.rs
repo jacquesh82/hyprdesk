@@ -1167,6 +1167,11 @@ impl App {
                         ..Default::default()
                     }
                 });
+                // Clic droit sur la tuile : son menu court, celui des cartes
+                // de notification du centre (HIG ENT-07).
+                let card: Element<'_, Msg> = iced::widget::mouse_area(card)
+                    .on_right_press(Msg::Toasts(crate::ui::toasts::TMsg::Menu(n.id)))
+                    .into();
                 tiles = tiles.push(keyboard::press(card, press, pal.fg));
             }
             items = items.push(

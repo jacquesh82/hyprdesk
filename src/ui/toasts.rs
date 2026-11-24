@@ -277,6 +277,12 @@ pub(super) fn card_press(n: &Notification) -> Option<Msg> {
     card_click(n).map(|_| Msg::Toasts(TMsg::Card(n.id)))
 }
 
+/// La carte du centre mène quelque part : son menu contextuel (HIG ENT-07)
+/// porte « Ouvrir » ; sans quoi l'entrée se retire.
+pub(super) fn card_openable(n: &Notification) -> bool {
+    card_click(n).is_some()
+}
+
 /// Titre et corps d'une carte de notification, bornés (HIG LAY-04) ; le corps
 /// est `None` quand il est vide, un texte générique quand les aperçus sont
 /// masqués (HIG SYS-05).
@@ -346,6 +352,9 @@ pub enum TMsg {
     Invoke(u32, String),
     /// Clic sur une carte du centre de notifications.
     Card(u32),
+    /// Clic droit sur une carte du centre de notifications : son menu court
+    /// (HIG ENT-07).
+    Menu(u32),
     Close(u32),
     /// Refus du passage du Silence pour l'application de la bulle (HIG PAT-05).
     Refuse(u32),
@@ -895,6 +904,26 @@ impl App {
                     None => close,
                 }
             }
+            // Clic droit sur une carte du centre (HIG ENT-07) : son menu, au
+            // curseur, dans la surface qui la montre — la carte Notifications
+            // de la barre, le centre Continuité. Plus montrée, ou fermée
+            // depuis : rien.
+            TMsg::Menu(id) => {
+                let shown = self
+                    .popover
+                    .as_ref()
+                    .filter(|_| self.history_list_open())
+                    .map(|p| (p.win, p.bar));
+                let Some((win, bar)) = shown else {
+                    return Task::none();
+                };
+                let monitor = self
+                    .bar_surfaces
+                    .get(&bar)
+                    .map(|b| b.monitor.clone())
+                    .unwrap_or_default();
+                self.open_notification_menu(win, &monitor, id)
+            }
             TMsg::Close(id) => {
                 send(Cmd::Dismiss(id, Reason::Dismissed));
                 self.toasts.list.retain(|t| t.n.id != id);
@@ -1426,14 +1455,18 @@ impl App {
                 .align_y(Alignment::Start)
                 .into();
                 // Carte cliquable quand elle mène quelque part : l'action de
-                // l'application, ou l'application elle-même.
-                cards = cards.push(match card_press(n) {
+                // l'application, ou l'application elle-même. Un clic droit
+                // partout : son menu court (HIG ENT-07).
+                let menu = Msg::Toasts(TMsg::Menu(n.id));
+                let card: Element<'_, Msg> = match card_press(n) {
                     Some(press) => mouse_area(card)
                         .interaction(iced::mouse::Interaction::Pointer)
                         .on_press(press)
+                        .on_right_press(menu)
                         .into(),
-                    None => card,
-                });
+                    None => mouse_area(card).on_right_press(menu).into(),
+                };
+                cards = cards.push(card);
             }
             col = col.push(
                 container(
@@ -2785,6 +2818,61 @@ mod tests {
         let _ = app.toasts_update(TMsg::Event(Event::Shown(critique(2, &refusee))));
         assert_eq!(app.toasts.list.len(), 1, "sous Silence : pas de bulle");
         assert_eq!(app.toasts.unread(), 1, "sans bulle, elle est non lue");
+    }
+
+    /// HIG ENT-07 : un clic droit sur une carte du centre ouvre son menu sur
+    /// la surface de la carte qui la montre ; sans carte ouverte, ou sur une
+    /// notification fermée depuis, rien ne s'ouvre.
+    #[test]
+    fn clic_droit_d_une_carte_sans_cible_n_ouvre_rien() {
+        use crate::ui::plugins::bar::popover::Kind;
+        use crate::ui::plugins::bar::surface::BarSurface;
+        let mut app = application();
+        // Aucune carte du centre ouverte : rien.
+        let _ = app.toasts_update(TMsg::Menu(7));
+        assert!(app.icon_menu.is_none(), "sans carte ouverte");
+        let bar = Id::unique();
+        app.monitors = vec![crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 900,
+            height: 640,
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            workspace: "1".into(),
+            base: String::new(),
+            focused: true,
+            reserved: (0.0, 44.0, 0.0, 0.0),
+        }];
+        app.bar_surfaces.insert(
+            bar,
+            BarSurface {
+                monitor: "A".into(),
+                ..Default::default()
+            },
+        );
+        let _ = app.open_popover(bar, "notifications".into(), Kind::Notifications);
+        assert!(
+            app.history_list_open(),
+            "la carte Notifications est ouverte"
+        );
+        // Carte ouverte, notification inconnue (fermée depuis) : rien.
+        let _ = app.toasts_update(TMsg::Menu(9));
+        assert!(app.icon_menu.is_none(), "notification fermée depuis");
+        // La carte montre la notification : son menu, sur la surface de la
+        // carte. Celle-ci ne mène nulle part : pas d'entrée « Ouvrir ».
+        app.toasts.history.push(recue(7, "Signal"));
+        let _ = app.toasts_update(TMsg::Menu(7));
+        let m = app.icon_menu.as_ref().expect("le menu de la carte");
+        assert!(matches!(
+            &m.target,
+            crate::ui::context::MenuTarget::Notification(n) if n.id == 7 && !n.openable
+        ));
+        assert_eq!(Some(m.desk), app.popover.as_ref().map(|p| p.win));
+        // Le menu part avec sa carte.
+        let _ = app.destroy_popover();
+        assert!(app.icon_menu.is_none(), "carte fermée : plus de menu");
     }
 }
 

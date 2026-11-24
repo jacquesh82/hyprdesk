@@ -67,6 +67,24 @@ pub enum Request {
     Activity {
         id: u32,
     },
+    /// Menu contextuel d'un module de barre : la clé du module (HIG ENT-07).
+    /// La carte porte la clé `menu_key(module)`.
+    ModuleMenu(String),
+}
+
+/// Suffixe de la clé de la carte d'un menu contextuel de module (HIG ENT-07).
+/// Une clé distincte de celle du clic gauche : un clic droit ne bascule pas la
+/// carte du clic gauche. La carte s'ancre au module, sous sa clé à lui.
+pub(in crate::ui) const MENU_KEY: &str = "!menu";
+
+/// Clé de la carte du menu contextuel du module `key`.
+pub(in crate::ui) fn menu_key(key: &str) -> String {
+    format!("{key}{MENU_KEY}")
+}
+
+/// Clé du module d'une clé de carte : celle du menu contextuel compris.
+pub(in crate::ui) fn module_key(key: &str) -> &str {
+    key.strip_suffix(MENU_KEY).unwrap_or(key)
 }
 
 #[cfg(test)]
@@ -652,6 +670,9 @@ pub enum MenuSource {
     Shell,
     /// Fin du Silence : l'action de l'entrée est son rang (`toasts::silence_command`).
     Silence,
+    /// Menu contextuel d'un module de barre : les commandes du module
+    /// (`bar::menus`, HIG ENT-07).
+    Module,
 }
 
 #[derive(Debug, Clone)]
@@ -971,9 +992,10 @@ impl App {
             return Task::none();
         };
         let hidden = self.bar_overflow_items(p.bar);
+        let module = module_key(&p.key);
         let overflowed = hidden.iter().any(|item| {
-            crate::ui::plugins::bar::surface::bar_item_key(item) == p.key
-                || (matches!(item, crate::config::BarItem::Tray) && p.key.starts_with("tray:"))
+            crate::ui::plugins::bar::surface::bar_item_key(item) == module
+                || (matches!(item, crate::config::BarItem::Tray) && module.starts_with("tray:"))
         });
         let key = if overflowed {
             "overflow"
@@ -1095,14 +1117,17 @@ impl App {
             return Task::none();
         };
         let hidden = self.bar_overflow_items(bar);
+        // Menu contextuel d'un module (HIG ENT-07) : sa carte s'ancre au
+        // module, comme celle de son clic gauche.
+        let module = module_key(&key);
         let overflowed = hidden.iter().any(|item| {
-            crate::ui::plugins::bar::surface::bar_item_key(item) == key
-                || (matches!(item, crate::config::BarItem::Tray) && key.starts_with("tray:"))
+            crate::ui::plugins::bar::surface::bar_item_key(item) == module
+                || (matches!(item, crate::config::BarItem::Tray) && module.starts_with("tray:"))
         });
         let anchor_key = if overflowed {
             "overflow".to_string()
-        } else if self.bar_anchors.contains_key(&(bar, key.clone())) {
-            key.clone()
+        } else if self.bar_anchors.contains_key(&(bar, module.to_string())) || module != key {
+            module.to_string()
         } else {
             self.popover
                 .as_ref()
@@ -1264,6 +1289,12 @@ impl App {
                 id: p.win,
                 size: (size.width as u32, size.height as u32),
             }));
+            // Le contenu remplacé emporte le menu d'une carte de notification
+            // ouvert sur lui (HIG ENT-07).
+            let win = p.win;
+            if !reversing {
+                tasks.push(self.menu_on_card(win));
+            }
             return Task::batch(tasks);
         }
         tasks.push(self.destroy_popover());
@@ -1435,10 +1466,24 @@ impl App {
         .into()
     }
 
+    /// Menu d'une carte de notification (HIG ENT-07) ouvert sur la surface
+    /// `win` de la carte de la barre : il part avec elle.
+    fn menu_on_card(&mut self, win: Id) -> Task<Msg> {
+        if self.icon_menu.as_ref().is_some_and(|m| m.desk == win) {
+            self.close_icon_menu()
+        } else {
+            Task::none()
+        }
+    }
+
     pub(in crate::ui) fn destroy_popover(&mut self) -> Task<Msg> {
         self.cal_months = 0;
         match self.popover.take() {
-            Some(p) => Task::batch([iced::window::close(p.win), iced::window::close(p.catcher)]),
+            Some(p) => Task::batch([
+                self.menu_on_card(p.win),
+                iced::window::close(p.win),
+                iced::window::close(p.catcher),
+            ]),
             None => Task::none(),
         }
     }
@@ -1574,9 +1619,10 @@ impl App {
                     // Menu « Aide » : le champ de recherche ouvre celui des
                     // Réglages sur les mots saisis (HIG MENU-05).
                     MenuSource::Shell => super::menus::submit(action, &text),
-                    MenuSource::Tray { .. } | MenuSource::Window { .. } | MenuSource::Silence => {
-                        Task::none()
-                    }
+                    MenuSource::Tray { .. }
+                    | MenuSource::Window { .. }
+                    | MenuSource::Silence
+                    | MenuSource::Module => Task::none(),
                 };
                 Task::batch([t, self.close_popover()])
             }
@@ -1745,6 +1791,8 @@ impl App {
                     .command(&crate::ui::toasts::silence_command(action));
                 Task::none()
             }
+            // Menu contextuel d'un module de barre (HIG ENT-07).
+            MenuSource::Module => super::menus::module_act(self, action),
         };
         Task::batch([t, self.close_popover()])
     }
