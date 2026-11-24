@@ -1696,16 +1696,18 @@ impl App {
             );
         }
         for n in history.iter().take(30) {
+            // Titre et corps bornés, comme dans les autres centres (HIG LAY-04).
+            let (title, body) = crate::ui::toasts::card_text(n);
             let mut card = column![
                 text(n.app.clone()).size(size * 0.75).font(font).color(dim),
-                text(n.summary.clone())
+                text(title)
                     .size(crate::ui::tokens::ts(size))
                     .font(font)
                     .color(fg),
             ]
             .spacing(3);
-            if !n.body.is_empty() {
-                card = card.push(text(n.body.clone()).size(size * 0.85).font(font).color(fg));
+            if let Some(body) = body {
+                card = card.push(text(body).size(size * 0.85).font(font).color(fg));
             }
             list = list.push(
                 container(card)

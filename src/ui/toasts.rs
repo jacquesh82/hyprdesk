@@ -24,7 +24,7 @@ use iced_layershell::reexport::{
 
 use super::{App, Msg, color};
 use crate::notifications::{Event, Notification, Reason, Urgency};
-use crate::ui::plugins::bar::surface::URGENT_ICON;
+use crate::ui::plugins::bar::surface::{URGENT_ICON, truncate};
 
 pub const NAMESPACE: &str = "hyprdesk-notifications";
 /// Bulles visibles à la fois (les plus récentes).
@@ -41,6 +41,11 @@ const ICON: &str = "preferences-system-notifications-symbolic";
 const APP_ICON: f32 = 36.0;
 /// Côté de l'icône de l'application dans une carte du centre.
 pub(super) const CARD_ICON: f32 = 28.0;
+/// Titre et corps bornés dans les cartes de notifications, comme au centre
+/// Continuité (HIG LAY-04) : le corps entier de trente notifications ne tient
+/// pas dans la hauteur fixe de la carte.
+pub(super) const TITLE_CHARS: usize = 42;
+pub(super) const BODY_CHARS: usize = 74;
 /// Texte secondaire (application, corps) : la couleur du texte courant à
 /// cette opacité, dans la bulle comme dans la carte du centre.
 const DIM: f32 = 0.65;
@@ -195,6 +200,16 @@ pub(super) fn card_press(n: &Notification) -> Option<Msg> {
     card_click(n).map(|_| Msg::Toasts(TMsg::Card(n.id)))
 }
 
+/// Titre et corps d'une carte de notification, bornés (HIG LAY-04) ; le corps
+/// est `None` quand il est vide.
+pub(super) fn card_text(n: &Notification) -> (String, Option<String>) {
+    let body = truncate(&n.body.replace('\n', " "), BODY_CHARS);
+    (
+        truncate(&n.summary, TITLE_CHARS),
+        (!body.is_empty()).then_some(body),
+    )
+}
+
 /// Ouvre l'application d'origine par son identifiant `desktop-entry`, et
 /// seulement si son entrée est installée. Le hint arrive par le bus : il ne
 /// doit jamais servir de commande (le lanceur tente l'identifiant seul quand
@@ -336,13 +351,10 @@ impl App {
                     self.toasts.history.truncate(crate::notifications::HISTORY);
                     self.toasts.publish();
                 }
-                // Icône de l'application émettrice, pour la bulle et le centre.
+                // Icône de l'application émettrice, pour la bulle et le centre :
+                // la sienne, sinon celle de son application (HIG ICO-03).
                 // Demandée aussi sous Silence : le centre montre la carte.
-                let app_icon = if n.icon.is_empty() {
-                    Task::none()
-                } else {
-                    self.want_icon(&n.icon)
-                };
+                let app_icon = self.want_notif_icons(&n);
                 // Basse urgence (HIG PAT-06) ou ne pas déranger : dans
                 // l'historique seulement, sauf critique.
                 if n.urgency == Urgency::Low || (self.toasts.dnd && n.urgency != Urgency::Critical)
@@ -598,16 +610,56 @@ impl App {
         }
     }
 
-    /// Icône de l'application émettrice, `size` de côté. La cloche générique
-    /// lui sert de repli et occupe la même place : le texte ne bouge pas
-    /// quand l'icône arrive.
+    /// Icône de repli d'une notification qui n'en apporte pas : celle de son
+    /// application, cherchée parmi les applications installées d'après son
+    /// `desktop-entry` (à défaut son nom), comme une classe de fenêtre
+    /// (HIG ICO-03).
+    fn class_icon_name(&self, n: &Notification) -> Option<String> {
+        let class = n
+            .desktop_entry
+            .as_deref()
+            .and_then(app_id)
+            .or_else(|| app_id(&n.app))?;
+        self.apps
+            .iter()
+            .find(|a| {
+                a.wm_class
+                    .as_deref()
+                    .is_some_and(|w| w.eq_ignore_ascii_case(class))
+                    || a.id.eq_ignore_ascii_case(class)
+            })
+            .and_then(|a| a.icon.clone())
+            .filter(|icon| !icon.is_empty())
+    }
+
+    /// Nom de l'icône à montrer pour une notification : la sienne, sinon
+    /// celle de son application ; `None` quand aucune.
+    fn notif_icon_name(&self, n: &Notification) -> Option<String> {
+        (!n.icon.is_empty())
+            .then(|| n.icon.clone())
+            .or_else(|| self.class_icon_name(n))
+    }
+
+    /// Demande l'icône d'une notification à son arrivée : la sienne, ou
+    /// celle de son application.
+    pub(super) fn want_notif_icons(&mut self, n: &Notification) -> Task<Msg> {
+        match self.notif_icon_name(n) {
+            Some(name) => self.want_icon(&name),
+            None => Task::none(),
+        }
+    }
+
+    /// Icône de l'application émettrice, `size` de côté. À défaut, celle de
+    /// son application ; la cloche générique sert de dernier repli et occupe
+    /// la même place : le texte ne bouge pas quand l'icône arrive.
     pub(super) fn notif_icon<'a>(
         &'a self,
         n: &Notification,
         size: f32,
         tint: Color,
     ) -> Element<'a, Msg> {
-        self.icon_named(&n.icon, size, tint).unwrap_or_else(|| {
+        let name = self.notif_icon_name(n).unwrap_or_default();
+        self.icon_named(&name, size, tint).unwrap_or_else(|| {
             container(
                 self.icon_named(ICON, 18.0, tint)
                     .unwrap_or_else(|| iced::widget::Space::new().width(18).into()),
@@ -777,6 +829,7 @@ impl App {
             );
         }
         for n in self.toasts.history.iter().take(30) {
+            let (title, body) = card_text(n);
             let card: Element<'_, Msg> = row![
                 self.notif_icon(n, CARD_ICON, fg),
                 column![
@@ -784,15 +837,17 @@ impl App {
                         .font(self.font)
                         .size(crate::ui::tokens::ts(11.0))
                         .color(dim),
-                    text(n.summary.clone())
+                    text(title)
                         .font(self.font)
                         .size(crate::ui::tokens::ts(14.0))
                         .color(fg),
-                    text(n.body.clone())
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                        .line_height(crate::ui::tokens::line_height())
-                        .color(dim)
+                    body.map(|body| {
+                        text(body)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .line_height(crate::ui::tokens::line_height())
+                            .color(dim)
+                    })
                 ]
                 .spacing(4)
                 .width(Length::Fill),
@@ -985,6 +1040,70 @@ mod tests {
             demandee(&app, "calendar"),
             "l'icône est demandée sous Silence aussi"
         );
+    }
+
+    /// Sans icône, une notification prend celle de son application, cherchée
+    /// par son `desktop-entry`, sinon par son nom (HIG ICO-03).
+    #[test]
+    fn une_notification_sans_icone_prend_celle_de_son_application() {
+        let (mut app, _) = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-toast-tests/config.lua"),
+            true,
+        );
+        app.apps = std::sync::Arc::new(vec![crate::launch::AppInfo {
+            id: "firefox".into(),
+            name: "Firefox".into(),
+            icon: Some("firefox".into()),
+            wm_class: Some("Navigator".into()),
+            mime_types: Vec::new(),
+            categories: Vec::new(),
+            available: true,
+        }]);
+        let demandee = |app: &App, nom: &str| {
+            app.named_icons.contains_key(nom) || app.named_pending.contains(nom)
+        };
+        let hints = HashMap::from([(
+            "desktop-entry".to_string(),
+            zbus::zvariant::OwnedValue::try_from(zbus::zvariant::Value::from("firefox")).unwrap(),
+        )]);
+        let par_entree =
+            crate::notifications::build(9, "Navigateur", "", "s", "b", &[], &hints, -1);
+        let _ = app.toasts_update(TMsg::Event(Event::Shown(par_entree.clone())));
+        assert!(
+            demandee(&app, "firefox"),
+            "l'icône de l'application est demandée à la place"
+        );
+        assert_eq!(app.notif_icon_name(&par_entree).as_deref(), Some("firefox"));
+
+        // Sans `desktop-entry`, le nom de l'application sert de classe.
+        let par_nom =
+            crate::notifications::build(10, "Navigator", "", "s", "b", &[], &HashMap::new(), -1);
+        assert_eq!(app.notif_icon_name(&par_nom).as_deref(), Some("firefox"));
+
+        // L'icône envoyée reste prioritaire ; une application inconnue n'en
+        // impose aucune.
+        let propre =
+            crate::notifications::build(11, "a", "/tmp/a.png", "s", "b", &[], &HashMap::new(), -1);
+        assert_eq!(app.notif_icon_name(&propre).as_deref(), Some("/tmp/a.png"));
+        let inconnue =
+            crate::notifications::build(12, "Inconnue", "", "s", "b", &[], &HashMap::new(), -1);
+        assert_eq!(app.notif_icon_name(&inconnue), None);
+    }
+
+    /// Titre et corps d'une carte sont bornés, sans saut de ligne (HIG LAY-04).
+    #[test]
+    fn une_carte_borne_titre_et_corps() {
+        let longue = "é".repeat(100);
+        let corps = format!("{}\n{longue}", "b".repeat(30));
+        let n = crate::notifications::build(1, "a", "i", &longue, &corps, &[], &HashMap::new(), -1);
+        let (titre, corps) = card_text(&n);
+        assert_eq!(titre.chars().count(), TITLE_CHARS + 1);
+        assert!(titre.ends_with('…'));
+        let corps = corps.expect("un corps");
+        assert_eq!(corps.chars().count(), BODY_CHARS + 1);
+        assert!(!corps.contains('\n') && corps.ends_with('…'));
+        let vide = crate::notifications::build(2, "a", "i", "t", "", &[], &HashMap::new(), -1);
+        assert_eq!(card_text(&vide), ("t".to_string(), None));
     }
 
     #[test]

@@ -2229,9 +2229,9 @@ impl App {
                             .then(|| self.toasts.list.first())
                             .flatten();
                         let shown: Element<'_, Msg> = if let Some(t) = toast {
-                            let icon = self
-                                .icon_named(&t.n.icon, isz, fg)
-                                .or_else(|| self.icon_named("notifications-symbolic", isz, fg))
+                            // Un glyphe monochrome de l'activité, jamais l'icône
+                            // entière de l'application (HIG SYS-14).
+                            let icon = crate::ui::icons::glyph("notifications", isz, fg)
                                 .unwrap_or_else(|| self.label("•", size, fg));
                             row![icon, self.label(truncate(&t.n.summary, 26), size, fg),]
                                 .spacing(6)
