@@ -115,6 +115,11 @@ pub enum Msg {
     Preset(String),
     DesignText(String, String),
     DesignApply(String),
+    /// Ouvre ou referme le sélecteur de couleur d'un réglage (HIG SEL-02).
+    DesignPickerOpen(String),
+    DesignPicker(crate::ui::color_picker::PickerMsg),
+    DesignPickerApply,
+    DesignPickerCancel,
     /// Choisir le fichier du réglage (image de fond) dans un explorateur.
     DesignBrowse(String),
     DesignBrowsed(String, Option<std::path::PathBuf>),
@@ -1386,6 +1391,10 @@ impl App {
             m @ (Msg::Preset(_)
             | Msg::DesignText(..)
             | Msg::DesignApply(_)
+            | Msg::DesignPickerOpen(_)
+            | Msg::DesignPicker(_)
+            | Msg::DesignPickerApply
+            | Msg::DesignPickerCancel
             | Msg::DesignBrowse(_)
             | Msg::DesignBrowsed(..)
             | Msg::DesignChoice(..)

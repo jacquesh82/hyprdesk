@@ -249,6 +249,8 @@ pub struct State {
     pub browser_draft: Option<String>,
     pub design_drafts: HashMap<String, String>,
     pub design_error: Option<String>,
+    /// Sélecteur de couleur ouvert, et la clé de son réglage (HIG SEL-02).
+    pub design_picker: Option<(String, crate::ui::color_picker::Picker)>,
     pub selected_tile: usize,
     pub shortcut_draft: (String, String, String),
     /// Réglages → Panorama : disposition dont on règle les zones.
