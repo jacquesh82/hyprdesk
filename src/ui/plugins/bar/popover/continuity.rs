@@ -339,10 +339,12 @@ impl App {
             cards = cards.push(row(elements).spacing(GAP));
         }
 
+        // Quatre groupes de contrôles, numérotés dans l'ordre de lecture :
+        // Ctrl+Tab et Ctrl+Maj + Tab passent de l'un au suivant (HIG ENT-11).
         let body: Element<'_, Msg> = if side {
             let main = column![
-                controls,
-                scrollable(cards)
+                keyboard::group(1, controls),
+                scrollable(keyboard::group(2, cards))
                     .id(keyboard::SCROLL)
                     .height(Length::Fill)
                     .width(Length::Fill)
@@ -351,14 +353,28 @@ impl App {
             .spacing(GAP)
             .width(Length::Fill)
             .height(Length::Fill);
-            row![shortcuts, main, sound].spacing(GAP).into()
+            row![
+                keyboard::group(0, shortcuts),
+                main,
+                keyboard::group(3, sound)
+            ]
+            .spacing(GAP)
+            .into()
         } else {
-            scrollable(column![controls, shortcuts, sound, cards].spacing(GAP))
-                .id(keyboard::SCROLL)
-                .style(move |theme, status| pal.scroll(theme, status))
-                .height(Length::Fill)
-                .width(Length::Fill)
-                .into()
+            scrollable(
+                column![
+                    keyboard::group(0, controls),
+                    keyboard::group(1, shortcuts),
+                    keyboard::group(2, sound),
+                    keyboard::group(3, cards)
+                ]
+                .spacing(GAP),
+            )
+            .id(keyboard::SCROLL)
+            .style(move |theme, status| pal.scroll(theme, status))
+            .height(Length::Fill)
+            .width(Length::Fill)
+            .into()
         };
         container(body)
             .id(keyboard::PANE)

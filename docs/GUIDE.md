@@ -257,6 +257,11 @@ Shift + Tab to move between items, Home and End to jump to either end, and
 Enter or Space to activate an item. Escape closes the dock or returns focus
 to the full desktop.
 
+**Keyboard navigation in the control center.** Tab and Shift + Tab move from
+one control to the next; Ctrl + Tab and Ctrl + Shift + Tab jump to the first
+control of the next or previous group; Page Up and Page Down scroll the
+cards.
+
 ## Shortcuts and binds.lua
 
 Wherever hyprdesk writes a shortcut, its modifiers come in this order: CTRL,
@@ -270,7 +275,8 @@ hyprdesk or leave its default `SUPER + R` override enabled.
 Where `hyprland.lua` lacks an essential shortcut, hyprdesk sets it on a free
 combination, without editing the file. Essentials cover windows, workspaces,
 screens, and screenshots: workspaces 1 to 10, previous workspace, maximize,
-pin, swap, group tabs, next screen, `Print` captures… Each one can be turned
+minimize (`SUPER + M`), pin, swap, group tabs, next screen, `Print`
+captures… Each one can be turned
 off in **Settings → Shortcuts → Windows and workspaces**. To change a
 hyprdesk shortcut or an adjustable essential, press **Capture** and then the
 new combination; **Default** sets it back.

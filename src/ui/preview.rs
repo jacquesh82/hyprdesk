@@ -3268,8 +3268,12 @@ impl Preview {
                     .as_ref()
                     .is_some_and(|p| p.dashboard.is_some()) =>
             {
-                popover::continuity::handle_key(&key, self.app.mods.shift())
-                    .map(|m| PreviewMsg::Ui(Box::new(m)))
+                popover::continuity::handle_key(
+                    &key,
+                    self.app.mods.shift(),
+                    self.app.mods.control(),
+                )
+                .map(|m| PreviewMsg::Ui(Box::new(m)))
             }
             Msg::Modifiers(modifiers) => {
                 self.app.mods = modifiers;

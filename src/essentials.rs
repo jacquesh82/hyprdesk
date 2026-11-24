@@ -90,6 +90,12 @@ pub const CATALOGUE: &[Essential] = &[
         "Maximiser (la barre reste visible)",
         false,
     ),
+    e(
+        "minimize",
+        Group::Windows,
+        "Réduire la fenêtre active",
+        false,
+    ),
     e("float", Group::Windows, "Fenêtre flottante", false),
     e(
         "pin",
@@ -406,6 +412,19 @@ impl Ctx {
                 "SUPER + SHIFT + F".into(),
                 "hl.dsp.window.fullscreen({ mode = \"maximized\", action = \"toggle\" })",
                 &["window.fullscreen(&mode=\"maximized\""],
+            )],
+            // Réduire façon macOS (Command-M) : la fenêtre part dans le
+            // workspace des réduites, d'où le dock la rappelle. Déjà fait par
+            // hyprland.lua : la même commande, ou le même déplacement sans
+            // suivre la fenêtre.
+            "minimize" => vec![want(
+                "",
+                "SUPER + M".into(),
+                "hl.dsp.exec_cmd(\"hyprdesk window minimize\")",
+                &[
+                    "exec_cmd(&hyprdesk&window&minimize",
+                    "window.move(&hyprdesk-reduites&follow=false",
+                ],
             )],
             "float" => vec![want(
                 "",
@@ -1371,6 +1390,17 @@ hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --clipboard-only"), { subma
         // Maximiser, épingler : posés.
         assert_eq!(find(&lines, "maximize", "").state, State::Installed);
         assert!(!find(&lines, "maximize", "").desktop);
+        // Réduire : posé façon macOS (Command-M, HIG ENT-08), sur la commande
+        // du bouton de la barre de titre.
+        let minimize = find(&lines, "minimize", "");
+        assert_eq!(minimize.state, State::Installed);
+        assert_eq!(minimize.combo, "SUPER + M");
+        assert_eq!(minimize.slot, "minimize");
+        assert_eq!(
+            minimize.lua,
+            "hl.dsp.exec_cmd(\"hyprdesk window minimize\")"
+        );
+        assert!(!minimize.desktop);
         // Souris : déjà là pour déplacer ; bureau affiché, la submap la
         // suspend : hyprdesk la repose là, sur la même combinaison.
         let drag = find(&lines, "mouse", "déplacer");
@@ -1502,6 +1532,30 @@ hl.bind(mainMod .. " + ampersand", hl.dsp.focus({ workspace = 1 }))
             Some("Passer à la fenêtre voisine (gauche)")
         );
         assert_eq!(known_action("layout(\"move+col\"))"), None);
+        assert_eq!(
+            known_action("exec_cmd(\"hyprdesk window minimize\")").as_deref(),
+            Some("Réduire la fenêtre active")
+        );
+    }
+
+    /// Réduire : déjà fait par hyprland.lua, hyprdesk ne le repose pas.
+    #[test]
+    fn reduire_deja_la() {
+        for lua in [
+            r#"local mainMod = "SUPER"
+hl.bind(mainMod .. " + M", hl.dsp.exec_cmd("hyprdesk window minimize"))"#,
+            r#"hl.bind("SUPER + m", hl.dsp.window.move({ workspace = "special:hyprdesk-reduites", follow = false }))"#,
+        ] {
+            let lines = plan(&Keys::default(), &serde_json::json!([]), &src(lua), &[]);
+            let l = find(&lines, "minimize", "");
+            assert!(matches!(l.state, State::Present { .. }), "{lua}");
+            assert_eq!(l.combo, "SUPER + M");
+        }
+        // Sans « follow = false », la fenêtre est suivie : ce n'est pas
+        // réduire, hyprdesk pose quand même le sien.
+        let lua = r#"hl.bind("SUPER + M", hl.dsp.window.move({ workspace = "special:hyprdesk-reduites" }))"#;
+        let lines = plan(&Keys::default(), &serde_json::json!([]), &src(lua), &[]);
+        assert_eq!(find(&lines, "minimize", "").state, State::Installed);
     }
 
     #[test]

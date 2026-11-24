@@ -258,6 +258,11 @@ et Maj + Tab changent de case, Début et Fin vont aux bouts, Entrée ou Espace
 activent une case. Échap referme le dock ou rend le clavier au bureau
 complet.
 
+**Navigation au clavier dans le centre de contrôle.** Tab et Maj + Tab
+passent d'un contrôle au suivant ; Ctrl+Tab et Ctrl+Maj + Tab sautent au
+premier contrôle du groupe suivant ou précédent ; Page précédente et Page
+suivante font défiler les cartes.
+
 ## Raccourcis et binds.lua
 
 Partout où hyprdesk écrit un raccourci, les modificateurs viennent dans cet
@@ -272,8 +277,8 @@ lui confiez et son `SUPER + R` par défaut, que l'on peut désactiver.
 Là où `hyprland.lua` n'a pas un raccourci essentiel, hyprdesk le pose sur une
 combinaison libre, sans modifier le fichier. Les essentiels couvrent
 fenêtres, workspaces, écrans et captures : workspaces 1 à 10, workspace
-précédent, maximiser, épingler, échanger, onglets de groupe, écran suivant,
-captures par `Impr`… Chacun se coupe dans **Réglages → Raccourcis → Fenêtres
+précédent, maximiser, réduire (`SUPER + M`), épingler, échanger, onglets de
+groupe, écran suivant, captures par `Impr`… Chacun se coupe dans **Réglages → Raccourcis → Fenêtres
 et workspaces**. Pour changer un raccourci de hyprdesk ou un essentiel
 réglable, cliquez sur **Capturer** puis appuyez sur la nouvelle
 combinaison ; **Par défaut** rend sa valeur d'origine.

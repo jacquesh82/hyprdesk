@@ -5538,7 +5538,11 @@ impl App {
                     .as_ref()
                     .is_some_and(|p| p.win == id && p.dashboard.is_some())
                 {
-                    return popover::continuity::handle_key(&key, self.mods.shift());
+                    return popover::continuity::handle_key(
+                        &key,
+                        self.mods.shift(),
+                        self.mods.control(),
+                    );
                 }
                 // Le panneau a ses propres champs de saisie : pas de navigation
                 // dessous ; Tab et Maj + Tab passent d'un champ à l'autre.
