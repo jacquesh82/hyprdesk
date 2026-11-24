@@ -4983,3 +4983,4 @@
 "Grand" = "Large"
 "Très grand" = "Extra large"
 "Jour {jour} · semaine {semaine}" = "Day {jour} · week {semaine}"
+"{n} espaces au plus : fermez-en un pour en créer un autre" = "{n} spaces at most: close one to create another"

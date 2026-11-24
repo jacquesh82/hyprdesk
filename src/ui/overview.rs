@@ -511,13 +511,11 @@ impl App {
                     }
                 }
             }
-            OMsg::NewWorkspace => {
-                let next = self.workspaces.iter().map(|w| w.id).max().unwrap_or(0) + 1;
-                if next > MAX_WORKSPACES as i64 {
-                    return Task::none();
-                }
-                focus_task(next.to_string())
-            }
+            OMsg::NewWorkspace => match next_workspace(&self.workspaces) {
+                Some(next) => focus_task(next.to_string()),
+                // Le bouton est alors désactivé (HIG PAT-10).
+                None => Task::none(),
+            },
         }
     }
 
@@ -811,40 +809,77 @@ impl App {
             )
         };
         let accent_soft = color(th.accent, alpha * 0.88);
+        // À la limite, le bouton se désactive et dit pourquoi (HIG PAT-10).
+        let can_add = next_workspace(&self.workspaces).is_some();
+        let (add_fg, add_off) = if can_add {
+            (on_accent, None)
+        } else {
+            (
+                dim,
+                Some(Color {
+                    a: 0.12 * alpha,
+                    ..fg
+                }),
+            )
+        };
+        let add = button(
+            row![
+                text("+")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(15.0))
+                    .color(add_fg),
+                text(crate::i18n::tr("Nouvel espace"))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(add_fg),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
+        )
+        .padding([6, 14])
+        .on_press_maybe(can_add.then_some(Msg::Overview(OMsg::NewWorkspace)))
+        .style(move |_, st| button::Style {
+            background: Some(
+                match (add_off, st) {
+                    (Some(off), _) => off,
+                    (None, button::Status::Hovered) => accent,
+                    (None, _) => accent_soft,
+                }
+                .into(),
+            ),
+            border: Border::default().rounded(super::design::SMALL_RADIUS),
+            text_color: add_fg,
+            ..Default::default()
+        });
+        let tip_bg = color(th.bg, 1.0);
+        let add: Element<'_, Msg> = if can_add {
+            add.into()
+        } else {
+            iced::widget::tooltip(
+                add,
+                text(crate::tr!(
+                    "{n} espaces au plus : fermez-en un pour en créer un autre",
+                    n = MAX_WORKSPACES
+                ))
+                .font(self.font)
+                .size(crate::ui::tokens::ts_tooltip(11.0))
+                .color(fg),
+                iced::widget::tooltip::Position::Top,
+            )
+            .style(move |_| container::Style {
+                text_color: Some(fg),
+                background: Some(tip_bg.into()),
+                border: Border::default().rounded(super::design::SMALL_RADIUS),
+                ..Default::default()
+            })
+            .into()
+        };
         let hints = row![
             hint("↑↓←→", "Naviguer"),
             hint("Entrée", "Ouvrir"),
             hint("Échap", "Fermer"),
             Space::new().width(Length::Fill),
-            button(
-                row![
-                    text("+")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(15.0))
-                        .color(on_accent),
-                    text(crate::i18n::tr("Nouvel espace"))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .color(on_accent),
-                ]
-                .spacing(6)
-                .align_y(Alignment::Center)
-            )
-            .padding([6, 14])
-            .on_press(Msg::Overview(OMsg::NewWorkspace))
-            .style(move |_, st| button::Style {
-                background: Some(
-                    if matches!(st, button::Status::Hovered) {
-                        accent
-                    } else {
-                        accent_soft
-                    }
-                    .into()
-                ),
-                border: Border::default().rounded(super::design::SMALL_RADIUS),
-                text_color: on_accent,
-                ..Default::default()
-            }),
+            add,
         ]
         .spacing(18)
         .align_y(Alignment::Center)
@@ -1220,10 +1255,34 @@ fn normalize_rects(rects: &[(i32, i32, i32, i32)]) -> Vec<(f32, f32, f32, f32)> 
         .collect()
 }
 
+/// Numéro du prochain espace, ou `None` à la limite (`MAX_WORKSPACES`).
+fn next_workspace(workspaces: &[crate::hypr::Workspace]) -> Option<i64> {
+    let next = workspaces.iter().map(|w| w.id).max().unwrap_or(0).max(0) + 1;
+    (next <= i64::from(MAX_WORKSPACES)).then_some(next)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::WsSelector;
+
+    /// « + Nouvel espace » s'arrête à la limite au lieu d'échouer en
+    /// silence (HIG PAT-10).
+    #[test]
+    fn nouvel_espace_jusqu_a_la_limite() {
+        let ws = |id: i64| crate::hypr::Workspace {
+            id,
+            name: id.to_string(),
+            monitor: String::new(),
+            windows: 0,
+            fullscreen: false,
+        };
+        assert_eq!(next_workspace(&[]), Some(1));
+        assert_eq!(next_workspace(&[ws(-98), ws(2)]), Some(3));
+        let max = i64::from(MAX_WORKSPACES);
+        assert_eq!(next_workspace(&[ws(max - 1)]), Some(max));
+        assert_eq!(next_workspace(&[ws(max)]), None);
+    }
 
     #[test]
     fn minimap_normalise_le_contenu() {
