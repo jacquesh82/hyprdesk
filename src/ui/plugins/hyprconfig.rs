@@ -246,21 +246,26 @@ impl App {
             .filter(|f| f.safe && f.fix.is_some())
             .count();
         let mut head = row![
-            button(
-                text("Analyser à nouveau")
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0))
-            )
-            .padding([6, 12])
-            .style(button::secondary)
-            .on_press(wrap(Msg::Rescan)),
-            button(
-                iced::widget::text(crate::tr!("Tout ranger ({n})", n = safe))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0))
-            )
-            .padding([6, 12])
-            .on_press_maybe((safe > 0).then(|| wrap(Msg::FixAll))),
+            self.focusable(
+                button(
+                    text("Analyser à nouveau")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 12])
+                .style(button::secondary)
+                .on_press(wrap(Msg::Rescan))
+            ),
+            self.focusable_when(
+                button(
+                    iced::widget::text(crate::tr!("Tout ranger ({n})", n = safe))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([6, 12])
+                .on_press_maybe((safe > 0).then(|| wrap(Msg::FixAll))),
+                safe > 0
+            ),
         ]
         .spacing(10)
         .align_y(Alignment::Center);
@@ -338,13 +343,15 @@ impl App {
                     Fix::Archive(..) => "Archiver",
                 };
                 line = line.push(
-                    button(
-                        text(label)
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::Fix(i))),
+                    self.focusable(
+                        button(
+                            text(label)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::Fix(i))),
+                    ),
                 );
             }
             col = col.push(container(line).padding([8, 10]).style(move |_| {
@@ -376,10 +383,10 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             row![
-                button(text("Actualiser").font(font).size(crate::ui::tokens::ts(13.0)))
+                self.focusable(button(text("Actualiser").font(font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 12])
                     .style(button::secondary)
-                    .on_press(wrap(Msg::HistoryRefresh)),
+                    .on_press(wrap(Msg::HistoryRefresh))),
             ],
         ]
         .spacing(12);
@@ -467,44 +474,49 @@ impl App {
                     .color(dim),
             ]
             .spacing(2);
-            let toggle = button(
-                row![
-                    iced::widget::text(if open { "▾" } else { "▸" })
-                        .font(font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .color(dim),
-                    info,
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            )
-            .padding(0)
-            .width(Length::Fill)
-            .style(button::text)
-            .on_press(wrap(Msg::Toggle(id.clone())));
-            let back = button(
-                iced::widget::text(if armed {
-                    crate::i18n::tr("Confirmer le retour ?")
-                } else {
-                    crate::i18n::tr("Revenir à cette version")
-                })
-                .font(font)
-                .size(crate::ui::tokens::ts(12.0)),
-            )
-            .padding([4, 10])
-            .style(move |th, st| {
-                if armed {
-                    button::Style {
-                        background: Some(Color { a: 0.85, ..warn }.into()),
-                        text_color: Color::BLACK,
-                        border: Border::default().rounded(999),
-                        ..Default::default()
+            let toggle = self.focusable(
+                button(
+                    row![
+                        iced::widget::text(if open { "▾" } else { "▸" })
+                            .font(font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .color(dim),
+                        info,
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                )
+                .padding(0)
+                .width(Length::Fill)
+                .style(button::text)
+                .on_press(wrap(Msg::Toggle(id.clone()))),
+            );
+            let back = self.focusable_when(
+                button(
+                    iced::widget::text(if armed {
+                        crate::i18n::tr("Confirmer le retour ?")
+                    } else {
+                        crate::i18n::tr("Revenir à cette version")
+                    })
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .style(move |th, st| {
+                    if armed {
+                        button::Style {
+                            background: Some(Color { a: 0.85, ..warn }.into()),
+                            text_color: Color::BLACK,
+                            border: Border::default().rounded(999),
+                            ..Default::default()
+                        }
+                    } else {
+                        button::secondary(th, st)
                     }
-                } else {
-                    button::secondary(th, st)
-                }
-            })
-            .on_press_maybe((!s.busy).then(|| wrap(Msg::Rollback(id.clone()))));
+                })
+                .on_press_maybe((!s.busy).then(|| wrap(Msg::Rollback(id.clone())))),
+                !s.busy,
+            );
             let mut card =
                 column![row![toggle, back].spacing(10).align_y(Alignment::Center)].spacing(8);
             if open {
@@ -703,9 +715,11 @@ impl App {
                         }
                         let t = toggler(pl.enabled);
                         line = line.push(if p.hyprpm_busy.is_some() {
-                            t
+                            Element::from(t)
                         } else {
-                            t.on_toggle(move |v| wrap(Msg::HyprpmToggle(name.clone(), v)))
+                            self.focusable(
+                                t.on_toggle(move |v| wrap(Msg::HyprpmToggle(name.clone(), v))),
+                            )
                         });
                         col = col.push(line);
                     }
@@ -732,13 +746,15 @@ impl App {
                     .size(crate::ui::tokens::ts(12.0))
                     .color(warn)
                     .width(Length::Fill),
-                    button(
-                        text("Recharger au démarrage")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                    )
-                    .padding([4, 12])
-                    .on_press(wrap(Msg::HyprpmAtStart)),
+                    self.focusable(
+                        button(
+                            text("Recharger au démarrage")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([4, 12])
+                        .on_press(wrap(Msg::HyprpmAtStart))
+                    ),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -747,22 +763,26 @@ impl App {
         let url = p.hyprpm_url.trim().to_string();
         col.push(
             row![
-                button(
-                    text("Actualiser")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([4, 12])
-                .style(button::secondary)
-                .on_press(wrap(Msg::HyprpmRefresh)),
-                button(
-                    text("Mettre à jour…")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([4, 12])
-                .style(button::secondary)
-                .on_press(wrap(Msg::HyprpmUpdate)),
+                self.focusable(
+                    button(
+                        text("Actualiser")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([4, 12])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::HyprpmRefresh))
+                ),
+                self.focusable(
+                    button(
+                        text("Mettre à jour…")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([4, 12])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::HyprpmUpdate))
+                ),
             ]
             .spacing(10),
         )
@@ -775,13 +795,16 @@ impl App {
                     .font(self.font)
                     .size(crate::ui::tokens::ts(13.0))
                     .width(Length::Fill),
-                button(
-                    text("Ajouter…")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([4, 12])
-                .on_press_maybe((!url.is_empty()).then(|| wrap(Msg::HyprpmAdd))),
+                self.focusable_when(
+                    button(
+                        text("Ajouter…")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([4, 12])
+                    .on_press_maybe((!url.is_empty()).then(|| wrap(Msg::HyprpmAdd))),
+                    !url.is_empty()
+                ),
             ]
             .spacing(10)
             .align_y(Alignment::Center),

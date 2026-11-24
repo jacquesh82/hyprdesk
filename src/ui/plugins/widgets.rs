@@ -296,9 +296,9 @@ impl App {
             let actionable = t.error.is_none() && (t.toggleable || active || disabled > 0);
             let control: Element<'_, UiMsg> = if actionable {
                 let id = t.id.clone();
-                toggler(active)
-                    .on_toggle(move |on| wrap(Msg::WidgetToggle(id.clone(), on)))
-                    .into()
+                self.focusable(
+                    toggler(active).on_toggle(move |on| wrap(Msg::WidgetToggle(id.clone(), on))),
+                )
             } else {
                 toggler(active).into()
             };
@@ -355,34 +355,36 @@ impl App {
             };
             active = active.push(
                 row![
-                    button(
-                        row![
-                            text(name)
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                                .width(Length::Fill),
-                            text(format!("{label} · {from}"))
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0))
-                                .color(dim)
-                        ]
-                        .spacing(8),
-                    )
-                    .width(Length::Fill)
-                    .padding([6, 10])
-                    .on_press(wrap(Msg::SelectWidget(w.id.clone())))
-                    .style(move |_, s| button::Style {
-                        background: if selected {
-                            Some(Background::Color(Color { a: 0.3, ..accent }))
-                        } else if matches!(s, button::Status::Hovered) {
-                            Some(Background::Color(Color { a: 0.08, ..fg }))
-                        } else {
-                            None
-                        },
-                        text_color: fg,
-                        border: Border::default().rounded(6),
-                        ..Default::default()
-                    }),
+                    self.focusable(
+                        button(
+                            row![
+                                text(name)
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                                    .width(Length::Fill),
+                                text(format!("{label} · {from}"))
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0))
+                                    .color(dim)
+                            ]
+                            .spacing(8),
+                        )
+                        .width(Length::Fill)
+                        .padding([6, 10])
+                        .on_press(wrap(Msg::SelectWidget(w.id.clone())))
+                        .style(move |_, s| button::Style {
+                            background: if selected {
+                                Some(Background::Color(Color { a: 0.3, ..accent }))
+                            } else if matches!(s, button::Status::Hovered) {
+                                Some(Background::Color(Color { a: 0.08, ..fg }))
+                            } else {
+                                None
+                            },
+                            text_color: fg,
+                            border: Border::default().rounded(6),
+                            ..Default::default()
+                        })
+                    ),
                     delete,
                 ]
                 .spacing(4)
@@ -401,20 +403,22 @@ impl App {
                 let accent = color(g.theme.accent, 1.0);
                 let cell = |a: Anchor| {
                     let on = pl.anchor == a;
-                    button(Space::new().width(26).height(18))
-                        .padding(0)
-                        .on_press(wrap(Msg::WidgetAnchor(a)))
-                        .style(move |_, s| button::Style {
-                            background: Some(Background::Color(if on {
-                                accent
-                            } else if matches!(s, button::Status::Hovered) {
-                                Color { a: 0.35, ..fg }
-                            } else {
-                                Color { a: 0.12, ..fg }
-                            })),
-                            border: Border::default().rounded(4),
-                            ..Default::default()
-                        })
+                    self.focusable(
+                        button(Space::new().width(26).height(18))
+                            .padding(0)
+                            .on_press(wrap(Msg::WidgetAnchor(a)))
+                            .style(move |_, s| button::Style {
+                                background: Some(Background::Color(if on {
+                                    accent
+                                } else if matches!(s, button::Status::Hovered) {
+                                    Color { a: 0.35, ..fg }
+                                } else {
+                                    Color { a: 0.12, ..fg }
+                                })),
+                                border: Border::default().rounded(4),
+                                ..Default::default()
+                            }),
+                    )
                 };
                 let grid = column![
                     row![
@@ -499,16 +503,18 @@ impl App {
                     self.field(
                         "Fond en carte",
                         "",
-                        toggler(pl.card).on_toggle(|v| wrap(Msg::WidgetCard(v)))
+                        self.focusable(toggler(pl.card).on_toggle(|v| wrap(Msg::WidgetCard(v))))
                     ),
                     self.widget_screen_field(&pl),
-                    button(
-                        text("Réinitialiser la position")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                    )
-                    .padding([6, 12])
-                    .on_press(wrap(Msg::WidgetReset)),
+                    self.focusable(
+                        button(
+                            text("Réinitialiser la position")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([6, 12])
+                        .on_press(wrap(Msg::WidgetReset))
+                    ),
                 ]
                 .spacing(12);
                 // Taille du widget, pour ceux qui en ont plusieurs (HIG SYS-15).
@@ -521,11 +527,13 @@ impl App {
                 if sized {
                     use crate::config::WidgetFamily as F;
                     let choice = |label: &'static str, v: F| {
-                        iced::widget::radio(crate::i18n::tr(label), v, Some(pl.family), |v| {
-                            wrap(Msg::WidgetFamily(v))
-                        })
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        self.focusable(
+                            iced::widget::radio(crate::i18n::tr(label), v, Some(pl.family), |v| {
+                                wrap(Msg::WidgetFamily(v))
+                            })
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0)),
+                        )
                     };
                     c = c.push(
                         self.field(
@@ -566,20 +574,24 @@ impl App {
             self.section("Widgets disponibles"),
             catalog,
             row![
-                button(
-                    text("Rechercher de nouveaux widgets")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 12])
-                .on_press(wrap(Msg::RescanWidgets)),
-                button(
-                    text("Ouvrir le dossier des plugins")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 12])
-                .on_press(wrap(Msg::OpenWidgetDir)),
+                self.focusable(
+                    button(
+                        text("Rechercher de nouveaux widgets")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(Msg::RescanWidgets))
+                ),
+                self.focusable(
+                    button(
+                        text("Ouvrir le dossier des plugins")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(Msg::OpenWidgetDir))
+                ),
             ]
             .spacing(8),
             text(crate::tr!(
@@ -625,19 +637,25 @@ impl App {
         }
         let selected = choices.iter().find(|c| c.0 == pl.screen).cloned();
         let mut col = column![
-            iced::widget::pick_list(choices, selected, |c: Choice| wrap(Msg::WidgetScreen(c.0)))
+            self.choosable(
+                iced::widget::pick_list(choices, selected, |c: Choice| wrap(Msg::WidgetScreen(
+                    c.0
+                )))
                 .font(self.font)
                 .text_size(13)
                 .width(260)
+            )
         ]
         .spacing(8);
         if matches!(pl.screen, WidgetScreen::Named(_)) {
             let missing = |label: &'static str, v: IfMissing| {
-                iced::widget::radio(crate::i18n::tr(label), v, Some(pl.if_missing), |v| {
-                    wrap(Msg::WidgetIfMissing(v))
-                })
-                .font(self.font)
-                .size(crate::ui::tokens::ts(14.0))
+                self.focusable(
+                    iced::widget::radio(crate::i18n::tr(label), v, Some(pl.if_missing), |v| {
+                        wrap(Msg::WidgetIfMissing(v))
+                    })
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(14.0)),
+                )
             };
             col = col.push(
                 column![

@@ -114,14 +114,16 @@ impl App {
     }
 
     fn pw_button<'a>(&self, label: &'a str, msg: Option<Msg>, busy: bool) -> Element<'a, UiMsg> {
-        button(
-            text(label)
-                .font(self.font)
-                .size(crate::ui::tokens::ts(13.0)),
+        self.focusable_when(
+            button(
+                text(label)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0)),
+            )
+            .padding([6, 14])
+            .on_press_maybe(msg.clone().filter(|_| !busy).map(wrap)),
+            msg.is_some() && !busy,
         )
-        .padding([6, 14])
-        .on_press_maybe(msg.filter(|_| !busy).map(wrap))
-        .into()
     }
 
     pub(in crate::ui) fn passwords_page(&self) -> Element<'_, UiMsg> {

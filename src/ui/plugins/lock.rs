@@ -203,7 +203,7 @@ impl App {
             self.field(
                 "Fond flouté",
                 "lock_blur",
-                toggler(l.blur).on_toggle(|v| wrap(Msg::Blur(v))),
+                self.focusable(toggler(l.blur).on_toggle(|v| wrap(Msg::Blur(v)))),
             ),
             self.field(
                 "Assombrissement",
@@ -226,18 +226,18 @@ impl App {
             text(origin).font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
             self.section("Contenus"),
             column![
-                toggler(l.show_user)
+                self.focusable(toggler(l.show_user)
                     .label(crate::i18n::tr(
                         "Nom et avatar (AccountsService, sinon ~/.face)"
                     ))
-                    .on_toggle(|v| wrap(Msg::ShowUser(v))),
-                toggler(l.show_battery)
+                    .on_toggle(|v| wrap(Msg::ShowUser(v)))),
+                self.focusable(toggler(l.show_battery)
                     .label(crate::i18n::tr("Batterie"))
-                    .on_toggle(|v| wrap(Msg::ShowBattery(v))),
-                toggler(l.show_media)
+                    .on_toggle(|v| wrap(Msg::ShowBattery(v)))),
+                self.focusable(toggler(l.show_media)
                     .label(crate::i18n::tr("Morceau en cours, lecture / pause"))
-                    .on_toggle(|v| wrap(Msg::ShowMedia(v))),
-                toggler(l.fingerprint && crate::policy::get().fingerprint_allowed())
+                    .on_toggle(|v| wrap(Msg::ShowMedia(v)))),
+                self.focusable_when(toggler(l.fingerprint && crate::policy::get().fingerprint_allowed())
                     .label(crate::i18n::tr(
                         "Empreinte digitale à la place du mot de passe (fprintd)"
                     ))
@@ -245,7 +245,9 @@ impl App {
                         crate::policy::get()
                             .fingerprint_allowed()
                             .then_some(|v| wrap(Msg::Fingerprint(v)))
-                    ),
+                    ), (crate::policy::get()
+                            .fingerprint_allowed()
+                            .then_some(|v| wrap(Msg::Fingerprint(v)))).is_some()),
                 text(if !crate::policy::get().fingerprint_allowed() {
                     crate::tr!(
                         "Empreinte interdite par l'administrateur ({p}).",
@@ -286,9 +288,9 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
-            button(text("Verrouiller maintenant").font(self.font).size(crate::ui::tokens::ts(13.0)))
+            self.focusable(button(text("Verrouiller maintenant").font(self.font).size(crate::ui::tokens::ts(13.0)))
                 .padding([6, 14])
-                .on_press(wrap(Msg::LockNow)),
+                .on_press(wrap(Msg::LockNow))),
         ]
         .spacing(14)
         .into()
@@ -362,13 +364,16 @@ impl App {
                         .font(self.font)
                         .size(crate::ui::tokens::ts(13.0))
                         .width(200),
-                    button(
-                        text("Supprimer")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([4, 10])
-                    .on_press_maybe(idle.then(|| wrap(Msg::FingerDelete(f.clone())))),
+                    self.focusable_when(
+                        button(
+                            text("Supprimer")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .on_press_maybe(idle.then(|| wrap(Msg::FingerDelete(f.clone())))),
+                        (idle.then(|| wrap(Msg::FingerDelete(f.clone())))).is_some()
+                    ),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -413,27 +418,33 @@ impl App {
                 col = col.push(note(h.clone(), warn));
             }
             col = col.push(
-                button(
-                    text("Annuler")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                )
-                .padding([6, 14])
-                .on_press(wrap(Msg::FingerCancel)),
+                self.focusable(
+                    button(
+                        text("Annuler")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([6, 14])
+                    .on_press(wrap(Msg::FingerCancel)),
+                ),
             );
         } else if let Some(target) = s.target() {
             col = col.push(
                 row![
-                    pick_list(s.free(), Some(target), |f| wrap(Msg::FingerChoice(f)))
-                        .font(self.font)
-                        .text_size(13),
-                    button(
-                        text("Enregistrer ce doigt")
+                    self.choosable(
+                        pick_list(s.free(), Some(target), |f| wrap(Msg::FingerChoice(f)))
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                    )
-                    .padding([6, 14])
-                    .on_press(wrap(Msg::FingerEnroll)),
+                            .text_size(13)
+                    ),
+                    self.focusable(
+                        button(
+                            text("Enregistrer ce doigt")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([6, 14])
+                        .on_press(wrap(Msg::FingerEnroll))
+                    ),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -468,14 +479,14 @@ impl App {
             self.field(
                 "hyprdesk gère la veille",
                 "idle_manage",
-                toggler(i.manage).on_toggle(|v| wrap(Msg::IdleManage(v))),
+                self.focusable(toggler(i.manage).on_toggle(|v| wrap(Msg::IdleManage(v)))),
             ),
             // Veille des écrans (Panorama → Système, `hyprdesk screens-off`) :
             // indépendante de hypridle.
             self.adv("Veille des écrans : un changement de volume rallume les écrans", self.field(
                 "",
                 "idle_wake_volume",
-                toggler(i.wake_volume).on_toggle(|v| wrap(Msg::WakeVolume(v))),
+                self.focusable(toggler(i.wake_volume).on_toggle(|v| wrap(Msg::WakeVolume(v)))),
             )),
             text("Veille des écrans (Panorama → Système, ou hyprdesk screens-off) : les écrans s'éteignent, la machine reste allumée. La souris et le clavier les rallument selon les réglages de Hyprland (Réveil et verrouillage).")
                 .font(self.font)
@@ -614,9 +625,11 @@ impl App {
                 self.field(
                     label,
                     key,
-                    pick_list(LidAction::ALL, Some(cur), move |a| wrap(Msg::Lid(case, a)))
-                        .font(self.font)
-                        .text_size(13),
+                    self.choosable(
+                        pick_list(LidAction::ALL, Some(cur), move |a| wrap(Msg::Lid(case, a)))
+                            .font(self.font)
+                            .text_size(13),
+                    ),
                 ),
             );
         }

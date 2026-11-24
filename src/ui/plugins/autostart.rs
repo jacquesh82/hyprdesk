@@ -195,9 +195,11 @@ impl App {
             .into()
         };
         let action = move |label: &'static str, m: Msg| {
-            button(text(label).font(font).size(crate::ui::tokens::ts(12.0)))
-                .padding([4, 10])
-                .on_press(wrap(m))
+            self.focusable(
+                button(text(label).font(font).size(crate::ui::tokens::ts(12.0)))
+                    .padding([4, 10])
+                    .on_press(wrap(m)),
+            )
         };
         // Une entrée : interrupteur (sauf verrouillée), état, commande et détail, actions.
         let entry = |it: &Item,
@@ -207,7 +209,7 @@ impl App {
          -> Element<'_, UiMsg> {
             let mut line = row![].spacing(10).align_y(Alignment::Center);
             line = line.push(match toggle {
-                Some(f) => Element::from(toggler(it.enabled).on_toggle(f)),
+                Some(f) => Element::from(self.focusable(toggler(it.enabled).on_toggle(f))),
                 None => Space::new().width(40).into(),
             });
             line = line.push(if it.locked {
@@ -265,13 +267,16 @@ impl App {
                         .on_submit(wrap(Msg::Submit))
                         .padding(8)
                         .width(Length::Fill),
-                    button(
-                        text("Ajouter")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                    )
-                    .padding([6, 14])
-                    .on_press_maybe(can_add.then(|| wrap(Msg::Submit))),
+                    self.focusable_when(
+                        button(
+                            text("Ajouter")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([6, 14])
+                        .on_press_maybe(can_add.then(|| wrap(Msg::Submit))),
+                        (can_add.then(|| wrap(Msg::Submit))).is_some()
+                    ),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -300,8 +305,8 @@ impl App {
                 Some(Box::new(move |v| wrap(Msg::ToggleOurs(i, v)))),
                 Vec::new(),
                 vec![
-                    action("Lancer", Msg::RunNow(it.command.clone())).into(),
-                    action("Supprimer", Msg::RemoveOurs(i)).into(),
+                    action("Lancer", Msg::RunNow(it.command.clone())),
+                    action("Supprimer", Msg::RemoveOurs(i)),
                 ],
             ));
         }
@@ -339,8 +344,8 @@ impl App {
                 (
                     Some(Box::new(move |v| wrap(Msg::ToggleTheirs(i, v)))),
                     vec![
-                        action("Lancer", Msg::RunNow(it.command.clone())).into(),
-                        action("Supprimer", Msg::RemoveTheirs(i)).into(),
+                        action("Lancer", Msg::RunNow(it.command.clone())),
+                        action("Supprimer", Msg::RemoveTheirs(i)),
                     ],
                 )
             };

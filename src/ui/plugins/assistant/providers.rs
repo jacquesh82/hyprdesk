@@ -409,14 +409,17 @@ impl App {
                 ]
                 .spacing(2)
                 .width(Length::Fill),
-                button(
-                    text("Modifier")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press_maybe(editing.is_none().then(|| wrap(Msg::AiEdit(svc.id.clone())))),
+                self.focusable_when(
+                    button(
+                        text("Modifier")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press_maybe(editing.is_none().then(|| wrap(Msg::AiEdit(svc.id.clone())))),
+                    (editing.is_none().then(|| wrap(Msg::AiEdit(svc.id.clone())))).is_some()
+                ),
                 self.delete_button(
                     s.delete_armed.as_deref() == Some(svc.id.as_str()),
                     wrap(Msg::AiDelete(svc.id.clone())),
@@ -459,14 +462,17 @@ impl App {
             .align_y(Alignment::Center),
             |r, (kind, label)| {
                 r.push(
-                    button(
-                        text(format!("+ {label}"))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press_maybe(s.draft.is_none().then(|| wrap(Msg::AiAdd(*kind)))),
+                    self.focusable_when(
+                        button(
+                            text(format!("+ {label}"))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press_maybe(s.draft.is_none().then(|| wrap(Msg::AiAdd(*kind)))),
+                        (s.draft.is_none().then(|| wrap(Msg::AiAdd(*kind)))).is_some(),
+                    ),
                 )
             },
         );
@@ -526,14 +532,16 @@ impl App {
                         .font(self.font)
                         .size(crate::ui::tokens::ts(12.0))
                         .color(fg),
-                    button(
-                        text("Effacer la clé")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([3, 10])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::AiKeyClear(d.id.clone()))),
+                    self.focusable(
+                        button(
+                            text("Effacer la clé")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([3, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::AiKeyClear(d.id.clone())))
+                    ),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -582,21 +590,25 @@ impl App {
         }
         col.push(
             row![
-                button(
-                    text("Enregistrer")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 14])
-                .on_press(wrap(Msg::AiSave)),
-                button(
-                    text("Annuler")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 14])
-                .style(button::secondary)
-                .on_press(wrap(Msg::AiCancel)),
+                self.focusable(
+                    button(
+                        text("Enregistrer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 14])
+                    .on_press(wrap(Msg::AiSave))
+                ),
+                self.focusable(
+                    button(
+                        text("Annuler")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 14])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::AiCancel))
+                ),
                 Space::new().width(Length::Fill),
                 text(format!("id : {}", d.id))
                     .font(self.font)
@@ -648,12 +660,14 @@ impl App {
                     ]
                     .spacing(2)
                     .width(Length::Fill),
-                    pick_list(choices.clone(), selected, move |ch: Choice| {
-                        wrap(Msg::AiUse(cid, ch.id))
-                    })
-                    .font(self.font)
-                    .text_size(13)
-                    .width(220),
+                    self.choosable(
+                        pick_list(choices.clone(), selected, move |ch: Choice| {
+                            wrap(Msg::AiUse(cid, ch.id))
+                        })
+                        .font(self.font)
+                        .text_size(13)
+                        .width(220)
+                    ),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),

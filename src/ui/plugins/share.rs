@@ -98,22 +98,26 @@ impl App {
         let s = &p.share;
         let scope_radios = |current: Scope, msg: fn(Scope) -> Msg| {
             row![
-                radio(
-                    crate::i18n::tr("Tout le setup"),
-                    Scope::All,
-                    Some(current),
-                    move |v| wrap(msg(v))
-                )
-                .font(self.font)
-                .size(crate::ui::tokens::ts(16.0)),
-                radio(
-                    crate::i18n::tr("Thème seul"),
-                    Scope::Theme,
-                    Some(current),
-                    move |v| wrap(msg(v))
-                )
-                .font(self.font)
-                .size(crate::ui::tokens::ts(16.0)),
+                self.focusable(
+                    radio(
+                        crate::i18n::tr("Tout le setup"),
+                        Scope::All,
+                        Some(current),
+                        move |v| wrap(msg(v))
+                    )
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(16.0))
+                ),
+                self.focusable(
+                    radio(
+                        crate::i18n::tr("Thème seul"),
+                        Scope::Theme,
+                        Some(current),
+                        move |v| wrap(msg(v))
+                    )
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(16.0))
+                ),
             ]
             .spacing(18)
         };
@@ -159,13 +163,15 @@ impl App {
                     .on_input(|v| wrap(Msg::ExportTo(v)))
                     .padding(8)
                     .width(Length::Fill),
-                button(
-                    text("Exporter")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 14])
-                .on_press(wrap(Msg::Export)),
+                self.focusable(
+                    button(
+                        text("Exporter")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 14])
+                    .on_press(wrap(Msg::Export))
+                ),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -179,11 +185,11 @@ impl App {
             text(import_help).font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
             if s.import_scope == Scope::All {
                 Element::from(
-                    toggler(s.screens)
+                    self.focusable(toggler(s.screens)
                         .label(crate::i18n::tr(
                             "Appliquer aussi la disposition des écrans de l'archive (monitors.lua, propre à sa machine)",
                         ))
-                        .on_toggle(|v| wrap(Msg::Screens(v))),
+                        .on_toggle(|v| wrap(Msg::Screens(v)))),
                 )
             } else {
                 Space::new().into()
@@ -194,15 +200,15 @@ impl App {
                     .on_input(|v| wrap(Msg::ImportFrom(v)))
                     .padding(8)
                     .width(Length::Fill),
-                button(text("Vérifier").font(self.font).size(crate::ui::tokens::ts(13.0)))
+                self.focusable_when(button(text("Vérifier").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .style(button::secondary)
-                    .on_press_maybe((!s.import_from.trim().is_empty()).then(|| wrap(Msg::Check))),
-                button(text("Importer").font(self.font).size(crate::ui::tokens::ts(13.0)))
+                    .on_press_maybe((!s.import_from.trim().is_empty()).then(|| wrap(Msg::Check))), !s.import_from.trim().is_empty()),
+                self.focusable_when(button(text("Importer").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .on_press_maybe(
                         (s.checked && (!s.has_code || s.trust_code)).then(|| wrap(Msg::Import))
-                    ),
+                    ), s.checked && (!s.has_code || s.trust_code)),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -222,11 +228,11 @@ impl App {
         }
         if s.checked && s.has_code {
             col = col.push(
-                toggler(s.trust_code)
+                self.focusable(toggler(s.trust_code)
                     .label(crate::i18n::tr(
                         "J'accepte le code Lua de cette archive : il s'exécutera avec mes droits",
                     ))
-                    .on_toggle(|v| wrap(Msg::TrustCode(v))),
+                    .on_toggle(|v| wrap(Msg::TrustCode(v)))),
             );
         }
         col.into()

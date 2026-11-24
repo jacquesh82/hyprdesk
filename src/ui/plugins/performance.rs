@@ -129,41 +129,42 @@ impl App {
         let ink = self.ink();
         let accent = color(self.cfg.general.theme.accent, 1.0);
         let fg = ink.fg;
-        button(
-            column![
-                text(p.label())
-                    .font(self.title_font())
-                    .size(crate::ui::tokens::ts(15.0))
-                    .color(if on { ink.accent } else { fg }),
-                text(p.summary())
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(ink.dim),
-            ]
-            .spacing(6),
+        self.focusable(
+            button(
+                column![
+                    text(p.label())
+                        .font(self.title_font())
+                        .size(crate::ui::tokens::ts(15.0))
+                        .color(if on { ink.accent } else { fg }),
+                    text(p.summary())
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(ink.dim),
+                ]
+                .spacing(6),
+            )
+            .padding(12)
+            .width(Length::FillPortion(1))
+            .on_press(wrap(Msg::Profile(p)))
+            .style(move |_, status| button::Style {
+                background: Some(
+                    if on {
+                        Color { a: 0.16, ..accent }
+                    } else if matches!(status, button::Status::Hovered) {
+                        Color { a: 0.06, ..fg }
+                    } else {
+                        Color::TRANSPARENT
+                    }
+                    .into(),
+                ),
+                text_color: fg,
+                border: iced::Border::default()
+                    .rounded(12)
+                    .width(if on { 2 } else { 1 })
+                    .color(if on { accent } else { Color { a: 0.15, ..fg } }),
+                ..Default::default()
+            }),
         )
-        .padding(12)
-        .width(Length::FillPortion(1))
-        .on_press(wrap(Msg::Profile(p)))
-        .style(move |_, status| button::Style {
-            background: Some(
-                if on {
-                    Color { a: 0.16, ..accent }
-                } else if matches!(status, button::Status::Hovered) {
-                    Color { a: 0.06, ..fg }
-                } else {
-                    Color::TRANSPARENT
-                }
-                .into(),
-            ),
-            text_color: fg,
-            border: iced::Border::default()
-                .rounded(12)
-                .width(if on { 2 } else { 1 })
-                .color(if on { accent } else { Color { a: 0.15, ..fg } }),
-            ..Default::default()
-        })
-        .into()
     }
 
     /// Moteur de hyprdesk (onglet « hyprdesk ») : rendu, carte graphique,
@@ -231,13 +232,15 @@ impl App {
                         warn
                     )
                     .width(Length::Fill),
-                    button(
-                        text("Relancer hyprdesk")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::Restart)),
+                    self.focusable(
+                        button(
+                            text("Relancer hyprdesk")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::Restart))
+                    ),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -250,11 +253,12 @@ impl App {
                 "Moteur de rendu",
                 "renderer",
                 row(Renderer::ALL.map(|r| {
-                    radio(crate::i18n::tr(r.label()), r, Some(g.renderer), |v| {
-                        wrap(Msg::Renderer(v))
-                    })
-                    .font(self.font)
-                    .into()
+                    self.focusable(
+                        radio(crate::i18n::tr(r.label()), r, Some(g.renderer), |v| {
+                            wrap(Msg::Renderer(v))
+                        })
+                        .font(self.font),
+                    )
                 }))
                 .spacing(16),
             ),
@@ -294,9 +298,10 @@ impl App {
                         }
                         n => n.to_string(),
                     };
-                    radio(label, n, Some(g.worker_threads), |v| wrap(Msg::Workers(v)))
-                        .font(self.font)
-                        .into()
+                    self.focusable(
+                        radio(label, n, Some(g.worker_threads), |v| wrap(Msg::Workers(v)))
+                            .font(self.font),
+                    )
                 }))
                 .spacing(16),
             ),
@@ -404,13 +409,15 @@ impl App {
         let pick =
             move |i: usize| wrap(Msg::HyprlandGpu(slots.get(i).cloned().unwrap_or_default()));
         col = col.push(
-            radio(
-                crate::i18n::tr("Automatique (choix de Hyprland)"),
-                0usize,
-                selected,
-                pick.clone(),
-            )
-            .font(self.font),
+            self.focusable(
+                radio(
+                    crate::i18n::tr("Automatique (choix de Hyprland)"),
+                    0usize,
+                    selected,
+                    pick.clone(),
+                )
+                .font(self.font),
+            ),
         );
         for (i, c) in st.cards.iter().enumerate() {
             let mut what = vec![c.driver.clone()];
@@ -423,13 +430,15 @@ impl App {
                 what.push(crate::i18n::tr("en cours").to_string());
             }
             col = col.push(
-                radio(
-                    format!("{} ({}) — {}", c.name, c.slot, what.join(" · ")),
-                    i + 1,
-                    selected,
-                    pick.clone(),
-                )
-                .font(self.font),
+                self.focusable(
+                    radio(
+                        format!("{} ({}) — {}", c.name, c.slot, what.join(" · ")),
+                        i + 1,
+                        selected,
+                        pick.clone(),
+                    )
+                    .font(self.font),
+                ),
             );
         }
         if !chosen.is_empty() && !st.cards.iter().any(|c| c.slot == chosen) {
@@ -461,11 +470,12 @@ impl App {
                 "Carte de la barre, du dock et des bureaux",
                 "gpu",
                 column(Gpu::ALL.map(|v| {
-                    radio(crate::i18n::tr(v.label()), v, Some(g.gpu), |v| {
-                        wrap(Msg::Gpu(v))
-                    })
-                    .font(self.font)
-                    .into()
+                    self.focusable(
+                        radio(crate::i18n::tr(v.label()), v, Some(g.gpu), |v| {
+                            wrap(Msg::Gpu(v))
+                        })
+                        .font(self.font),
+                    )
                 }))
                 .spacing(8),
             ),
@@ -488,22 +498,23 @@ impl App {
                     ),
                     row![
                         Space::new().width(Length::Fill),
-                        button(text("Annuler").font(self.font).size(crate::ui::tokens::ts(12.0)))
+                        self.focusable(button(text("Annuler").font(self.font).size(crate::ui::tokens::ts(12.0)))
                             .padding([4, 10])
                             .style(button::secondary)
-                            .on_press(wrap(Msg::CancelExit)),
-                        button(text("Fermer la session").font(self.font).size(crate::ui::tokens::ts(12.0)))
+                            .on_press(wrap(Msg::CancelExit))),
+                        self.focusable(button(text("Fermer la session").font(self.font).size(crate::ui::tokens::ts(12.0)))
                             .padding([4, 10])
                             .style(button::danger)
-                            .on_press(wrap(Msg::Exit)),
+                            .on_press(wrap(Msg::Exit))),
                     ]
                     .spacing(8),
                 ]
                 .spacing(8),
             );
         } else if hypr_pending {
-            col = col.push(
-                row![
+            col =
+                col.push(
+                    row![
                     small(
                         crate::i18n::tr(
                             "Pour appliquer : fermer puis rouvrir la session (Hyprland ne lit sa \
@@ -513,17 +524,17 @@ impl App {
                         warn
                     )
                     .width(Length::Fill),
-                    button(
+                    self.focusable(button(
                         text("Fermer la session pour appliquer…")
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0))
                     )
                     .padding([4, 10])
-                    .on_press(wrap(Msg::AskExit)),
+                    .on_press(wrap(Msg::AskExit))),
                 ]
-                .spacing(12)
-                .align_y(Alignment::Center),
-            );
+                    .spacing(12)
+                    .align_y(Alignment::Center),
+                );
         } else if desk_pending {
             col = col.push(
                 row![
@@ -535,9 +546,9 @@ impl App {
                         warn
                     )
                     .width(Length::Fill),
-                    button(text("Relancer hyprdesk pour appliquer").font(self.font).size(crate::ui::tokens::ts(12.0)))
+                    self.focusable(button(text("Relancer hyprdesk pour appliquer").font(self.font).size(crate::ui::tokens::ts(12.0)))
                         .padding([4, 10])
-                        .on_press(wrap(Msg::Restart)),
+                        .on_press(wrap(Msg::Restart))),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -593,13 +604,15 @@ impl App {
         .align_y(Alignment::Center);
         if !perf::untouched(options) {
             line = line.push(
-                button(
-                    text("Revenir à hyprland.lua")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0)),
-                )
-                .padding([4, 10])
-                .on_press(wrap(Msg::Clear)),
+                self.focusable(
+                    button(
+                        text("Revenir à hyprland.lua")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::Clear)),
+                ),
             );
         }
         col = col.push(line);
@@ -651,13 +664,15 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(
-                    text("Profil d'énergie…")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .on_press(wrap(Msg::Energy)),
+                self.focusable(
+                    button(
+                        text("Profil d'énergie…")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::Energy))
+                ),
             ]
             .spacing(12)
             .align_y(Alignment::Center),

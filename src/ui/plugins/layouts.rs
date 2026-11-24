@@ -211,11 +211,13 @@ impl App {
         );
         let choices = self.layout_choices(&from_hypr);
         let selected = choices.iter().find(|c| c.value == t.layout).cloned();
-        let default_pick = pick_list(choices.clone(), selected, |c: LayoutChoice| {
-            wrap(Msg::Default(c.value))
-        })
-        .font(self.font)
-        .width(320);
+        let default_pick = self.choosable(
+            pick_list(choices.clone(), selected, |c: LayoutChoice| {
+                wrap(Msg::Default(c.value))
+            })
+            .font(self.font)
+            .width(320),
+        );
 
         // Un layout par workspace : ceux qui existent toujours, et ceux déjà réglés.
         let upto = g.workspaces.unwrap_or(10).max(1) as usize;
@@ -246,11 +248,13 @@ impl App {
                         .size(crate::ui::tokens::ts(13.0))
                         .width(label_w)
                         .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
-                    pick_list(ws_choices.clone(), sel, move |c: LayoutChoice| {
-                        wrap(Msg::Workspace(w.clone(), c.value))
-                    })
-                    .font(self.font)
-                    .width(180),
+                    self.choosable(
+                        pick_list(ws_choices.clone(), sel, move |c: LayoutChoice| {
+                            wrap(Msg::Workspace(w.clone(), c.value))
+                        })
+                        .font(self.font)
+                        .width(180)
+                    ),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center)
@@ -363,15 +367,16 @@ impl App {
                                     .color(accent),
                             )
                         } else {
-                            button(
-                                text(crate::i18n::tr("Par défaut"))
-                                    .font(self.font)
-                                    .size(crate::ui::tokens::ts(12.0)),
+                            self.focusable(
+                                button(
+                                    text(crate::i18n::tr("Par défaut"))
+                                        .font(self.font)
+                                        .size(crate::ui::tokens::ts(12.0)),
+                                )
+                                .padding([4, 10])
+                                .style(button::secondary)
+                                .on_press(wrap(Msg::Default(Some(c.name.to_string())))),
                             )
-                            .padding([4, 10])
-                            .style(button::secondary)
-                            .on_press(wrap(Msg::Default(Some(c.name.to_string()))))
-                            .into()
                         },
                     ]
                     .spacing(12)
@@ -479,14 +484,16 @@ impl App {
                 );
                 if let Some(lua) = l.lua.clone() {
                     keys = keys.push(
-                        button(
-                            text(crate::i18n::tr("Copier"))
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0)),
-                        )
-                        .padding([2, 8])
-                        .style(button::text)
-                        .on_press(wrap(Msg::Copy(lua))),
+                        self.focusable(
+                            button(
+                                text(crate::i18n::tr("Copier"))
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0)),
+                            )
+                            .padding([2, 8])
+                            .style(button::text)
+                            .on_press(wrap(Msg::Copy(lua))),
+                        ),
                     );
                 }
             }

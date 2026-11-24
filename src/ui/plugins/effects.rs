@@ -51,27 +51,33 @@ impl App {
                 "Transition",
                 "transition",
                 row![
-                    radio(
-                        crate::i18n::tr("Fondu"),
-                        Transition::Fade,
-                        Some(g.transition),
-                        |v| { wrap(Msg::Transition(v)) }
-                    )
-                    .font(self.font),
-                    radio(
-                        crate::i18n::tr("Glissement"),
-                        Transition::Slide,
-                        Some(g.transition),
-                        |v| { wrap(Msg::Transition(v)) }
-                    )
-                    .font(self.font),
-                    radio(
-                        crate::i18n::tr("Aucune"),
-                        Transition::None,
-                        Some(g.transition),
-                        |v| { wrap(Msg::Transition(v)) }
-                    )
-                    .font(self.font),
+                    self.focusable(
+                        radio(
+                            crate::i18n::tr("Fondu"),
+                            Transition::Fade,
+                            Some(g.transition),
+                            |v| { wrap(Msg::Transition(v)) }
+                        )
+                        .font(self.font)
+                    ),
+                    self.focusable(
+                        radio(
+                            crate::i18n::tr("Glissement"),
+                            Transition::Slide,
+                            Some(g.transition),
+                            |v| { wrap(Msg::Transition(v)) }
+                        )
+                        .font(self.font)
+                    ),
+                    self.focusable(
+                        radio(
+                            crate::i18n::tr("Aucune"),
+                            Transition::None,
+                            Some(g.transition),
+                            |v| { wrap(Msg::Transition(v)) }
+                        )
+                        .font(self.font)
+                    ),
                 ]
                 .spacing(16),
             ),

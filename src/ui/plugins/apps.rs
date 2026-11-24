@@ -136,12 +136,14 @@ impl App {
             let role_custom = role.clone();
             let role_submit = role.clone();
             let mut controls = row![
-                pick_list(choices, selected, move |c: Choice| {
-                    wrap(Msg::Pick(role.clone(), c.value))
-                })
-                .placeholder(crate::i18n::tr("Celle du système"))
-                .font(self.font)
-                .width(240),
+                self.choosable(
+                    pick_list(choices, selected, move |c: Choice| {
+                        wrap(Msg::Pick(role.clone(), c.value))
+                    })
+                    .placeholder(crate::i18n::tr("Celle du système"))
+                    .font(self.font)
+                    .width(240)
+                ),
                 text_input(
                     crate::i18n::tr("ou une commande"),
                     p.apps.custom.get(r.id).map(String::as_str).unwrap_or("")
@@ -156,14 +158,16 @@ impl App {
             .align_y(Alignment::Center);
             if current.is_some() {
                 controls = controls.push(
-                    button(
-                        text("Système")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([4, 8])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::UseSystem(r.id.to_string()))),
+                    self.focusable(
+                        button(
+                            text("Système")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 8])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::UseSystem(r.id.to_string()))),
+                    ),
                 );
             }
             col = col.push(

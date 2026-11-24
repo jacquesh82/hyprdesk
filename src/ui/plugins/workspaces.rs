@@ -164,11 +164,13 @@ impl App {
                         .size(crate::ui::tokens::ts(13.0))
                         .width(label_w)
                         .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
-                    pick_list(choices.clone(), selected, move |c: ScreenChoice| {
-                        wrap(Msg::WsMonitor(w.clone(), c.value))
-                    })
-                    .font(self.font)
-                    .width(170),
+                    self.choosable(
+                        pick_list(choices.clone(), selected, move |c: ScreenChoice| {
+                            wrap(Msg::WsMonitor(w.clone(), c.value))
+                        })
+                        .font(self.font)
+                        .width(170)
+                    ),
                 ]
                 .spacing(8)
                 .align_y(iced::Alignment::Center)
@@ -224,10 +226,11 @@ impl App {
                     "workspace_dedicated",
                     column(self.monitors.iter().map(|m| {
                         let name = m.name.clone();
-                        iced::widget::toggler(g.workspace_dedicated.contains(&m.name))
-                            .label(m.name.clone())
-                            .on_toggle(move |v| wrap(Msg::Dedicated(name.clone(), v)))
-                            .into()
+                        self.focusable(
+                            iced::widget::toggler(g.workspace_dedicated.contains(&m.name))
+                                .label(m.name.clone())
+                                .on_toggle(move |v| wrap(Msg::Dedicated(name.clone(), v))),
+                        )
                     }))
                     .spacing(8),
                 )
@@ -243,10 +246,12 @@ impl App {
         let g = &self.cfg.general;
         let dim = self.ink().dim;
         let choice = |label: &'static str, v: WsSelector| {
-            radio(crate::i18n::tr(label), v, Some(g.workspace_selector), |v| {
-                wrap(Msg::Selector(v))
-            })
-            .font(self.font)
+            self.focusable(
+                radio(crate::i18n::tr(label), v, Some(g.workspace_selector), |v| {
+                    wrap(Msg::Selector(v))
+                })
+                .font(self.font),
+            )
         };
         column![
             self.section("Style du sélecteur"),
@@ -313,26 +318,34 @@ impl App {
         let shown = g.workspaces.or(count).unwrap_or(5);
         let step = |n: u8| wrap(Msg::WsCount(Some(n)));
         let mut stepper = row![
-            toggler(count.is_some())
-                .label(crate::i18n::tr("Nombre fixe"))
-                .on_toggle(move |on| wrap(Msg::WsCount(on.then_some(shown)))),
+            self.focusable(
+                toggler(count.is_some())
+                    .label(crate::i18n::tr("Nombre fixe"))
+                    .on_toggle(move |on| wrap(Msg::WsCount(on.then_some(shown))))
+            ),
         ]
         .spacing(14)
         .align_y(Alignment::Center);
         if count.is_some() {
             stepper = stepper.push(
                 row![
-                    button(text("−").font(self.font).size(crate::ui::tokens::ts(15.0)))
-                        .padding([2, 12])
-                        .on_press_maybe((shown > 1).then(|| step(shown - 1))),
+                    self.focusable_when(
+                        button(text("−").font(self.font).size(crate::ui::tokens::ts(15.0)))
+                            .padding([2, 12])
+                            .on_press_maybe((shown > 1).then(|| step(shown - 1))),
+                        shown > 1
+                    ),
                     text(shown.to_string())
                         .font(self.font)
                         .size(crate::ui::tokens::ts(15.0))
                         .width(32)
                         .align_x(Alignment::Center),
-                    button(text("+").font(self.font).size(crate::ui::tokens::ts(15.0)))
-                        .padding([2, 12])
-                        .on_press_maybe((shown < MAX_WORKSPACES).then(|| step(shown + 1))),
+                    self.focusable_when(
+                        button(text("+").font(self.font).size(crate::ui::tokens::ts(15.0)))
+                            .padding([2, 12])
+                            .on_press_maybe((shown < MAX_WORKSPACES).then(|| step(shown + 1))),
+                        shown < MAX_WORKSPACES
+                    ),
                 ]
                 .spacing(6)
                 .align_y(Alignment::Center),
@@ -397,21 +410,27 @@ impl App {
                 row![
                     name.width(Length::Fill),
                     small("workspace".into()),
-                    pick_list(targets.clone(), Some(a.workspace.clone()), move |w| {
-                        wrap(Msg::AssignWorkspace(i, w))
-                    })
-                    .font(self.font)
-                    .width(70),
-                    toggler(a.silent)
-                        .label(crate::i18n::tr("Sans y aller"))
-                        .on_toggle(move |v| wrap(Msg::AssignRuleSilent(i, v))),
-                    button(
-                        text("Retirer")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                    )
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::RemoveAssign(i))),
+                    self.choosable(
+                        pick_list(targets.clone(), Some(a.workspace.clone()), move |w| {
+                            wrap(Msg::AssignWorkspace(i, w))
+                        })
+                        .font(self.font)
+                        .width(70)
+                    ),
+                    self.focusable(
+                        toggler(a.silent)
+                            .label(crate::i18n::tr("Sans y aller"))
+                            .on_toggle(move |v| wrap(Msg::AssignRuleSilent(i, v)))
+                    ),
+                    self.focusable(
+                        button(
+                            text("Retirer")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::RemoveAssign(i)))
+                    ),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -436,29 +455,31 @@ impl App {
         let mut picker = column![].spacing(2);
         if !filter.is_empty() {
             let pick = |label: String, detail: String, m: AppMatch| {
-                button(
-                    row![
-                        text(label)
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                            .width(Length::Fill),
-                        text(detail)
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                            .color(dim)
-                    ]
-                    .spacing(8),
+                self.focusable(
+                    button(
+                        row![
+                            text(label)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                                .width(Length::Fill),
+                            text(detail)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .color(dim)
+                        ]
+                        .spacing(8),
+                    )
+                    .width(Length::Fill)
+                    .padding([6, 10])
+                    .on_press(wrap(Msg::AddAssign(m)))
+                    .style(move |_, s| button::Style {
+                        background: matches!(s, button::Status::Hovered)
+                            .then(|| Background::Color(Color { a: 0.1, ..fg })),
+                        text_color: fg,
+                        border: Border::default().rounded(6),
+                        ..Default::default()
+                    }),
                 )
-                .width(Length::Fill)
-                .padding([6, 10])
-                .on_press(wrap(Msg::AddAssign(m)))
-                .style(move |_, s| button::Style {
-                    background: matches!(s, button::Status::Hovered)
-                        .then(|| Background::Color(Color { a: 0.1, ..fg })),
-                    text_color: fg,
-                    border: Border::default().rounded(6),
-                    ..Default::default()
-                })
             };
             for a in self
                 .apps
@@ -509,9 +530,9 @@ impl App {
                     .color(crate::ui::tone::warning()),
                     small(lines.join("\n")),
                     row![
-                        iced::widget::button(text("Ouvrir le ménage de hyprland.lua").font(self.font).size(crate::ui::tokens::ts(12.0)))
+                        self.focusable(iced::widget::button(text("Ouvrir le ménage de hyprland.lua").font(self.font).size(crate::ui::tokens::ts(12.0)))
                             .padding([4, 10])
-                            .on_press(UiMsg::Control(crate::control::Command::Settings("hyprconfig".into()))),
+                            .on_press(UiMsg::Control(crate::control::Command::Settings("hyprconfig".into())))),
                         self.lyra_button(crate::i18n::tr("Workspaces"), prompt),
                     ]
                     .spacing(10)
@@ -565,19 +586,23 @@ impl App {
                         .padding(8)
                         .width(Length::Fill),
                         small("vers".into()),
-                        pick_list(
-                            targets.clone(),
-                            Some(p.workspaces.assign_target.clone()),
-                            |w| { wrap(Msg::AssignTarget(w)) }
-                        )
-                        .font(self.font)
-                        .width(70),
+                        self.choosable(
+                            pick_list(
+                                targets.clone(),
+                                Some(p.workspaces.assign_target.clone()),
+                                |w| { wrap(Msg::AssignTarget(w)) }
+                            )
+                            .font(self.font)
+                            .width(70)
+                        ),
                     ]
                     .spacing(10)
                     .align_y(Alignment::Center),
-                    toggler(p.workspaces.assign_silent)
-                        .label(crate::i18n::tr("Sans y aller"))
-                        .on_toggle(|v| wrap(Msg::AssignSilent(v))),
+                    self.focusable(
+                        toggler(p.workspaces.assign_silent)
+                            .label(crate::i18n::tr("Sans y aller"))
+                            .on_toggle(|v| wrap(Msg::AssignSilent(v)))
+                    ),
                     picker,
                 ]
                 .spacing(8),

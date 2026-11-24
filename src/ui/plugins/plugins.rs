@@ -151,23 +151,24 @@ impl App {
                 let switch: Element<'_, UiMsg> = if core {
                     badge(Etat::Coeur.libelle(), true).into()
                 } else {
-                    toggler(on)
-                        .on_toggle(move |v| wrap(Msg::Package(id.clone(), v)))
-                        .into()
+                    self.focusable(
+                        toggler(on).on_toggle(move |v| wrap(Msg::Package(id.clone(), v))),
+                    )
                 };
                 // Paquet configurable : « Configurer » ouvre sa page de réglages.
                 let configure: Element<'_, UiMsg> = if info.id == crate::apptheme::PLUGIN && on {
-                    button(
-                        text("Configurer")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
+                    self.focusable(
+                        button(
+                            text("Configurer")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(UiMsg::Control(
+                            crate::control::Command::Settings(info.id.into()),
+                        )),
                     )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(UiMsg::Control(crate::control::Command::Settings(
-                        info.id.into(),
-                    )))
-                    .into()
                 } else {
                     iced::widget::Space::new().into()
                 };
@@ -252,28 +253,32 @@ impl App {
             let mut line = row![info].spacing(12).align_y(Alignment::Center);
             if let Some(path) = path.filter(|p| p.starts_with(&user)) {
                 line = line.push(
-                    button(
-                        text("Retirer")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::Retire(path))),
+                    self.focusable(
+                        button(
+                            text("Retirer")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::Retire(path))),
+                    ),
                 );
             }
             let configurable = !t.options.is_empty() || t.id == "updates";
             if configurable && t.error.is_none() {
                 let open = p.plugins.configuring.as_deref() == Some(t.id.as_str());
                 line = line.push(
-                    button(
-                        text(if open { "Fermer" } else { "Configurer" })
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::Configure(t.id.clone()))),
+                    self.focusable(
+                        button(
+                            text(if open { "Fermer" } else { "Configurer" })
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::Configure(t.id.clone()))),
+                    ),
                 );
             }
             // Un interrupteur sur chaque ligne, comme dans Widgets → Disponibles :
@@ -281,9 +286,9 @@ impl App {
             // déclaration dans hyprdesk.lua, plugin en erreur).
             if t.error.is_none() && (t.toggleable || active) {
                 let id = t.id.clone();
-                line = line.push(toggler(active).on_toggle(move |v| {
+                line = line.push(self.focusable(toggler(active).on_toggle(move |v| {
                     super::widgets::wrap(super::widgets::Msg::WidgetToggle(id.clone(), v))
-                }));
+                })));
             } else {
                 line = line.push(toggler(active));
             }
@@ -314,33 +319,42 @@ impl App {
                 .on_submit(wrap(Msg::Install))
                 .padding(8)
                 .width(Length::Fill),
-                button(
-                    text("Installer")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 14])
-                .on_press_maybe((!p.plugins.source.trim().is_empty()).then(|| wrap(Msg::Install))),
+                self.focusable_when(
+                    button(
+                        text("Installer")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 14])
+                    .on_press_maybe(
+                        (!p.plugins.source.trim().is_empty()).then(|| wrap(Msg::Install))
+                    ),
+                    !p.plugins.source.trim().is_empty()
+                ),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
             row![
-                button(
-                    text("Ouvrir le dossier des plugins")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press(super::widgets::wrap(super::widgets::Msg::OpenWidgetDir)),
-                button(
-                    text("Rechercher de nouveaux plugins")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press(super::widgets::wrap(super::widgets::Msg::RescanWidgets)),
+                self.focusable(
+                    button(
+                        text("Ouvrir le dossier des plugins")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(super::widgets::wrap(super::widgets::Msg::OpenWidgetDir))
+                ),
+                self.focusable(
+                    button(
+                        text("Rechercher de nouveaux plugins")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(super::widgets::wrap(super::widgets::Msg::RescanWidgets))
+                ),
             ]
             .spacing(10),
         ]
@@ -413,21 +427,25 @@ impl App {
                 )
                 .push(
                     row![
-                        button(
-                            text("Installer ce code")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                        )
-                        .padding([6, 14])
-                        .on_press(wrap(Msg::Confirm(true))),
-                        button(
-                            text("Annuler")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                        )
-                        .padding([6, 14])
-                        .style(button::secondary)
-                        .on_press(wrap(Msg::Confirm(false))),
+                        self.focusable(
+                            button(
+                                text("Installer ce code")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                            )
+                            .padding([6, 14])
+                            .on_press(wrap(Msg::Confirm(true)))
+                        ),
+                        self.focusable(
+                            button(
+                                text("Annuler")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                            )
+                            .padding([6, 14])
+                            .style(button::secondary)
+                            .on_press(wrap(Msg::Confirm(false)))
+                        ),
                     ]
                     .spacing(10),
                 );
@@ -437,25 +455,27 @@ impl App {
         // Onglets : paquets intégrés | plugins de widget de barre.
         let tab_button = |label: String, tab: Tab| {
             let active = p.plugins.tab == tab;
-            button(
-                text(label)
-                    .size(crate::ui::tokens::ts(13.0))
-                    .font(self.ui_font(iced::font::Weight::Medium)),
+            self.focusable(
+                button(
+                    text(label)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .font(self.ui_font(iced::font::Weight::Medium)),
+                )
+                .padding([8, 14])
+                .on_press(wrap(Msg::Tab(tab)))
+                .style(move |_, status| button::Style {
+                    background: if active {
+                        Some(Color { a: 0.16, ..accent }.into())
+                    } else if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                        Some(Color { a: 0.07, ..fg }.into())
+                    } else {
+                        None
+                    },
+                    text_color: if active { accent } else { fg },
+                    border: Border::default().rounded(11),
+                    ..Default::default()
+                }),
             )
-            .padding([8, 14])
-            .on_press(wrap(Msg::Tab(tab)))
-            .style(move |_, status| button::Style {
-                background: if active {
-                    Some(Color { a: 0.16, ..accent }.into())
-                } else if matches!(status, button::Status::Hovered | button::Status::Pressed) {
-                    Some(Color { a: 0.07, ..fg }.into())
-                } else {
-                    None
-                },
-                text_color: if active { accent } else { fg },
-                border: Border::default().rounded(11),
-                ..Default::default()
-            })
         };
         let tabs = row![
             tab_button(
@@ -532,9 +552,10 @@ impl App {
             let field: Element<'_, UiMsg> = match cur {
                 OptValue::Bool(b) => {
                     let (id, key) = (t.id.clone(), k.clone());
-                    toggler(*b)
-                        .on_toggle(move |v| wrap(Msg::OptBool(id.clone(), key.clone(), v)))
-                        .into()
+                    self.focusable(
+                        toggler(*b)
+                            .on_toggle(move |v| wrap(Msg::OptBool(id.clone(), key.clone(), v))),
+                    )
                 }
                 other => {
                     let dk = format!("opt:{}:{k}", t.id);
@@ -568,14 +589,16 @@ impl App {
                     .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                     .width(Length::Fill),
-                    button(
-                        text("Valeurs du plugin")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([3, 8])
-                    .style(button::text)
-                    .on_press(wrap(Msg::OptReset(t.id.clone()))),
+                    self.focusable(
+                        button(
+                            text("Valeurs du plugin")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([3, 8])
+                        .style(button::text)
+                        .on_press(wrap(Msg::OptReset(t.id.clone())))
+                    ),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -584,9 +607,9 @@ impl App {
         if t.id == "updates" {
             let keep = toggler(p.plugins.polkit_keep);
             let keep = if p.plugins.polkit_busy {
-                keep
+                Element::from(keep)
             } else {
-                keep.on_toggle(|v| wrap(Msg::PolkitKeep(v)))
+                self.focusable(keep.on_toggle(|v| wrap(Msg::PolkitKeep(v))))
             };
             // Règle polkit posée dans /etc : avancé.
             col = col.push(
@@ -660,14 +683,16 @@ impl App {
                             .font(self.font)
                             .size(crate::ui::tokens::ts(13.0))
                             .width(Length::Fill),
-                        button(
-                            text("Commandes de hyprdesk")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0))
-                        )
-                        .padding([3, 8])
-                        .style(button::text)
-                        .on_press(wrap(Msg::UpdReset(id.clone()))),
+                        self.focusable(
+                            button(
+                                text("Commandes de hyprdesk")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0))
+                            )
+                            .padding([3, 8])
+                            .style(button::text)
+                            .on_press(wrap(Msg::UpdReset(id.clone())))
+                        ),
                     ]
                     .align_y(Alignment::Center),
                 );
