@@ -45,6 +45,7 @@
 | 2026-11-24 | A25 | PAT-01 traité (plan écrit et relu, diff relu) ; il en reste 7 dans ce couloir |
 | 2026-11-24 | A26 | SYS-10 traité (plan écrit et relu, diff relu) ; il en reste 6 dans ce couloir |
 | 2026-11-24 | A27 | SYS-11 traité (plan écrit et relu, diff relu) ; il en reste 5 dans ce couloir |
+| 2026-11-24 | A28 | SYS-12 traité (plan écrit et relu, diff relu) ; il en reste 4 dans ce couloir |
 
 ### Couloir B
 
@@ -275,7 +276,7 @@ Référence verte : `9b19a8e` (porte complète `scripts/verify.sh` passée le 24
 | ICO-11 | Icônes de fichiers du bureau | ABSENT | M | moyenne | à faire | — | — |
 | SYS-10 | Widgets de bureau : clic sur le fond | ABSENT | M | haute | fait | 18318ff | plan `boucle/plans/SYS-10.md`, relu par un agent indépendant, diff relu ; Réglages fermés, le fond d'un widget à contenu lié est une zone de clic (`widget_link`, `Msg::WidgetOpen`) : horloge et calendrier ouvrent la carte Calendrier de la barre active, ancrée à son horloge (`bar_clock_key`) ou au centre ; système, Réglages › Performance ; média, le lecteur au premier plan (`media_raise`, `Raise` MPRIS), aucun lien sans lecteur ; les boutons gardent leur clic ; s'applique aussi aux volets « widget: » du Panorama |
 | SYS-11 | Galerie de widgets : aperçus | ABSENT | M | haute | fait | ed8f52f | plan `boucle/plans/SYS-11.md`, relu par un agent indépendant, diff relu ; vignette de 112 × 56 px en tête de chaque rangée (`catalog_preview`) : données simulées pour horloge (l'heure), calendrier (jour, date), système (jauges CPU 12 %, RAM 26 %), média (titre, artiste), réglages rapides (pastilles) et lanceur (icônes) ; forme provisoire (deux traits) pour commande, Lua et plugins, dont le rendu n'est connu qu'une fois exécutés ; sans accent, rien d'actionnable ; suit l'échelle du texte jusqu'à 1,5 |
-| SYS-12 | Centre de contrôle : tailles | ABSENT | M | haute | à faire | — | — |
+| SYS-12 | Centre de contrôle : tailles | ABSENT | M | haute | fait | 449e2fa | plan `boucle/plans/SYS-12.md`, relu par un agent indépendant, diff relu ; option de composant `controls.compact` (Thème › Composants › Réglages rapides, éteinte par défaut) : tuiles Wi-Fi et Bluetooth réduites à leur pastille (bascule au clic, menu au clic droit, titre, état ou erreur en infobulle), pilules Continuité carrées au symbole seul (titre en infobulle, « › » des détails conservé) ; la taille actuelle reste celle par défaut ; reste : le menu d'une tuile compacte n'est pas atteignable au clavier (la tuile n'a pas de navigation au clavier) |
 | DAT-04 | Dock comme cible de dépôt | ABSENT | L | haute | à faire | — | — |
 | ICO-10 | Apparence des icônes d'application | ABSENT | L | moyenne | à faire | — | — |
 | SYS-15 | Widgets de bureau : tailles | ABSENT | L | haute | à faire | — | — |
