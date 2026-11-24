@@ -74,7 +74,7 @@
 | 2026-11-24 | B20 | SEL-08, étape 2 achevée : douze curseurs entiers et deux décimaux passés au composant, pose par fermeture ; il en reste 11 dans ce couloir (quatre couloirs depuis cette itération : TYP et PRES passent au couloir D) |
 | 2026-11-24 | B21 | SEL-08, étape 3 (premier lot) : quatorze curseurs décimaux ou signés passés au composant, porte verte, lot non publié (trois refus de publication : l'intégration avançait à chaque porte), il reste sur `hig/plan-B` ; il en reste 11 dans ce couloir |
 | 2026-11-24 | B22 | SEL-08, étape 3 (premier lot) : lot de B21 rebasé sur l'intégration, porte repassée (code bougé), publié (`c93b57d`) ; il en reste 11 dans ce couloir |
-| 2026-11-24 | B23 | SEL-08, étape 3 achevée (travail interrompu repris et mis au point : cinq derniers sites, curseur plafonné, brouillon ramené au pas) : écart fait ; SEL-09 traité (`e4b73e0`) : bornes sous chaque curseur, graduations sous les domaines de dix pas au plus  ; SEL-06 et SEL-13 traités (`a639d6e`) : segments « Affichage du bureau » nommés d'un nom, de largeur égale, libellé centré  ; SEL-04 sans objet (couvert par SYS-08 pour le Wi-Fi ; Bluetooth et Silence changeaient déjà de symbole)  ; DAT-20 traité (`8ef4dc9`) : infobulle de « Selon le mode » ramenée à 58 caractères ; il en reste 5 dans ce couloir |
+| 2026-11-24 | B23 | SEL-08, étape 3 achevée (travail interrompu repris et mis au point : cinq derniers sites, curseur plafonné, brouillon ramené au pas) : écart fait ; SEL-09 traité (`e4b73e0`) : bornes sous chaque curseur, graduations sous les domaines de dix pas au plus  ; SEL-06 et SEL-13 traités (`a639d6e`) : segments « Affichage du bureau » nommés d'un nom, de largeur égale, libellé centré  ; SEL-04 sans objet (couvert par SYS-08 pour le Wi-Fi ; Bluetooth et Silence changeaient déjà de symbole)  ; DAT-20 traité (`8ef4dc9`) : infobulle de « Selon le mode » ramenée à 58 caractères  ; DAT-06 traité (`f78a83e`) : connexion sans envoi à vide ; il en reste 4 dans ce couloir |
 
 ### Couloir C
 
@@ -290,7 +290,7 @@ Référence verte : `9b19a8e` (porte complète `scripts/verify.sh` passée le 24
 | PAT-03 | Barre en plein écran | PISTE | M | haute | à faire | — | — |
 | PRES-02 | Cartes de la barre : changement de taille | PISTE | M | moyenne | à faire | — | — |
 | DAT-01 | Assistant de premier démarrage | ÉCART | S | haute | à faire | — | — |
-| DAT-06 | Écran de connexion : envoi à vide | ÉCART | S | haute | à faire | — | — |
+| DAT-06 | Écran de connexion : envoi à vide | ÉCART | S | haute | fait | `f78a83e` | Écran de connexion : « Se connecter » est inactif tant que l'identifiant est vide ; Entrée dans une réponse vide n'envoie rien à greetd et rend le focus au champ, la question restant posée (toutes les questions de PAM, secrètes ou non). Test : la démo n'avance pas sur une réponse vide. Conséquence assumée : un compte sans mot de passe (PAM `nullok`) ne peut plus répondre à vide — la correction le demande. Preuve exacte à des numéros de ligne près. |
 | PAT-10 | « + Nouvel espace » | ÉCART | S | haute | à faire | — | — |
 | PRES-06 | Alerte problème : texte d'accompagnement | ÉCART | S | moyenne | à faire | — | — |
 | PRES-10 | Assistant de configuration, étape Récapitulatif | ÉCART | S | haute | à faire | — | — |
