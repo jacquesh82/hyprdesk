@@ -520,7 +520,9 @@ impl App {
             });
         // Glyphe seul : une infobulle nomme l'action (HIG LAY-12) ; armé, le
         // bouton porte déjà sa question.
-        if armed {
+        // L'enveloppe de focus au-dehors (HIG ENT-01) : armé ou non, la
+        // même commande garde le focus.
+        let control: Element<'a, Msg> = if armed {
             b.into()
         } else {
             iced::widget::tooltip(
@@ -529,7 +531,8 @@ impl App {
                 iced::widget::tooltip::Position::Bottom,
             )
             .into()
-        }
+        };
+        self.focusable(control)
     }
 
     /// L'onglet `tab` du paquet `pkg` est affiché.

@@ -628,6 +628,20 @@ impl App {
     /// champ de saisie, déjà focalisable. Accès clavier complet coupé
     /// (`general.keyboard_access`) : la commande est rendue telle quelle, Tab
     /// ne va plus qu'aux champs.
+    /// Une commande qui peut être inactive (`on` faux : sans message) : hors
+    /// du parcours tant qu'elle l'est, un arrêt de Tab sans effet n'aide pas.
+    pub(in crate::ui) fn focusable_when<'a>(
+        &self,
+        control: impl Into<Element<'a, Msg>>,
+        on: bool,
+    ) -> Element<'a, Msg> {
+        if on {
+            self.focusable(control)
+        } else {
+            control.into()
+        }
+    }
+
     pub(in crate::ui) fn focusable<'a>(
         &self,
         control: impl Into<Element<'a, Msg>>,
@@ -849,7 +863,9 @@ impl App {
                     .size(crate::ui::tokens::ts(12.0))
                     .into()
             });
-        iced::widget::tooltip(
+        // Dans le parcours au clavier (HIG ENT-01) : le clic au centre tombe
+        // sur le bouton.
+        self.focusable(iced::widget::tooltip(
             iced::widget::button(glyph)
                 .padding([4, 8])
                 .style(move |_, st| iced::widget::button::Style {
@@ -872,8 +888,7 @@ impl App {
             crate::i18n::text(crate::i18n::tr("Demander à LYRA de régler le problème"))
                 .font(self.font),
             iced::widget::tooltip::Position::Left,
-        )
-        .into()
+        ))
     }
 
     pub(in crate::ui) fn commit(&mut self) -> Task<Msg> {

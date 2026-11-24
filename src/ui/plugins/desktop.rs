@@ -163,21 +163,21 @@ impl App {
                 "Langue de l'interface",
                 "language",
                 row![
-                    radio(
+                    self.focusable(radio(
                         crate::i18n::tr("Celle du système"),
                         "auto",
                         Some(lang),
                         |v| wrap(Msg::Language(v))
                     )
-                    .font(self.font),
-                    radio("Français", "fr", Some(lang), |v| wrap(
+                    .font(self.font)),
+                    self.focusable(radio("Français", "fr", Some(lang), |v| wrap(
                         Msg::Language(v)
                     ))
-                    .font(self.font),
-                    radio("English", "en", Some(lang), |v| wrap(
+                    .font(self.font)),
+                    self.focusable(radio("English", "en", Some(lang), |v| wrap(
                         Msg::Language(v)
                     ))
-                    .font(self.font),
+                    .font(self.font)),
                 ]
                 .spacing(16),
             ),
@@ -186,21 +186,21 @@ impl App {
                 "Afficher le bureau sur",
                 "show_on",
                 column![
-                    radio(crate::i18n::tr("Tous les écrans"), ShowOn::All, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font),
-                    radio(crate::i18n::tr("L'écran actif seulement"), ShowOn::Focused, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font),
-                    radio(crate::i18n::tr("L'écran principal seulement"), ShowOn::Primary, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font),
+                    self.focusable(radio(crate::i18n::tr("Tous les écrans"), ShowOn::All, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font)),
+                    self.focusable(radio(crate::i18n::tr("L'écran actif seulement"), ShowOn::Focused, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font)),
+                    self.focusable(radio(crate::i18n::tr("L'écran principal seulement"), ShowOn::Primary, Some(g.show_on), |v| wrap(Msg::ShowOn(v))).font(self.font)),
                 ]
                 .spacing(8),
             ),
             self.field(
                 "Fichiers du dossier Bureau et Corbeille",
                 "desktop_files",
-                toggler(g.desktop_files).on_toggle(|v| wrap(Msg::DesktopFiles(v))),
+                self.focusable(toggler(g.desktop_files).on_toggle(|v| wrap(Msg::DesktopFiles(v)))),
             ),
             self.field(
                 "Bureau resté affiché : fenêtres ouvertes flottantes et centrées",
                 "float_launched",
-                toggler(g.float_launched).on_toggle(|v| wrap(Msg::FloatLaunched(v))),
+                self.focusable(toggler(g.float_launched).on_toggle(|v| wrap(Msg::FloatLaunched(v)))),
             ),
             text("Bureau affiché, les fenêtres du workspace flottent, organisées sur l'écran ; une fenêtre que vous déplacez garde sa place (par workspace et par application) et n'est plus réorganisée. Elles reprennent leur disposition quand on masque le bureau.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
             row![
@@ -212,16 +212,16 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(text("Oublier ces places").font(self.font).size(crate::ui::tokens::ts(12.0)))
+                self.focusable_when(button(text("Oublier ces places").font(self.font).size(crate::ui::tokens::ts(12.0)))
                     .padding([4, 10])
-                    .on_press_maybe((p_places > 0).then(|| wrap(Msg::ForgetWindowPlaces))),
+                    .on_press_maybe((p_places > 0).then(|| wrap(Msg::ForgetWindowPlaces))), p_places > 0),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
             self.field(
                 "Barres de titre Hyprbars en plein bureau (plugin Hyprland)",
                 "hyprbars",
-                toggler(g.hyprbars).on_toggle(|v| wrap(Msg::Hyprbars(v))),
+                self.focusable(toggler(g.hyprbars).on_toggle(|v| wrap(Msg::Hyprbars(v)))),
             ),
             // Chemin, commande, URL : à sélectionner et à copier (HIG LAY-05).
             crate::ui::selectable::selectable(match hyprbars_found {
@@ -237,8 +237,8 @@ impl App {
                 "Mode par défaut",
                 "mode",
                 column![
-                    radio(crate::i18n::tr("Opaque — le fond d'écran net"), Mode::Opaque, Some(g.mode), |v| wrap(Msg::Mode(v))).font(self.font),
-                    radio(crate::i18n::tr("Verre — fond d'écran flouté et teinté"), Mode::Glass, Some(g.mode), |v| wrap(Msg::Mode(v))).font(self.font),
+                    self.focusable(radio(crate::i18n::tr("Opaque — le fond d'écran net"), Mode::Opaque, Some(g.mode), |v| wrap(Msg::Mode(v))).font(self.font)),
+                    self.focusable(radio(crate::i18n::tr("Verre — fond d'écran flouté et teinté"), Mode::Glass, Some(g.mode), |v| wrap(Msg::Mode(v))).font(self.font)),
                 ]
                 .spacing(8),
             ),
@@ -246,9 +246,9 @@ impl App {
                 "Mode de ce workspace",
                 "",
                 row![
-                    radio(crate::i18n::tr("Par défaut"), WsMode::Default, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font),
-                    radio(crate::i18n::tr("Opaque"), WsMode::Opaque, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font),
-                    radio(crate::i18n::tr("Verre"), WsMode::Glass, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font),
+                    self.focusable(radio(crate::i18n::tr("Par défaut"), WsMode::Default, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font)),
+                    self.focusable(radio(crate::i18n::tr("Opaque"), WsMode::Opaque, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font)),
+                    self.focusable(radio(crate::i18n::tr("Verre"), WsMode::Glass, Some(ws_mode), |v| wrap(Msg::WorkspaceMode(v))).font(self.font)),
                 ]
                 .spacing(16),
             ),
@@ -421,7 +421,7 @@ impl App {
         col = col.push(self.field(
             "Démarrage automatique des applications (XDG)",
             "autostart",
-            toggler(g.autostart).on_toggle(|v| wrap(Msg::Autostart(v))),
+            self.focusable(toggler(g.autostart).on_toggle(|v| wrap(Msg::Autostart(v)))),
         ));
         col = col.push(
             text("Lance une fois par session les applications de ~/.config/autostart et /etc/xdg/autostart, sauf celles qui tournent déjà. À laisser coupé si hyprland.lua les lance déjà.")
@@ -456,13 +456,15 @@ impl App {
                 .align_y(Alignment::Center);
                 if let Some(enable) = toggle {
                     line = line.push(
-                        button(
-                            text(if enable { "Activer" } else { "Désactiver" })
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0)),
-                        )
-                        .padding([4, 10])
-                        .on_press(wrap(Msg::AutostartEntry(e.id.clone(), enable))),
+                        self.focusable(
+                            button(
+                                text(if enable { "Activer" } else { "Désactiver" })
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0)),
+                            )
+                            .padding([4, 10])
+                            .on_press(wrap(Msg::AutostartEntry(e.id.clone(), enable))),
+                        ),
                     );
                 }
                 col = col.push(line);
@@ -484,7 +486,9 @@ impl App {
         col = col.push(self.field(
             "Historique du presse-papiers (cliphist)",
             "clipboard_history",
-            toggler(g.clipboard_history).on_toggle(|v| wrap(Msg::ClipboardHistory(v))),
+            self.focusable(
+                toggler(g.clipboard_history).on_toggle(|v| wrap(Msg::ClipboardHistory(v))),
+            ),
         ));
         col = col.push(
             text(if crate::clipboard::available() {
@@ -498,14 +502,16 @@ impl App {
         );
         if crate::clipboard::available() {
             col = col.push(
-                button(
-                    text("Vider l'historique du presse-papiers")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0)),
-                )
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press(wrap(Msg::ClipboardWipe)),
+                self.focusable(
+                    button(
+                        text("Vider l'historique du presse-papiers")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::ClipboardWipe)),
+                ),
             );
             if let Some(r) = self
                 .panel
@@ -559,13 +565,15 @@ impl App {
                             .color(dim)
                     ]
                     .width(Length::Fill),
-                    button(
-                        text("Relancer")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::ComponentRestart(d.name.clone()))),
+                    self.focusable(
+                        button(
+                            text("Relancer")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::ComponentRestart(d.name.clone())))
+                    ),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -601,23 +609,24 @@ impl App {
                     if c.feature.starts_with("Authentification administrateur") {
                         let confirm =
                             self.panel.as_ref().and_then(|p| p.desktop.takeover) == Some(c.pid);
-                        button(
-                            text(if confirm {
-                                crate::tr!("Confirmer : arrêter {h}", h = c.holder)
+                        self.focusable(
+                            button(
+                                text(if confirm {
+                                    crate::tr!("Confirmer : arrêter {h}", h = c.holder)
+                                } else {
+                                    crate::i18n::tr("Prendre la main").to_string()
+                                })
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                            )
+                            .padding([4, 10])
+                            .style(if confirm {
+                                button::danger
                             } else {
-                                crate::i18n::tr("Prendre la main").to_string()
+                                button::secondary
                             })
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
+                            .on_press(wrap(Msg::TakeOver(c.pid))),
                         )
-                        .padding([4, 10])
-                        .style(if confirm {
-                            button::danger
-                        } else {
-                            button::secondary
-                        })
-                        .on_press(wrap(Msg::TakeOver(c.pid)))
-                        .into()
                     } else {
                         Space::new().into()
                     };

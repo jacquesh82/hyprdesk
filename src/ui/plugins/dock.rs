@@ -97,16 +97,20 @@ impl App {
         let g = &self.cfg.general;
         let dim = self.ink().dim;
         let running = |label: &'static str, v: RunningApps| {
-            radio(crate::i18n::tr(label), v, Some(g.running_apps), |v| {
-                wrap(Msg::Running(v))
-            })
-            .font(self.font)
+            self.focusable(
+                radio(crate::i18n::tr(label), v, Some(g.running_apps), |v| {
+                    wrap(Msg::Running(v))
+                })
+                .font(self.font),
+            )
         };
         let group = |label: &'static str, v: LauncherGroup| {
-            radio(crate::i18n::tr(label), v, Some(g.launcher_group), |v| {
-                wrap(Msg::Group(v))
-            })
-            .font(self.font)
+            self.focusable(
+                radio(crate::i18n::tr(label), v, Some(g.launcher_group), |v| {
+                    wrap(Msg::Group(v))
+                })
+                .font(self.font),
+            )
         };
         if !self.on_subtab(INFO.id, "contenu") {
             return self.dock_look();
@@ -162,7 +166,9 @@ impl App {
             .map(|p| p.dock.pin_filter.clone())
             .unwrap_or_default();
         let position = |label: &'static str, v: LauncherPosition| {
-            radio(label, v, Some(l.position), |v| wrap(Msg::Position(v))).font(self.font)
+            self.focusable(
+                radio(label, v, Some(l.position), |v| wrap(Msg::Position(v))).font(self.font),
+            )
         };
         let name = |id: &str| {
             self.apps
@@ -181,14 +187,18 @@ impl App {
         }
         for (i, id) in l.pinned.iter().enumerate() {
             let small = |label: &'static str, msg: Option<UiMsg>| {
-                button(
-                    text(label)
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0)),
+                let on = msg.is_some();
+                self.focusable_when(
+                    button(
+                        text(label)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([3, 8])
+                    .style(button::secondary)
+                    .on_press_maybe(msg),
+                    on,
                 )
-                .padding([3, 8])
-                .style(button::secondary)
-                .on_press_maybe(msg)
             };
             pins = pins.push(
                 row![
@@ -220,23 +230,25 @@ impl App {
                 .take(8)
             {
                 found = found.push(
-                    button(
-                        row![
-                            text(a.name.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                                .width(Length::Fill),
-                            text(a.id.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0))
-                                .color(dim),
-                        ]
-                        .spacing(8),
-                    )
-                    .width(Length::Fill)
-                    .padding([6, 10])
-                    .style(button::text)
-                    .on_press(wrap(Msg::Pin(a.id.clone()))),
+                    self.focusable(
+                        button(
+                            row![
+                                text(a.name.clone())
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                                    .width(Length::Fill),
+                                text(a.id.clone())
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0))
+                                    .color(dim),
+                            ]
+                            .spacing(8),
+                        )
+                        .width(Length::Fill)
+                        .padding([6, 10])
+                        .style(button::text)
+                        .on_press(wrap(Msg::Pin(a.id.clone()))),
+                    ),
                 );
             }
         }
@@ -287,12 +299,16 @@ impl App {
                 "Boutons",
                 "",
                 column![
-                    iced::widget::toggler(l.show_assistant)
-                        .label(crate::i18n::tr("Assistant IA (LYRA)"))
-                        .on_toggle(|v| wrap(Msg::ShowAssistant(v))),
-                    iced::widget::toggler(l.show_settings)
-                        .label(crate::i18n::tr("Réglages"))
-                        .on_toggle(|v| wrap(Msg::ShowSettings(v))),
+                    self.focusable(
+                        iced::widget::toggler(l.show_assistant)
+                            .label(crate::i18n::tr("Assistant IA (LYRA)"))
+                            .on_toggle(|v| wrap(Msg::ShowAssistant(v)))
+                    ),
+                    self.focusable(
+                        iced::widget::toggler(l.show_settings)
+                            .label(crate::i18n::tr("Réglages"))
+                            .on_toggle(|v| wrap(Msg::ShowSettings(v)))
+                    ),
                 ]
                 .spacing(8),
             ),
@@ -302,19 +318,23 @@ impl App {
                 "Icônes",
                 "launcher_smartui",
                 row![
-                    iced::widget::toggler(l.smartui)
-                        .label(crate::i18n::tr("SmartUI design (icônes unifiées par l'IA)"))
-                        .on_toggle(
-                            |v| super::assistant::wrap(super::assistant::Msg::SmartToggle(v))
-                        ),
-                    button(
-                        text("Créer et valider les icônes…")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(super::assistant::wrap(super::assistant::Msg::OpenServices)),
+                    self.focusable(
+                        iced::widget::toggler(l.smartui)
+                            .label(crate::i18n::tr("SmartUI design (icônes unifiées par l'IA)"))
+                            .on_toggle(|v| super::assistant::wrap(
+                                super::assistant::Msg::SmartToggle(v)
+                            ))
+                    ),
+                    self.focusable(
+                        button(
+                            text("Créer et valider les icônes…")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(super::assistant::wrap(super::assistant::Msg::OpenServices))
+                    ),
                 ]
                 .spacing(14)
                 .align_y(Alignment::Center),

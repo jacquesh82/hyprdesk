@@ -91,13 +91,15 @@ impl App {
                         .font(self.font)
                         .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
-                    button(
-                        text("Retirer")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                    )
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::RemoveIcon(i))),
+                    self.focusable(
+                        button(
+                            text("Retirer")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::RemoveIcon(i)))
+                    ),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -130,37 +132,41 @@ impl App {
             }
             for a in matches {
                 picker = picker.push(
-                    button(
-                        row![
-                            text(a.name.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                                .width(Length::Fill),
-                            text(a.id.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0))
-                                .color(dim)
-                        ]
-                        .spacing(8),
-                    )
-                    .width(Length::Fill)
-                    .padding([6, 10])
-                    .on_press(wrap(Msg::AddApp(a.id.clone())))
-                    .style(move |_, s| button::Style {
-                        background: matches!(s, button::Status::Hovered)
-                            .then(|| Background::Color(Color { a: 0.1, ..fg })),
-                        text_color: fg,
-                        border: Border::default().rounded(6),
-                        ..Default::default()
-                    }),
+                    self.focusable(
+                        button(
+                            row![
+                                text(a.name.clone())
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                                    .width(Length::Fill),
+                                text(a.id.clone())
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0))
+                                    .color(dim)
+                            ]
+                            .spacing(8),
+                        )
+                        .width(Length::Fill)
+                        .padding([6, 10])
+                        .on_press(wrap(Msg::AddApp(a.id.clone())))
+                        .style(move |_, s| button::Style {
+                            background: matches!(s, button::Status::Hovered)
+                                .then(|| Background::Color(Color { a: 0.1, ..fg })),
+                            text_color: fg,
+                            border: Border::default().rounded(6),
+                            ..Default::default()
+                        }),
+                    ),
                 );
             }
         }
         let scope_radio = |label: &'static str, v: IconScope| {
-            radio(crate::i18n::tr(label), v, Some(g.icon_scope), |v| {
-                wrap(Msg::Scope(v))
-            })
-            .font(self.font)
+            self.focusable(
+                radio(crate::i18n::tr(label), v, Some(g.icon_scope), |v| {
+                    wrap(Msg::Scope(v))
+                })
+                .font(self.font),
+            )
         };
         column![
             self.section("Comportement"),
@@ -183,7 +189,7 @@ impl App {
             self.field(
                 "Ouvrir d'un double clic (un clic sélectionne)",
                 "icon_double_click",
-                toggler(g.icon_double_click).on_toggle(|v| wrap(Msg::DoubleClick(v))),
+                self.focusable(toggler(g.icon_double_click).on_toggle(|v| wrap(Msg::DoubleClick(v)))),
             ),
             text(crate::i18n::tr(
                 "Clic droit sur une icône : ouvrir, épingler au dock, renommer, retirer du bureau… Échap retire la sélection, Entrée ouvre l'icône sélectionnée."
@@ -247,9 +253,9 @@ impl App {
             self.field(
                 "Disposition de ce bureau",
                 "",
-                button(text("Réinitialiser les positions").font(self.font).size(crate::ui::tokens::ts(13.0)))
+                self.focusable(button(text("Réinitialiser les positions").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 12])
-                    .on_press(wrap(Msg::ResetLayout)),
+                    .on_press(wrap(Msg::ResetLayout))),
             ),
         ]
         .spacing(14)

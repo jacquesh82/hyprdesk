@@ -156,7 +156,9 @@ impl App {
                             ]
                             .spacing(4)
                             .width(Length::Fill),
-                            toggler(checked).on_toggle(move |v| wrap(Msg::Toggle(t.id, v))),
+                            self.focusable(
+                                toggler(checked).on_toggle(move |v| wrap(Msg::Toggle(t.id, v)))
+                            ),
                         ]
                         .spacing(12)
                         .align_y(Alignment::Center),
@@ -169,18 +171,20 @@ impl App {
                             .size(crate::ui::tokens::ts(12.0))
                             .color(dim)
                             .width(Length::Fill),
-                            button(
-                                text(if editing == Some(t.id) {
-                                    "Fermer"
-                                } else {
-                                    "Réglages"
-                                })
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0)),
-                            )
-                            .padding([4, 10])
-                            .style(button::secondary)
-                            .on_press(wrap(Msg::Edit(t.id))),
+                            self.focusable(
+                                button(
+                                    text(if editing == Some(t.id) {
+                                        "Fermer"
+                                    } else {
+                                        "Réglages"
+                                    })
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0)),
+                                )
+                                .padding([4, 10])
+                                .style(button::secondary)
+                                .on_press(wrap(Msg::Edit(t.id)))
+                            ),
                         ]
                         .spacing(10)
                         .align_y(Alignment::Center),
@@ -228,13 +232,15 @@ impl App {
             .spacing(16),
         );
         col = col.push(
-            button(
-                text(crate::i18n::tr("Appliquer maintenant"))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0)),
-            )
-            .padding([6, 14])
-            .on_press(wrap(Msg::ApplyNow)),
+            self.focusable(
+                button(
+                    text(crate::i18n::tr("Appliquer maintenant"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([6, 14])
+                .on_press(wrap(Msg::ApplyNow)),
+            ),
         );
         if let Some(p) = &self.panel {
             for (id, r) in &p.apptheme.report {
@@ -378,14 +384,16 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(
-                    text("Valeurs par défaut")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([3, 8])
-                .style(button::text)
-                .on_press(wrap(Msg::Reset(t.id))),
+                self.focusable(
+                    button(
+                        text("Valeurs par défaut")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([3, 8])
+                    .style(button::text)
+                    .on_press(wrap(Msg::Reset(t.id)))
+                ),
             ]
             .spacing(8)
             .align_y(Alignment::Center),

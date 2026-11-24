@@ -170,11 +170,12 @@ impl App {
                 label,
                 "",
                 row(items.into_iter().map(|(l, v)| {
-                    radio(crate::i18n::tr(l), v, Some(current), move |v| {
-                        set(&|s: &mut crate::config::LauncherShape| apply(s, v), true)
-                    })
-                    .font(font)
-                    .into()
+                    self.focusable(
+                        radio(crate::i18n::tr(l), v, Some(current), move |v| {
+                            set(&|s: &mut crate::config::LauncherShape| apply(s, v), true)
+                        })
+                        .font(font),
+                    )
                 }))
                 .spacing(14)
                 .wrap(),
@@ -286,10 +287,12 @@ impl App {
             self.field(
                 "Un clic hors de la carte la ferme",
                 "",
-                iced::widget::toggler(shape.close_on_outside_click).on_toggle(move |v| set(
-                    &|s: &mut crate::config::LauncherShape| s.close_on_outside_click = v,
-                    true
-                )),
+                self.focusable(
+                    iced::widget::toggler(shape.close_on_outside_click).on_toggle(move |v| set(
+                        &|s: &mut crate::config::LauncherShape| s.close_on_outside_click = v,
+                        true
+                    ))
+                ),
             ),
         ]
         .spacing(14)
@@ -303,10 +306,12 @@ impl App {
         let a = g.apps_launcher;
         let dim = self.ink().dim;
         let style = |label: &'static str, v: AppsStyle| {
-            radio(crate::i18n::tr(label), v, Some(a.style), |v| {
-                wrap(Msg::AppsStyle(v))
-            })
-            .font(self.font)
+            self.focusable(
+                radio(crate::i18n::tr(label), v, Some(a.style), |v| {
+                    wrap(Msg::AppsStyle(v))
+                })
+                .font(self.font),
+            )
         };
         column![
             self.section("Lanceur d'applications"),
@@ -337,15 +342,15 @@ impl App {
             self.field(
                 "Catégories dans la grande feuille",
                 "apps_categories",
-                iced::widget::toggler(a.categories).on_toggle(|v| wrap(Msg::AppsCategories(v))),
+                self.focusable(iced::widget::toggler(a.categories).on_toggle(|v| wrap(Msg::AppsCategories(v)))),
             ),
-            button(
+            self.focusable(button(
                 text(crate::i18n::tr("Ouvrir le lanceur"))
                     .font(self.font)
                     .size(crate::ui::tokens::ts(13.0))
             )
             .padding([6, 14])
-            .on_press(UiMsg::Control(crate::control::Command::Apps)),
+            .on_press(UiMsg::Control(crate::control::Command::Apps))),
         ]
         .spacing(12)
         .into()
@@ -369,7 +374,9 @@ impl App {
             self.field(
                 "Le même lanceur dans tous les modes",
                 "apps_unified",
-                iced::widget::toggler(a.unified).on_toggle(|v| wrap(Msg::AppsUnified(v))),
+                self.focusable(
+                    iced::widget::toggler(a.unified).on_toggle(|v| wrap(Msg::AppsUnified(v)))
+                ),
             ),
             text(outside)
                 .font(self.font)
@@ -423,16 +430,18 @@ impl App {
             .align_y(Alignment::Center);
             if i.holder().is_some() {
                 line = line.push(
-                    button(
-                        text(crate::i18n::tr("Donner à hyprdesk"))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(super::keys::wrap(super::keys::Msg::TakeKey(
-                        i.action.combo.clone(),
-                    ))),
+                    self.focusable(
+                        button(
+                            text(crate::i18n::tr("Donner à hyprdesk"))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(super::keys::wrap(
+                            super::keys::Msg::TakeKey(i.action.combo.clone()),
+                        )),
+                    ),
                 );
             }
             line = line.push(self.lyra_button(
@@ -443,14 +452,16 @@ impl App {
         }
         if g.keys.search != "SUPER + R" {
             col = col.push(
-                button(
-                    text(crate::i18n::tr("Utiliser SUPER + R"))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                )
-                .padding([6, 14])
-                .style(button::secondary)
-                .on_press(wrap(Msg::UseSuperR)),
+                self.focusable(
+                    button(
+                        text(crate::i18n::tr("Utiliser SUPER + R"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([6, 14])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::UseSuperR)),
+                ),
             );
         }
         col.into()

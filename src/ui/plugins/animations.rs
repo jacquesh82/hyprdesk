@@ -154,14 +154,16 @@ impl App {
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
                     .color(self.ink().accent),
-                button(
-                    text(crate::i18n::tr("Rétablir"))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([2, 8])
-                .style(button::text)
-                .on_press(reset),
+                self.focusable(
+                    button(
+                        text(crate::i18n::tr("Rétablir"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([2, 8])
+                    .style(button::text)
+                    .on_press(reset)
+                ),
             ]
             .spacing(6)
             .align_y(Alignment::Center)
@@ -185,13 +187,13 @@ impl App {
     fn blur_compare(&self) -> Element<'_, UiMsg> {
         let dim = self.ink().dim;
         row![
-            button(
+            self.focusable(button(
                 text(crate::i18n::tr("Comparer à l'écran"))
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
             )
             .padding([4, 10])
-            .on_press(wrap(Msg::Compare("decoration.blur.variant"))),
+            .on_press(wrap(Msg::Compare("decoration.blur.variant")))),
             text(crate::i18n::tr(
                 "Chaque variante quatre secondes, son nom en haut de l'écran, puis la vôtre revient. \
                  Gardez une fenêtre transparente devant un fond détaillé."
@@ -294,13 +296,15 @@ impl App {
                         "",
                         row![
                             container(
-                                button(
-                                    text(crate::i18n::tr("Personnaliser"))
-                                        .font(self.font)
-                                        .size(crate::ui::tokens::ts(12.0))
-                                )
-                                .padding([4, 10])
-                                .on_press(wrap(Msg::Anim(name.into(), Some(Anim::new_for(l))))),
+                                self.focusable(
+                                    button(
+                                        text(crate::i18n::tr("Personnaliser"))
+                                            .font(self.font)
+                                            .size(crate::ui::tokens::ts(12.0))
+                                    )
+                                    .padding([4, 10])
+                                    .on_press(wrap(Msg::Anim(name.into(), Some(Anim::new_for(l)))))
+                                ),
                             )
                             .width(Length::Fill),
                             self.fx_origin(false, UiMsg::Noop),
@@ -318,7 +322,7 @@ impl App {
                 move |x| wrap(Msg::Speed(name.into(), x)),
                 wrap(Msg::Commit),
             );
-            let interrupteur = toggler(a.enabled).on_toggle({
+            let interrupteur = self.focusable(toggler(a.enabled).on_toggle({
                 let base = base.clone();
                 move |v| {
                     wrap(Msg::Anim(
@@ -329,7 +333,7 @@ impl App {
                         }),
                     ))
                 }
-            });
+            }));
             // Avec son curseur, l'interrupteur reste sur la ligne de celui-ci,
             // au-dessus de son échelle (HIG SEL-09).
             let mut line = if a.enabled {

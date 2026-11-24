@@ -271,24 +271,30 @@ impl App {
         col = col.push(self.section("Source"));
         col = col.push(
             row![
-                radio(
-                    crate::i18n::tr("Image"),
-                    WallKind::Image,
-                    kind.or(Some(WallKind::Image)),
-                    |v| wrap(Msg::Kind(v))
-                )
-                .font(self.font),
-                radio(crate::i18n::tr("Diaporama"), WallKind::Rotate, kind, |v| {
-                    wrap(Msg::Kind(v))
-                })
-                .font(self.font),
-                radio(
-                    crate::i18n::tr("Couleur unie"),
-                    WallKind::Color,
-                    kind,
-                    |v| wrap(Msg::Kind(v))
-                )
-                .font(self.font),
+                self.focusable(
+                    radio(
+                        crate::i18n::tr("Image"),
+                        WallKind::Image,
+                        kind.or(Some(WallKind::Image)),
+                        |v| wrap(Msg::Kind(v))
+                    )
+                    .font(self.font)
+                ),
+                self.focusable(
+                    radio(crate::i18n::tr("Diaporama"), WallKind::Rotate, kind, |v| {
+                        wrap(Msg::Kind(v))
+                    })
+                    .font(self.font)
+                ),
+                self.focusable(
+                    radio(
+                        crate::i18n::tr("Couleur unie"),
+                        WallKind::Color,
+                        kind,
+                        |v| wrap(Msg::Kind(v))
+                    )
+                    .font(self.font)
+                ),
             ]
             .spacing(20),
         );
@@ -303,13 +309,15 @@ impl App {
                         .on_submit(wrap(Msg::FolderSubmit))
                         .padding(8)
                         .width(240),
-                    button(
-                        text("Parcourir")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                    )
-                    .padding([6, 12])
-                    .on_press(wrap(Msg::Browse)),
+                    self.focusable(
+                        button(
+                            text("Parcourir")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([6, 12])
+                        .on_press(wrap(Msg::Browse))
+                    ),
                 ]
                 .spacing(8),
             ),
@@ -348,7 +356,7 @@ impl App {
                     col = col.push(self.field(
                         "Ordre aléatoire",
                         "",
-                        toggler(*shuffle).on_toggle(|v| wrap(Msg::Shuffle(v))),
+                        self.focusable(toggler(*shuffle).on_toggle(|v| wrap(Msg::Shuffle(v)))),
                     ));
                     col = col.push(text("Pour changer de dossier : saisir le dossier, puis choisir à nouveau « Diaporama ».").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim));
                 }
@@ -356,18 +364,19 @@ impl App {
             Some(WallKind::Color) => {
                 let swatches = row(SWATCHES.iter().map(|c| {
                     let col = color(*c, 1.0);
-                    button(Space::new().width(32).height(32))
-                        .padding(0)
-                        .on_press(wrap(Msg::Color(*c)))
-                        .style(move |_, _| button::Style {
-                            background: Some(col.into()),
-                            border: Border::default()
-                                .rounded(8)
-                                .color(Color { a: 0.3, ..fg })
-                                .width(1),
-                            ..Default::default()
-                        })
-                        .into()
+                    self.focusable(
+                        button(Space::new().width(32).height(32))
+                            .padding(0)
+                            .on_press(wrap(Msg::Color(*c)))
+                            .style(move |_, _| button::Style {
+                                background: Some(col.into()),
+                                border: Border::default()
+                                    .rounded(8)
+                                    .color(Color { a: 0.3, ..fg })
+                                    .width(1),
+                                ..Default::default()
+                            }),
+                    )
                 }))
                 .spacing(8);
                 // Puits de couleur (HIG SEL-02) : la couleur en place ouvre le
@@ -467,23 +476,24 @@ impl App {
                                 .center_y(THUMB.1 as f32)
                                 .into(),
                             };
-                            button(inner)
-                                .padding(3)
-                                .on_press(wrap(Msg::PickImage(img.clone())))
-                                .style(move |_, s| button::Style {
-                                    background: None,
-                                    border: Border::default().rounded(8).width(3).color(
-                                        if selected {
-                                            accent
-                                        } else if matches!(s, button::Status::Hovered) {
-                                            Color { a: 0.5, ..fg }
-                                        } else {
-                                            Color::TRANSPARENT
-                                        },
-                                    ),
-                                    ..Default::default()
-                                })
-                                .into()
+                            self.focusable(
+                                button(inner)
+                                    .padding(3)
+                                    .on_press(wrap(Msg::PickImage(img.clone())))
+                                    .style(move |_, s| button::Style {
+                                        background: None,
+                                        border: Border::default().rounded(8).width(3).color(
+                                            if selected {
+                                                accent
+                                            } else if matches!(s, button::Status::Hovered) {
+                                                Color { a: 0.5, ..fg }
+                                            } else {
+                                                Color::TRANSPARENT
+                                            },
+                                        ),
+                                        ..Default::default()
+                                    }),
+                            )
                         }))
                         .spacing(10),
                     );
@@ -503,24 +513,30 @@ impl App {
                     "Étaler sur tous les écrans",
                     "",
                     row![
-                        radio(crate::i18n::tr("Non"), 0u8, Some(span_mode), |v| wrap(
-                            Msg::Span(v)
-                        ))
-                        .font(self.font),
-                        radio(
-                            crate::i18n::tr("Bureau et verrouillage"),
-                            1u8,
-                            Some(span_mode),
-                            |v| wrap(Msg::Span(v))
-                        )
-                        .font(self.font),
-                        radio(
-                            crate::i18n::tr("Verrouillage seulement"),
-                            2u8,
-                            Some(span_mode),
-                            |v| wrap(Msg::Span(v))
-                        )
-                        .font(self.font),
+                        self.focusable(
+                            radio(crate::i18n::tr("Non"), 0u8, Some(span_mode), |v| wrap(
+                                Msg::Span(v)
+                            ))
+                            .font(self.font)
+                        ),
+                        self.focusable(
+                            radio(
+                                crate::i18n::tr("Bureau et verrouillage"),
+                                1u8,
+                                Some(span_mode),
+                                |v| wrap(Msg::Span(v))
+                            )
+                            .font(self.font)
+                        ),
+                        self.focusable(
+                            radio(
+                                crate::i18n::tr("Verrouillage seulement"),
+                                2u8,
+                                Some(span_mode),
+                                |v| wrap(Msg::Span(v))
+                            )
+                            .font(self.font)
+                        ),
                     ]
                     .spacing(16),
                 ),
@@ -585,9 +601,9 @@ impl App {
                     "Ajustement",
                     "",
                     row(fits.iter().map(|(f, label)| {
-                        radio(*label, *f, Some(current), |v| wrap(Msg::Fit(v)))
-                            .font(self.font)
-                            .into()
+                        self.focusable(
+                            radio(*label, *f, Some(current), |v| wrap(Msg::Fit(v))).font(self.font),
+                        )
                     }))
                     .spacing(16),
                 ),
@@ -595,13 +611,15 @@ impl App {
         }
         if rule.is_some() {
             col = col.push(
-                button(
-                    text("Supprimer la règle de cette portée")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                )
-                .padding([6, 12])
-                .on_press(wrap(Msg::RemoveWall)),
+                self.focusable(
+                    button(
+                        text("Supprimer la règle de cette portée")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(Msg::RemoveWall)),
+                ),
             );
         }
         col.into()
@@ -689,31 +707,33 @@ impl App {
             let delete = self.delete_button(armed, wrap(Msg::DeleteRule(s.clone())));
             rules = rules.push(
                 row![
-                    button(
-                        text(scope_label(&s))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([3, 10])
-                    .style(move |_, status| button::Style {
-                        background: Some(
-                            if active {
-                                Color { a: 0.28, ..accent }
-                            } else if matches!(status, button::Status::Hovered) {
-                                Color { a: 0.1, ..fg }
-                            } else {
-                                Color { a: 0.05, ..fg }
-                            }
-                            .into(),
-                        ),
-                        text_color: fg,
-                        border: Border::default().rounded(999).width(1).color(Color {
-                            a: if active { 0.7 } else { 0.15 },
-                            ..if active { accent } else { fg }
-                        }),
-                        ..Default::default()
-                    })
-                    .on_press(wrap(Msg::Scope(s))),
+                    self.focusable(
+                        button(
+                            text(scope_label(&s))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([3, 10])
+                        .style(move |_, status| button::Style {
+                            background: Some(
+                                if active {
+                                    Color { a: 0.28, ..accent }
+                                } else if matches!(status, button::Status::Hovered) {
+                                    Color { a: 0.1, ..fg }
+                                } else {
+                                    Color { a: 0.05, ..fg }
+                                }
+                                .into(),
+                            ),
+                            text_color: fg,
+                            border: Border::default().rounded(999).width(1).color(Color {
+                                a: if active { 0.7 } else { 0.15 },
+                                ..if active { accent } else { fg }
+                            }),
+                            ..Default::default()
+                        })
+                        .on_press(wrap(Msg::Scope(s)))
+                    ),
                     delete,
                 ]
                 .spacing(2)
