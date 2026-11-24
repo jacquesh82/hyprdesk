@@ -41,6 +41,7 @@
 | 2026-11-24 | A21 | SYS-09, SYS-16 traités ; il en reste 13 dans ce couloir |
 | 2026-11-24 | A22 | FON-07, FON-08 traités (travail interrompu repris et mis au point) ; il en reste 11 dans ce couloir |
 | 2026-11-24 | A23 | TYP-19 traité ; il en reste 10 dans ce couloir |
+| 2026-11-24 | A24 | SYS-06, SYS-07 traités ; il en reste 8 dans ce couloir |
 
 ### Couloir B
 
@@ -235,8 +236,8 @@ Référence verte : `58cddff` (porte complète `scripts/verify.sh` passée le 24
 | ICO-08 | Variantes « indisponible » | ÉCART | S | haute | à faire | — | — |
 | SEL-04 | Pastilles Wi-Fi, Bluetooth, Silence du centre de contrôle | ÉCART | S | moyenne | à faire | — | — |
 | SEL-06 | Libellés des segments « Affichage du bureau » | ÉCART | S | haute | à faire | — | — |
-| SYS-06 | Centre de contrôle : bascule | ÉCART | S | haute | à faire | — | — |
-| SYS-07 | Centre de contrôle : action en cours | ÉCART | S | haute | à faire | — | — |
+| SYS-06 | Centre de contrôle : bascule | ÉCART | S | haute | fait | 6dda349 | fond et encre d'une bascule passent d'un état à l'autre en fondu (`motion_duration`, nul sous « Aucune ») : pastille des commandes (`src/ui/controls.rs`) et pilules Wi-Fi et Bluetooth de Continuité (`Palette::button_mix`, `dashboard_pill_mix`) ; fondu `toggle:<id>` lancé par `Msg::WidgetValue` au changement d'état, `design::mix` partagé ; non traité : la teinte de l'îlot de barre allumé (`bar/surface.rs`), non citée ; relu par un agent indépendant ; changé avec SYS-07 |
+| SYS-07 | Centre de contrôle : action en cours | ÉCART | S | haute | fait | 6dda349 | pendant l'action, pastille et pilule pulsent en opacité (1 → 0,35 en 1,2 s, `pending_pulse`, `control_since`) au lieu de « En cours… » et « Wi-Fi … », arrêt à `ControlToggled` ; sans transition, le libellé d'attente reste ; relu par un agent indépendant ; changé avec SYS-06 |
 | SYS-08 | Centre de contrôle : symboles du Wi-Fi | ÉCART | S | haute | fait | e034b49 | la tuile « Wi-Fi » et la pilule du centre Continuité prennent un symbole par état de la radio (`radio_symbol`, `src/ui/controls.rs`) : ondes allumées quand elle est allumée, barrées quand elle est éteinte, l'une et l'autre avec repli vectoriel ; l'état de la connexion reste dans la valeur, l'info-bulle du widget ; sans état connu (hors ligne : le widget ne dit pas l'état de sa radio), le symbole du widget fait foi ; le widget Lua `network` n'est pas changé ; SYS-06 et SYS-07, qui demandent une animation d'état, restent à faire |
 | SYS-09 | Galerie de widgets : descriptions | ÉCART | S | haute | fait | 16cf814 | les onze descriptions de la galerie commencent par un verbe d'action : les huit widgets intégrés (`src/widgets/mod.rs`, `controls.rs`, `launcher.rs`) et les trois plugins livrés Réseau, Bluetooth, Notifications (`assets/widgets/integres/*.lua`), avec leur traduction anglaise (`locales/en.toml`) |
 | SYS-16 | Widget Système : alerte | ÉCART | S | moyenne | fait | 16cf814 | la ligne en alerte du widget Système porte un signe qui ne tient pas à la couleur : le glyphe `dialog-warning` (repli vectoriel ajouté au jeu, `src/ui/icons.rs`), dans l'encre du texte, sous la jauge pour que la largeur du widget ne bouge pas (`src/ui/widget_view.rs`) ; aucune scène d'aperçu ne met une jauge en alerte : le signe n'est pas vérifiable sur les captures, la scène `widgets` est inchangée ; SYS-06 et SYS-07, qui demandent une animation d'état, restent à faire |
