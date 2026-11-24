@@ -28,14 +28,7 @@ pub(in crate::ui) fn handle(key: &Key, shift: bool, control: bool) -> Task<Msg> 
         Key::Named(Named::Tab) if control => {
             widget::operate(operation::scope(widget::Id::new(PANE), jump(shift)))
         }
-        Key::Named(Named::Tab) => {
-            let scope = widget::Id::new(PANE);
-            if shift {
-                widget::operate(operation::scope(scope, focusable::focus_previous()))
-            } else {
-                widget::operate(operation::scope(scope, focusable::focus_next()))
-            }
-        }
+        Key::Named(Named::Tab) => step(widget::Id::new(PANE), shift),
         Key::Named(Named::PageUp | Named::PageDown) => iced::widget::operation::scroll_by(
             SCROLL,
             iced::widget::operation::AbsoluteOffset {
@@ -49,6 +42,18 @@ pub(in crate::ui) fn handle(key: &Key, shift: bool, control: bool) -> Task<Msg> 
         ),
         _ => Task::none(),
     }
+}
+
+/// Le contrôle suivant (précédent) de la surface nommée `scope` prend le
+/// focus ; l'opération lui est bornée, elle ne va pas aux autres surfaces
+/// (HIG ENT-02 : le volet des Réglages, la barre).
+pub(in crate::ui) fn step(scope: widget::Id, previous: bool) -> Task<Msg> {
+    let inner: Box<dyn Operation<Msg>> = if previous {
+        Box::new(focusable::focus_previous())
+    } else {
+        Box::new(focusable::focus_next())
+    };
+    widget::operate(operation::scope(scope, inner))
 }
 
 /// Groupe cible de Ctrl+Tab : celui qui suit (précède) le groupe du contrôle
@@ -277,7 +282,10 @@ impl Widget<Msg, Theme, Renderer> for Group<'_> {
     }
 }
 
-pub(super) fn press<'a>(
+/// L'enveloppe de focus d'un contrôle : anneau, activation par Entrée ou
+/// Espace. Celle des cartes du centre de contrôle (HIG ENT-07, ENT-11) comme
+/// des modules de la barre (HIG ENT-02).
+pub(in crate::ui) fn press<'a>(
     child: impl Into<Element<'a, Msg>>,
     message: Option<Msg>,
     ring: Color,

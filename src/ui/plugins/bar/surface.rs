@@ -1918,6 +1918,17 @@ impl App {
         let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
         let h = module_target(bar.height);
         let interactive = left.is_some() || right.is_some() || middle.is_some() || scroll.is_some();
+        // La barre qui tient le clavier (HIG ENT-02) : ses modules activables,
+        // ceux qu'ouvre un clic gauche, prennent l'anneau de focus, activé par
+        // Entrée ou Espace. Les autres barres, et celle-ci au repos, n'en ont
+        // pas : le focus des autres surfaces ne s'y arrête pas.
+        let keyboard = self
+            .bar_keyboard
+            .and_then(|id| self.bar_surfaces.get(&id))
+            .is_some_and(|s| s.monitor == bar.monitor);
+        let activate = left
+            .clone()
+            .filter(|m| keyboard && matches!(m, Msg::OpenPopover(..)));
         let b = button(
             container(content)
                 .height(Length::Fill)
@@ -1939,7 +1950,15 @@ impl App {
         if let Some(f) = scroll {
             m = m.on_scroll(move |d| f(scroll_dir(d)));
         }
-        let el: Element<'a, Msg> = m.into();
+        let mut el: Element<'a, Msg> = m.into();
+        if let Some(msg) = activate {
+            let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
+            el = popover::continuity::focus_ring(
+                el,
+                Some(msg),
+                crate::ui::plugins::bar::style::ink(style, &pal),
+            );
+        }
         match tip {
             Some(t) if !t.is_empty() => {
                 let bg = color(pal.bg, 0.95);

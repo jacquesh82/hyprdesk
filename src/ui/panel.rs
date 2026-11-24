@@ -516,15 +516,22 @@ impl App {
         Task::batch([open, reborn, first.unwrap_or_else(Task::none)])
     }
 
-    /// Le premier contrôle du volet prend le focus, lui seul : l'opération est
-    /// bornée au volet (HIG ENT-02), les autres surfaces perdent le leur.
+    /// Le premier contrôle du volet prend le focus, lui seul : les autres
+    /// surfaces perdent le leur (HIG ENT-02).
     pub(super) fn panel_focus_first(&self) -> Task<Msg> {
-        use iced::advanced::widget::operation::{self, focusable};
-        let first = operation::scope(iced::widget::Id::new(PANEL_ID), focusable::focus_next());
         Task::batch([
-            iced::advanced::widget::operate(focusable::unfocus()),
-            iced::advanced::widget::operate(first),
+            iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::unfocus()),
+            self.panel_focus_step(false),
         ])
+    }
+
+    /// Le contrôle suivant (précédent) du volet prend le focus ; l'opération
+    /// est bornée au volet (HIG ENT-02), elle ne va pas aux autres surfaces.
+    pub(super) fn panel_focus_step(&self, previous: bool) -> Task<Msg> {
+        super::plugins::bar::popover::continuity::focus_step(
+            iced::widget::Id::new(PANEL_ID),
+            previous,
+        )
     }
 
     /// Fond d'écran sous le tiroir, à sa place sur l'écran : ce que son

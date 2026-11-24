@@ -182,6 +182,8 @@ pub enum Msg {
     BarReveal(Id, bool),
     /// Délai écoulé : montrer ou masquer la barre (génération du survol).
     BarRevealApply(Id, u64, bool),
+    /// La barre parue tient le clavier : son premier module prend le focus (HIG ENT-02).
+    BarFocusFirst(Id),
     /// Région de saisie de la capsule Island ; les côtés restent traversants.
     BarIslandInput(Id, iced::Rectangle),
     ControlToggle(String),
@@ -610,6 +612,8 @@ pub struct App {
     /// Surfaces du lanceur, une par écran où le bureau est affiché.
     launcher_surfaces: HashMap<Id, plugins::dock::LauncherSurface>,
     launcher_runtime: plugins::dock::Runtime,
+    /// Barre qui tient le clavier (raccourci `keys.focus_bar`, HIG ENT-02).
+    bar_keyboard: Option<Id>,
     /// Bulle du lanceur (nom d'une entrée, ou fenêtres d'une application).
     launcher_popup: Option<plugins::dock::Popup>,
     launcher_popup_token: u64,
@@ -1134,6 +1138,7 @@ impl App {
             identify_gen: 0,
             launcher_surfaces: HashMap::new(),
             launcher_runtime: plugins::dock::Runtime::default(),
+            bar_keyboard: None,
             launcher_popup: None,
             launcher_popup_token: 0,
             launcher_popup_hover: false,
@@ -1954,6 +1959,7 @@ impl App {
             || self.mfa_fenetre.is_some()
             || !self.launcher_surfaces.is_empty()
             || self.launcher_runtime.focus.is_some()
+            || self.bar_keyboard.is_some()
     }
 
     /// Mode du bureau, tel que l'utilisateur le nomme.
@@ -4065,6 +4071,7 @@ impl App {
                 // à `toggle-settings`, rien ne se referme et le mode du bureau ne
                 // bascule pas : la surface s'ouvre s'il le faut et prend le clavier.
                 control::Command::Focus(kind) => match kind.as_str() {
+                    "bar" => self.bar_focus(),
                     "dock" => self.launcher_focus(),
                     "notifications" => self.focus_notifications(),
                     "settings" => self.focus_panel(),
@@ -5122,8 +5129,16 @@ impl App {
             }
             Msg::BarReveal(id, hover) => self.bar_hover(id, hover),
             Msg::BarRevealApply(id, generation, show) => {
-                self.bar_reveal_apply(id, generation, show)
+                let reveal = self.bar_reveal_apply(id, generation, show);
+                // Barre masquée hors survol à laquelle le raccourci a donné le
+                // clavier (HIG ENT-02) : parue, son premier module est choisi.
+                if show && self.bar_keyboard == Some(id) {
+                    // Au tour suivant : la barre est dessinée quand le focus se pose.
+                    return Task::batch([reveal, Task::done(Msg::BarFocusFirst(id))]);
+                }
+                reveal
             }
+            Msg::BarFocusFirst(id) => self.bar_focus_first(id),
             Msg::BarIslandInput(id, bounds) => self.bar_input(id, Some(bounds)),
             Msg::ControlToggle(id) => {
                 if self.control_actions.get(&id).is_some_and(Option::is_none) {
@@ -5360,6 +5375,10 @@ impl App {
                 }
                 self.launcher_surfaces.remove(&id);
                 self.bar_surfaces.remove(&id);
+                // Barre disparue : elle ne tient plus le clavier.
+                if self.bar_keyboard == Some(id) {
+                    self.bar_keyboard = None;
+                }
                 self.convex_frames.remove(&id);
                 self.surfaces.remove(&id);
                 self.raised.remove(&id);
@@ -5411,6 +5430,15 @@ impl App {
                 // l'a repris ; son raccourci le lui rendra (HIG ENT-02).
                 if let Some(p) = self.panel.as_mut().filter(|p| p.surface == id) {
                     p.keyboard = false;
+                }
+                // La barre qui tient le clavier l'a laissé à autre chose que
+                // son menu (une fenêtre, un clic) : elle le rend.
+                let menu_of_bar = self
+                    .popover
+                    .as_ref()
+                    .is_some_and(|p| p.bar == id && !p.closing());
+                if self.bar_keyboard == Some(id) && !menu_of_bar {
+                    return self.bar_release(id);
                 }
                 self.launcher_keyboard_left(id)
             }
@@ -5528,6 +5556,11 @@ impl App {
                         }
                         _ => Task::none(),
                     };
+                }
+                // La barre tient le clavier (raccourci `keys.focus_bar`, HIG
+                // ENT-02) : elle garde ses touches.
+                if self.bar_keyboard == Some(id) {
+                    return self.bar_key(id, &key);
                 }
                 // Le dock tient le clavier : il garde ses touches.
                 if self.launcher_surfaces.contains_key(&id)
@@ -5968,7 +6001,10 @@ impl App {
                 .into();
         }
         if self.bar_surfaces.contains_key(&id) {
-            return self.view_bar(id);
+            // Aux opérations, la barre se nomme : le focus y est borné (HIG ENT-02).
+            return container(self.view_bar(id))
+                .id(plugins::bar::keyboard::scope(id))
+                .into();
         }
         if self.panorama_owns(id) {
             return self.view_panorama(id);

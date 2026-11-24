@@ -277,13 +277,18 @@ one control to the next; Ctrl + Tab and Ctrl + Shift + Tab jump to the first
 control of the next or previous group; Page Up and Page Down scroll the
 cards.
 
-**The keyboard on every surface.** Three shortcuts put the keyboard on a
-shell surface without closing anything or changing mode: `CTRL + F3` goes to
-the dock of the active screen (hidden desktop: it appears under the windows,
-which stay in place), `CTRL + F8` opens the notification center, `CTRL + F6`
-opens the Settings drawer and focuses its first field. Pressed twice, the dock
-returns the keyboard to the windows; the center and the drawer, which stay
-open, keep it.
+**The keyboard on every surface.** Four shortcuts put the keyboard on a
+shell surface without closing anything or changing mode: `CTRL + F2` goes to
+the bar of the active screen, `CTRL + F3` to the dock (hidden desktop: it
+appears under the windows, which stay in place), `CTRL + F8` opens the
+notification center, `CTRL + F6` opens the Settings drawer and focuses its
+first field. Pressed twice, the bar and the dock return the keyboard to the
+windows; the center and the drawer, which stay open, keep it.
+
+**Keyboard navigation in the bar.** The arrow keys, Tab and Shift + Tab move
+from one activable module to the next: those a left click opens (menus, volume,
+clock…). Enter or Space opens the chosen module; its menu takes the keyboard,
+the bar gets it back when the menu closes; Escape returns it to the windows.
 
 ## Shortcuts and binds.lua
 

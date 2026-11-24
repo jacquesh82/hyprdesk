@@ -159,7 +159,13 @@ impl App {
         // peut renaître, la prise reste exclusive.
         let on_demand = windows && !self.launcher_in_bar(monitor);
         self.launcher_runtime.on_demand = on_demand;
-        let mut tasks = vec![self.launcher_select(monitor, first, &slots)];
+        // Une seule surface à la fois : la barre qui tient le clavier le rend
+        // (HIG ENT-02).
+        let bar = match self.bar_keyboard {
+            Some(id) => self.bar_release(id),
+            None => Task::none(),
+        };
+        let mut tasks = vec![bar, self.launcher_select(monitor, first, &slots)];
         let dock = self
             .launcher_surfaces
             .iter()
@@ -606,5 +612,36 @@ mod tests {
             assert!(app.launcher_runtime.focus.is_none());
             assert_eq!(app.mode(), DesktopMode::FullDesktop);
         }
+    }
+
+    /// HIG ENT-02 : le dock et la barre ne tiennent jamais le clavier ensemble ;
+    /// chacun le rend quand l'autre le prend.
+    #[test]
+    fn the_dock_and_the_bar_never_hold_the_keyboard_together() {
+        let mut app = app();
+        let bar = Id::unique();
+        app.bar_surfaces.insert(
+            bar,
+            crate::ui::plugins::bar::surface::BarSurface {
+                monitor: "A".into(),
+                position: crate::config::BarPosition::Top,
+                height: 44,
+                margin: 0,
+                ..Default::default()
+            },
+        );
+        let dock_focus = || Msg::Control(crate::control::Command::Focus("dock".into()));
+        let bar_focus = || Msg::Control(crate::control::Command::Focus("bar".into()));
+        let _ = app.update_inner(bar_focus());
+        assert_eq!(app.bar_keyboard, Some(bar));
+        // Le dock prend le clavier : la barre le rend.
+        let _ = app.update_inner(dock_focus());
+        assert!(selected(&app).is_some());
+        assert_eq!(app.bar_keyboard, None);
+        // La barre le reprend : le dock le rend, sans changer de mode.
+        let _ = app.update_inner(bar_focus());
+        assert_eq!(app.bar_keyboard, Some(bar));
+        assert!(app.launcher_runtime.focus.is_none());
+        assert_eq!(app.mode(), DesktopMode::LauncherOnly);
     }
 }

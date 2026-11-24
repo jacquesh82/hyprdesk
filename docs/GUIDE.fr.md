@@ -279,13 +279,18 @@ passent d'un contrôle au suivant ; Ctrl+Tab et Ctrl+Maj + Tab sautent au
 premier contrôle du groupe suivant ou précédent ; Page précédente et Page
 suivante font défiler les cartes.
 
-**Le clavier à chaque surface.** Trois raccourcis posent le clavier sur une
-surface du shell, sans en refermer ni changer de mode : `CTRL + F3` va au dock
-de l'écran actif (bureau masqué, il paraît sous les fenêtres, qui restent en
-place), `CTRL + F8` ouvre le centre de notifications, `CTRL + F6` ouvre le
-volet des Réglages et pose le focus sur son premier champ. Pressé deux fois,
-le dock rend le clavier aux fenêtres ; le centre et le volet, qui restent
-ouverts, le gardent.
+**Le clavier à chaque surface.** Quatre raccourcis posent le clavier sur une
+surface du shell, sans en refermer ni changer de mode : `CTRL + F2` va à la
+barre de l'écran actif, `CTRL + F3` au dock (bureau masqué, il paraît sous les
+fenêtres, qui restent en place), `CTRL + F8` ouvre le centre de notifications,
+`CTRL + F6` ouvre le volet des Réglages et pose le focus sur son premier champ.
+Pressé deux fois, la barre et le dock rendent le clavier aux fenêtres ; le
+centre et le volet, qui restent ouverts, le gardent.
+
+**Navigation au clavier dans la barre.** Flèches, Tab et Maj + Tab passent d'un
+module activable au suivant : ceux qu'ouvre un clic gauche (menus, volume,
+horloge…). Entrée ou Espace ouvrent le module choisi ; son menu prend le
+clavier, la barre le retrouve à sa fermeture ; Échap le rend aux fenêtres.
 
 ## Raccourcis et binds.lua
 

@@ -19,6 +19,10 @@ use crate::widgets::{SysLine, Value, media::Status};
 
 mod keyboard;
 pub(in crate::ui) use keyboard::handle as handle_key;
+/// L'enveloppe de focus des cartes, pour les modules de la barre (HIG ENT-02).
+pub(in crate::ui) use keyboard::press as focus_ring;
+/// Le contrôle suivant d'une surface nommée prend le focus, sans en sortir.
+pub(in crate::ui) use keyboard::step as focus_step;
 
 const GAP: f32 = 12.0;
 const PADDING: f32 = 12.0;

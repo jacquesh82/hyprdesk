@@ -198,6 +198,7 @@ désinstallation sont dans le
 | `SUPER + ALT + D` | Fait apparaître ou disparaître le dock, fenêtres en place |
 | `SUPER + CTRL + D` | Masque le bureau et le dock |
 | `SUPER + SHIFT + D` | Ouvre les Réglages |
+| `CTRL + F2` | Donne le clavier à la barre de l'écran actif : flèches et Tab d'un module au suivant, Entrée l'ouvre, Échap rend le clavier |
 | `CTRL + F3` | Donne le clavier au dock de l'écran actif (bureau masqué : il paraît sous les fenêtres, en place) |
 | `CTRL + F8` | Ouvre le centre de notifications et lui donne le clavier |
 | `CTRL + F6` | Donne le clavier au volet des Réglages : il s'ouvre s'il est fermé, et ne se referme pas |

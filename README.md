@@ -187,6 +187,7 @@ in the [user guide](docs/GUIDE.md#installation-in-detail).
 | `SUPER + ALT + D`                         | Toggle the dock and keep windows in place                                                            |
 | `SUPER + CTRL + D`                        | Hide the desktop and dock                                                                            |
 | `SUPER + SHIFT + D`                       | Open Settings                                                                                        |
+| `CTRL + F2`                               | Give the keyboard to the bar of the active screen: arrows and Tab from module to module, Enter opens, Escape gives back |
 | `CTRL + F3`                               | Give the keyboard to the dock of the active screen (hidden desktop: it appears under the windows)   |
 | `CTRL + F8`                               | Open the notification center and give it the keyboard                                               |
 | `CTRL + F6`                               | Give the keyboard to the Settings drawer: it opens if closed, and never closes                       |
