@@ -573,7 +573,7 @@ impl App {
         buttons = buttons.push(
             button(
                 text(if last {
-                    crate::i18n::tr("Terminer")
+                    crate::i18n::tr("Terminé")
                 } else {
                     crate::i18n::tr("Suivant")
                 })

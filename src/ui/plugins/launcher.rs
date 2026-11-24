@@ -424,7 +424,7 @@ impl App {
             if i.holder().is_some() {
                 line = line.push(
                     button(
-                        text(crate::i18n::tr("hyprdesk le prend"))
+                        text(crate::i18n::tr("Donner à hyprdesk"))
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0)),
                     )

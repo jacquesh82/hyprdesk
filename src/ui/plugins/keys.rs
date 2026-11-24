@@ -1205,7 +1205,7 @@ impl App {
             if s.on {
                 c = c.push(
                     button(
-                        text(crate::i18n::tr("Désactiver plutôt"))
+                        text(crate::i18n::tr("Désactiver le raccourci"))
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0)),
                     )
@@ -1619,7 +1619,7 @@ impl App {
                         Ess::Taken { by, .. } if !by.starts_with("hyprdesk") => {
                             r = r.push(
                                 button(
-                                    text(crate::i18n::tr("hyprdesk le prend"))
+                                    text(crate::i18n::tr("Donner à hyprdesk"))
                                         .font(self.font)
                                         .size(crate::ui::tokens::ts(12.0)),
                                 )
@@ -1631,7 +1631,7 @@ impl App {
                         Ess::TakenOver => {
                             r = r.push(
                                 button(
-                                    text(crate::i18n::tr("Rendre"))
+                                    text(crate::i18n::tr("Rendre la combinaison"))
                                         .font(self.font)
                                         .size(crate::ui::tokens::ts(12.0)),
                                 )
@@ -1814,7 +1814,7 @@ impl App {
             if i.holder().is_some() {
                 line = line.push(
                     button(
-                        text(crate::i18n::tr("hyprdesk le prend"))
+                        text(crate::i18n::tr("Donner à hyprdesk"))
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0)),
                     )
@@ -1857,7 +1857,7 @@ impl App {
             {
                 line = line.push(
                     button(
-                        text(crate::i18n::tr("Rendre"))
+                        text(crate::i18n::tr("Rendre la combinaison"))
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0)),
                     )

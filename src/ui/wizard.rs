@@ -1034,7 +1034,7 @@ impl App {
         }
         foot = foot.push(
             button(
-                text(if last { "Terminer" } else { "Suivant" })
+                text(if last { "Terminé" } else { "Suivant" })
                     .font(self.title_font())
                     .size(crate::ui::tokens::ts(14.0)),
             )
