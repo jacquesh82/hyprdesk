@@ -72,7 +72,129 @@ pub enum Msg {
     DeleteWidget(String),
 }
 
+/// Vignette d'aperçu d'une rangée du catalogue, en pixels (HIG SYS-11).
+const PREVIEW: (f32, f32) = (112.0, 56.0);
+
+/// Sorte d'aperçu d'un type du catalogue : données simulées pour les
+/// widgets intégrés, forme provisoire pour les autres (HIG SYS-11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Preview {
+    Clock,
+    Calendar,
+    System,
+    Media,
+    Controls,
+    Launcher,
+    Placeholder,
+}
+
+fn preview_of(type_id: &str) -> Preview {
+    match type_id {
+        "clock" => Preview::Clock,
+        "calendar" => Preview::Calendar,
+        "system" => Preview::System,
+        "media" => Preview::Media,
+        "controls" => Preview::Controls,
+        "launcher" => Preview::Launcher,
+        _ => Preview::Placeholder,
+    }
+}
+
 impl App {
+    /// Aperçu d'un widget du catalogue, rien d'actionnable, sans accent : ce
+    /// qu'il montrera, en données simulées réalistes, ou une forme provisoire
+    /// quand son rendu n'est pas connu sans l'exécuter (HIG SYS-11).
+    fn catalog_preview(&self, type_id: &str) -> Element<'_, UiMsg> {
+        use iced::widget::{container, progress_bar};
+        let fg = color(self.cfg.general.theme.fg, 1.0);
+        let dim = self.ink().dim;
+        let faint = Color { a: 0.18, ..fg };
+        // La vignette grandit avec le texte (HIG TYP-08), jusqu'à une fois et
+        // demie : la description garde sa place dans un tiroir étroit.
+        let grow = crate::ui::tokens::text_growth().min(1.5);
+        let line = |width: f32| -> Element<'_, UiMsg> {
+            container(Space::new().width(width).height(6))
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(faint.into()),
+                    border: Border::default().rounded(3),
+                    ..Default::default()
+                })
+                .into()
+        };
+        let small = |s: String, c: Color| {
+            text(s)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(11.0))
+                .color(c)
+        };
+        // Pastille ronde (réglages rapides) ou icône d'application (lanceur).
+        let tile = move |radius: f32| {
+            container(Space::new().width(18).height(18)).style(move |_| {
+                iced::widget::container::Style {
+                    background: Some(faint.into()),
+                    border: Border::default().rounded(radius),
+                    ..Default::default()
+                }
+            })
+        };
+        let body: Element<'_, UiMsg> = match preview_of(type_id) {
+            Preview::Clock => text(super::super::format_now("%H:%M"))
+                .font(self.numeric_font(iced::font::Weight::Light))
+                .size(crate::ui::tokens::ts_metric(24.0))
+                .color(fg)
+                .into(),
+            Preview::Calendar => column![
+                small(super::super::format_now("%A"), dim),
+                text(super::super::format_now("%-d"))
+                    .font(self.numeric_font(iced::font::Weight::Light))
+                    .size(crate::ui::tokens::ts_metric(24.0))
+                    .color(fg),
+            ]
+            .align_x(Alignment::Center)
+            .into(),
+            Preview::System => {
+                let gauge = |label: &'static str, r: f32| {
+                    row![
+                        small(crate::i18n::tr(label).to_string(), dim).width(30.0 * grow),
+                        progress_bar(0.0..=1.0, r)
+                            .girth(4)
+                            .length(Length::Fixed(56.0))
+                            .style(move |_| progress_bar::Style {
+                                background: faint.into(),
+                                bar: fg.into(),
+                                border: Border::default().rounded(2),
+                            }),
+                    ]
+                    .spacing(4)
+                    .align_y(Alignment::Center)
+                };
+                column![gauge("CPU", 0.12), gauge("RAM", 0.26)]
+                    .spacing(6)
+                    .into()
+            }
+            Preview::Media => column![
+                small(crate::i18n::tr("Titre du morceau").to_string(), fg),
+                small(crate::i18n::tr("Artiste").to_string(), dim),
+            ]
+            .spacing(2)
+            .into(),
+            Preview::Controls => row![tile(9.0), tile(9.0), tile(9.0)].spacing(8).into(),
+            Preview::Launcher => row![tile(5.0), tile(5.0), tile(5.0), tile(5.0)]
+                .spacing(4)
+                .into(),
+            Preview::Placeholder => column![line(64.0), line(40.0)].spacing(6).into(),
+        };
+        container(body)
+            .center_x(PREVIEW.0 * grow)
+            .center_y(PREVIEW.1 * grow)
+            .style(move |_| iced::widget::container::Style {
+                background: Some(Color { a: 0.06, ..fg }.into()),
+                border: Border::default().rounded(super::super::design::SMALL_RADIUS),
+                ..Default::default()
+            })
+            .into()
+    }
+
     pub(in crate::ui) fn tab_widgets<'a>(&'a self, p: &'a Panel) -> Element<'a, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
@@ -178,7 +300,11 @@ impl App {
             } else {
                 toggler(active).into()
             };
-            catalog = catalog.push(row![info, control].spacing(12).align_y(Alignment::Center));
+            catalog = catalog.push(
+                row![self.catalog_preview(&t.id), info, control]
+                    .spacing(12)
+                    .align_y(Alignment::Center),
+            );
         }
 
         // -- Widgets de ce bureau ---------------------------------------------
@@ -641,5 +767,26 @@ impl App {
                 self.commit_reload()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Chaque widget intégré qu'on active d'un clic a son aperçu en données
+    /// simulées ; commande, Lua et plugins prennent la forme provisoire
+    /// (HIG SYS-11).
+    #[test]
+    fn chaque_widget_integre_a_son_apercu() {
+        for b in crate::widgets::BUILTINS {
+            let p = preview_of(b.id);
+            if matches!(b.id, "command" | "lua") {
+                assert_eq!(p, Preview::Placeholder, "{}", b.id);
+            } else {
+                assert_ne!(p, Preview::Placeholder, "{} sans aperçu", b.id);
+            }
+        }
+        assert_eq!(preview_of("network"), Preview::Placeholder);
     }
 }

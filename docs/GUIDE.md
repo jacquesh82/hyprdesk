@@ -670,6 +670,9 @@ log in. hyprdesk is its interface:
 ## Widgets and plugins
 
 Enable widgets in **Settings → Widgets** or add them to your Lua configuration.
+Each row of the gallery shows a preview of the widget with simulated data
+(the time, the date, two gauges, a song…); a command, Lua or plugin widget,
+whose output is only known once it runs, shows a placeholder shape.
 The built-in widgets are `clock`, `calendar`, `system`, `media` (MPRIS),
 `command` (periodic shell output), `lua` (output of an inline function), and
 `controls` (the control center). Desktop widgets default to the primary

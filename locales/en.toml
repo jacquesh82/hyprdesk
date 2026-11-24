@@ -4939,3 +4939,5 @@
 "                    referme : une ligne par application, confirmation en deux temps" = "                    it: one row per application, confirmed in two steps"
 "destruction {address} : {r}" = "kill {address}: {r}"
 "MPRIS Raise : {e}" = "MPRIS Raise: {e}"
+"Titre du morceau" = "Song title"
+"Artiste" = "Artist"

@@ -702,7 +702,10 @@ application, son nom en en-tête, les plus récentes en haut.
 ## Widgets et plugins
 
 Activez les widgets dans **Réglages → Widgets** ou ajoutez-les à votre
-configuration Lua. Les widgets intégrés sont `clock`, `calendar`, `system`,
+configuration Lua. Chaque rangée de la galerie montre un aperçu du widget,
+en données simulées (l'heure, la date, deux jauges, un morceau…) ; un widget
+commande, Lua ou plugin, dont le rendu n'est connu qu'une fois lancé, y
+montre une forme provisoire. Les widgets intégrés sont `clock`, `calendar`, `system`,
 `media` (MPRIS), `command` (sortie périodique d'une commande), `lua` (sortie
 d'une fonction en ligne) et `controls` (le centre de contrôle). Un widget du
 bureau va sur l'écran principal par défaut ; on peut viser un écran précis,
