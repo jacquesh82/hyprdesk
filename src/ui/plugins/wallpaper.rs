@@ -10,7 +10,7 @@ use crate::i18n::text;
 use iced::widget::{
     Space, button, column, container, image, pick_list, radio, row, slider, text_input, toggler,
 };
-use iced::{Border, Color, Element, Task};
+use iced::{Alignment, Border, Color, Element, Task};
 
 use super::super::panel::{Panel, PanelMsg, SWATCHES};
 use super::super::{App, Msg as UiMsg, color, list_images};
@@ -18,6 +18,7 @@ use super::{PluginInfo, PluginMsg};
 use crate::config::resolve::resolve;
 use crate::config::{Fit, Origin, Rgba, Selector, WallSource};
 use crate::settings::hex;
+use crate::ui::color_picker::{Picker, PickerMsg, well};
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "wallpaper",
@@ -44,6 +45,8 @@ pub struct State {
     /// Dimensions des images (pour signaler une résolution trop faible).
     pub dims: HashMap<PathBuf, (u32, u32)>,
     pub hex: String,
+    /// Sélecteur de couleur ouvert (HIG SEL-02).
+    pub picker: Option<Picker>,
 }
 
 impl Default for State {
@@ -56,6 +59,7 @@ impl Default for State {
             thumbs: HashMap::new(),
             dims: HashMap::new(),
             hex: String::new(),
+            picker: None,
         }
     }
 }
@@ -81,6 +85,11 @@ pub enum Msg {
     Color(Rgba),
     Hex(String),
     HexSubmit,
+    /// Ouvre ou referme le sélecteur de couleur (HIG SEL-02).
+    OpenPicker,
+    Picker(PickerMsg),
+    PickerApply,
+    PickerCancel,
     Fit(Fit),
     /// Étaler l'image sur tous les écrans (découpe automatique).
     /// Étalement : 0 non, 1 bureau et verrouillage, 2 verrouillage seulement.
@@ -356,7 +365,42 @@ impl App {
                         .into()
                 }))
                 .spacing(8);
-                col = col.push(self.field("Couleur", "", swatches));
+                // Puits de couleur (HIG SEL-02) : la couleur en place ouvre le
+                // sélecteur, qui se dessine sous la rangée.
+                let current = rule
+                    .and_then(|r| match &r.source {
+                        WallSource::Color(c) => Some(*c),
+                        _ => None,
+                    })
+                    .unwrap_or(g.background);
+                let open = p.wallpaper.picker.as_ref();
+                let mut color_col = column![].spacing(8);
+                color_col = color_col.push(
+                    row![
+                        well(
+                            current,
+                            22.0,
+                            open.is_some(),
+                            fg,
+                            Color { a: 0.3, ..fg },
+                            wrap(Msg::OpenPicker),
+                        ),
+                        swatches,
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                );
+                if let Some(pk) = open {
+                    color_col = color_col.push(pk.view(
+                        self.font,
+                        fg,
+                        dim,
+                        |m| wrap(Msg::Picker(m)),
+                        wrap(Msg::PickerApply),
+                        wrap(Msg::PickerCancel),
+                    ));
+                }
+                col = col.push(self.field("Couleur", "", color_col));
                 col = col.push(
                     self.field(
                         "Code",
@@ -784,6 +828,9 @@ impl App {
                 Task::none()
             }
             Msg::PickImage(p) => {
+                // La source change : le sélecteur se referme, pour ne pas
+                // rouvrir tout seul au retour à la source « Couleur ».
+                panel.wallpaper.picker = None;
                 // En-tête seulement : de quoi avertir d'une résolution trop faible.
                 if !panel.wallpaper.dims.contains_key(&p)
                     && let Ok(d) = ::image::image_dimensions(&p)
@@ -796,6 +843,7 @@ impl App {
                 self.commit()
             }
             Msg::Kind(k) => {
+                panel.wallpaper.picker = None;
                 let typed = Rgba::parse(&panel.wallpaper.hex);
                 let sel = self.scope_selector(scope);
                 let fit = self.current_fit(&sel);
@@ -833,11 +881,61 @@ impl App {
                 self.commit()
             }
             Msg::Color(c) => {
+                // La couleur change sans le sélecteur : il se referme.
+                panel.wallpaper.picker = None;
                 panel.wallpaper.hex = hex(c);
                 let sel = self.scope_selector(scope);
                 self.settings
                     .set_wallpaper(sel, WallSource::Color(c), Fit::Cover);
                 self.commit()
+            }
+            // Puits de couleur (HIG SEL-02) : le sélecteur part du brouillon
+            // s'il est lisible, sinon de la couleur en place.
+            Msg::OpenPicker => {
+                let open = panel.wallpaper.picker.is_some();
+                let fallback = self.cfg.general.background;
+                let placed = self
+                    .settings
+                    .wallpaper(&self.scope_selector(scope))
+                    .and_then(|r| match &r.source {
+                        WallSource::Color(c) => Some(*c),
+                        _ => None,
+                    });
+                let Some(panel) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                let initial = Rgba::parse(panel.wallpaper.hex.trim())
+                    .or(placed)
+                    .unwrap_or(fallback);
+                panel.wallpaper.picker = (!open).then(|| Picker::new(initial));
+                Task::none()
+            }
+            Msg::Picker(m) => {
+                if let Some(pk) = self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.wallpaper.picker.as_mut())
+                {
+                    pk.update(m);
+                }
+                Task::none()
+            }
+            Msg::PickerCancel => {
+                if let Some(panel) = self.panel.as_mut() {
+                    panel.wallpaper.picker = None;
+                }
+                Task::none()
+            }
+            Msg::PickerApply => {
+                match self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.wallpaper.picker.take())
+                    .map(|pk| pk.color())
+                {
+                    Some(c) => self.wallpaper_update(Msg::Color(c)),
+                    None => Task::none(),
+                }
             }
             Msg::Hex(h) => {
                 panel.wallpaper.hex = h;

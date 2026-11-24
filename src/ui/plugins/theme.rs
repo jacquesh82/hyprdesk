@@ -18,6 +18,7 @@ use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::{Effect, Mode, Place, Rgba};
 use crate::theme::{PRESETS, Saved};
+use crate::ui::color_picker::{Picker, PickerMsg, well};
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "theme",
@@ -106,6 +107,8 @@ pub struct State {
     pub name: Option<String>,
     /// Couleurs en cours de saisie (`#rrggbb`).
     pub hex: BTreeMap<Slot, String>,
+    /// Sélecteur de couleur ouvert, et son emplacement (HIG SEL-02).
+    pub picker: Option<(Slot, Picker)>,
     /// « Mes thèmes ».
     pub library: Vec<Saved>,
     /// Packs du moteur de thème (embarqués, installés, `perso`) : les thèmes
@@ -126,6 +129,11 @@ pub enum Msg {
     Color(Slot, Rgba),
     Hex(Slot, String),
     HexSubmit(Slot),
+    /// Ouvre ou referme le sélecteur de couleur de l'emplacement (HIG SEL-02).
+    OpenPicker(Slot),
+    Picker(PickerMsg),
+    PickerApply,
+    PickerCancel,
     Name(String),
     NameSubmit,
     /// Enregistre le thème en place dans « Mes thèmes ».
@@ -568,26 +576,45 @@ impl App {
                     .into()
             }))
             .spacing(8);
-            colors = colors.push(
-                self.field(
-                    slot.label(),
-                    slot.key(),
-                    row![
-                        swatches,
-                        Space::new().width(Length::Fill),
-                        dot(value, 22.0, false),
-                        text_input(crate::i18n::tr("#rrggbb"), &draft)
-                            .font(font)
-                            .size(crate::ui::tokens::ts(13.0))
-                            .on_input(move |v| wrap(Msg::Hex(slot, v)))
-                            .on_submit(wrap(Msg::HexSubmit(slot)))
-                            .padding(6)
-                            .width(96),
-                    ]
-                    .spacing(10)
-                    .align_y(Alignment::Center),
-                ),
+            // Puits de couleur (HIG SEL-02) : la pastille de la couleur en
+            // cours ouvre le sélecteur, qui se dessine sous la rangée.
+            let open = st.picker.as_ref();
+            let is_open = open.is_some_and(|(s, _)| *s == slot);
+            let mut line = column![].spacing(8);
+            line = line.push(
+                row![
+                    swatches,
+                    Space::new().width(Length::Fill),
+                    well(
+                        value,
+                        22.0,
+                        is_open,
+                        accent,
+                        Color { a: 0.3, ..fg },
+                        wrap(Msg::OpenPicker(slot)),
+                    ),
+                    text_input(crate::i18n::tr("#rrggbb"), &draft)
+                        .font(font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .on_input(move |v| wrap(Msg::Hex(slot, v)))
+                        .on_submit(wrap(Msg::HexSubmit(slot)))
+                        .padding(6)
+                        .width(96),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
             );
+            if let Some((_, pk)) = open.filter(|_| is_open) {
+                line = line.push(pk.view(
+                    font,
+                    fg,
+                    dim,
+                    |m| wrap(Msg::Picker(m)),
+                    wrap(Msg::PickerApply),
+                    wrap(Msg::PickerCancel),
+                ));
+            }
+            colors = colors.push(self.field(slot.label(), slot.key(), line));
         }
 
         // Effets de chaque endroit.
@@ -995,8 +1022,55 @@ impl App {
             Msg::Color(slot, c) => {
                 if let Some(panel) = self.panel.as_mut() {
                     panel.theme.hex.remove(&slot);
+                    // La couleur change sans le sélecteur : il se referme.
+                    panel.theme.picker = None;
                 }
                 self.set_theme_color(slot, c)
+            }
+            // Puits de couleur (HIG SEL-02).
+            Msg::OpenPicker(slot) => {
+                let g = &self.cfg.general;
+                let value = match slot {
+                    Slot::Fg => g.theme.fg,
+                    Slot::Bg => g.theme.bg,
+                    Slot::Accent => g.theme.accent,
+                    Slot::Background => g.background,
+                };
+                if let Some(theme) = self.panel.as_mut().map(|p| &mut p.theme) {
+                    let open = theme.picker.as_ref().is_some_and(|(s, _)| *s == slot);
+                    // Le sélecteur part du brouillon s'il est lisible, sinon
+                    // de la couleur en place.
+                    let initial = theme
+                        .hex
+                        .get(&slot)
+                        .and_then(|v| Rgba::parse(v.trim()))
+                        .unwrap_or(value);
+                    theme.picker = (!open).then_some((slot, Picker::new(initial)));
+                }
+                Task::none()
+            }
+            Msg::Picker(m) => {
+                if let Some((_, pk)) = self.panel.as_mut().and_then(|p| p.theme.picker.as_mut()) {
+                    pk.update(m);
+                }
+                Task::none()
+            }
+            Msg::PickerCancel => {
+                if let Some(panel) = self.panel.as_mut() {
+                    panel.theme.picker = None;
+                }
+                Task::none()
+            }
+            Msg::PickerApply => {
+                match self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.theme.picker.take())
+                    .map(|(slot, pk)| (slot, pk.color()))
+                {
+                    Some((slot, c)) => self.theme_update(Msg::Color(slot, c)),
+                    None => Task::none(),
+                }
             }
             Msg::Hex(slot, v) => {
                 if let Some(panel) = self.panel.as_mut() {
@@ -1013,7 +1087,12 @@ impl App {
                     return Task::none();
                 };
                 match Rgba::parse(v.trim()) {
-                    Some(c) => self.set_theme_color(slot, c),
+                    Some(c) => {
+                        if let Some(panel) = self.panel.as_mut() {
+                            panel.theme.picker = None;
+                        }
+                        self.set_theme_color(slot, c)
+                    }
                     None => {
                         if let Some(panel) = self.panel.as_mut() {
                             panel.theme.report = Some(Err(crate::tr!(

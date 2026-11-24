@@ -268,6 +268,10 @@ and disabled bindings are kept. A hand-written file is copied
   workspace, add app and file shortcuts, and build a theme from an image.
   Drag modules to rearrange the bar, or use the dock to group windows by
   app. Theme modules carry the theme to kitty and to GTK, Qt and iced apps.
+- **Pick a colour.** Wherever a colour is set (theme, bar, wallpaper), the
+  swatch of the current colour opens the colour picker: it highlights as
+  soon as you click it, **Apply** sets the chosen colour and **Cancel**
+  closes it without changing anything.
 - **Screens and input.** Arrange monitors and set the keyboard and
   touchpad. Display layout changes revert after 12 seconds unless you keep
   them.

@@ -26,7 +26,7 @@ use iced::widget::{
 use iced::{Alignment, Border, Color, Element, Length, Task, mouse};
 
 use crate::config::{BAR_COLOR_SLOTS, Rgba};
-use crate::ui::color_picker::{Picker, PickerMsg};
+use crate::ui::color_picker::{Picker, PickerMsg, well};
 
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
@@ -1272,7 +1272,15 @@ impl App {
                 row![
                     chips,
                     Space::new().width(Length::Fill),
-                    dot(shown, 22.0, false),
+                    // Puits de couleur (HIG SEL-02) : ouvre le sélecteur.
+                    well(
+                        shown,
+                        22.0,
+                        is_open,
+                        fg,
+                        edge,
+                        wrap(Msg::OpenPicker(key.clone())),
+                    ),
                     text(label)
                         .font(font)
                         .size(crate::ui::tokens::ts(12.0))

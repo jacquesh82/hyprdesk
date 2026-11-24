@@ -310,6 +310,46 @@ fn color(c: Rgba) -> Color {
     Color::from_rgb8(c.0, c.1, c.2)
 }
 
+/// Puits de couleur (HIG SEL-02) : la pastille de la couleur en cours, en
+/// bouton qui ouvre le sélecteur. Tant que celui-ci est ouvert (`actif`),
+/// et dès le survol ou le pressage, un anneau le surligne.
+pub fn well<'a, M: Clone + 'a>(
+    c: Rgba,
+    size: f32,
+    active: bool,
+    ring: Color,
+    edge: Color,
+    on_press: M,
+) -> Element<'a, M> {
+    let fill = color(c);
+    button(Space::new().width(size).height(size))
+        .padding(0)
+        .style(move |_, status| well_style(fill, size, active, status, ring, edge))
+        .on_press(on_press)
+        .into()
+}
+
+/// Style du puits : cercle plein, contour discret au repos, anneau de 2 px
+/// quand il est surligné.
+fn well_style(
+    fill: Color,
+    size: f32,
+    active: bool,
+    status: button::Status,
+    ring: Color,
+    edge: Color,
+) -> button::Style {
+    let lit = active || !matches!(status, button::Status::Active);
+    button::Style {
+        background: Some(fill.into()),
+        border: Border::default()
+            .rounded(size / 2.0)
+            .width(if lit { 2.0 } else { 1.0 })
+            .color(if lit { ring } else { edge }),
+        ..Default::default()
+    }
+}
+
 /// Champ teinte × saturation, à pleine luminosité (calculé une fois).
 fn field_image() -> image::Handle {
     static FIELD: OnceLock<image::Handle> = OnceLock::new();
@@ -383,6 +423,31 @@ mod tests {
         }
         assert_eq!(hsv_to_rgb(0.0, 1.0, 1.0), Rgba(0xff, 0, 0, 0xff));
         assert_eq!(hsv_to_rgb(120.0, 1.0, 1.0), Rgba(0, 0xff, 0, 0xff));
+    }
+
+    /// HIG SEL-02 : le puits se surligne au survol, au pressage et tant que
+    /// son sélecteur est ouvert ; sinon son contour reste discret.
+    #[test]
+    fn puits_surligne() {
+        use button::Status;
+        let ring = Color::from_rgb8(1, 2, 3);
+        let edge = Color { a: 0.3, ..ring };
+        let fill = color(Rgba(9, 9, 9, 0xff));
+        let idle = well_style(fill, 22.0, false, Status::Active, ring, edge);
+        assert_eq!(idle.border.width, 1.0);
+        assert_eq!(idle.border.color, edge);
+        assert_eq!(idle.border.radius, 11.0.into());
+        assert_eq!(idle.background, Some(fill.into()));
+        for (active, status) in [
+            (false, Status::Hovered),
+            (false, Status::Pressed),
+            (true, Status::Active),
+            (true, Status::Hovered),
+        ] {
+            let s = well_style(fill, 22.0, active, status, ring, edge);
+            assert_eq!((s.border.width, s.border.color), (2.0, ring));
+            assert_eq!(s.background, Some(fill.into()));
+        }
     }
 
     #[test]
