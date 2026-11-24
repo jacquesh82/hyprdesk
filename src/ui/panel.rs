@@ -1027,11 +1027,6 @@ impl App {
             .padding([4, 10])
             .style(button::text)
             .on_press(Msg::Control(crate::control::Command::Wizard)),
-            toggler(adv)
-                .label(crate::i18n::tr("Configuration avancée"))
-                .text_size(12)
-                .font(self.font)
-                .on_toggle(|v| Msg::Panel(PanelMsg::Advanced(v))),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -1099,6 +1094,14 @@ impl App {
             ]
             .spacing(7)
             .align_y(Alignment::Center),
+            // Sur sa propre ligne dans le corps des Réglages (HIG SEL-03) :
+            // un interrupteur n'a pas sa place dans l'en-tête, qui est la
+            // barre d'outils du tiroir.
+            toggler(adv)
+                .label(crate::i18n::tr("Configuration avancée"))
+                .text_size(12)
+                .font(self.font)
+                .on_toggle(|v| Msg::Panel(PanelMsg::Advanced(v))),
             self.tour_card(),
             self.defaults_status(p),
             self.subtab_bar(p.tab),

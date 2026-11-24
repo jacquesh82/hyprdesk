@@ -307,7 +307,7 @@ pub const STEPS: &[Step] = &[
             it(
                 "desktop",
                 "Configuration avancée",
-                "L'interrupteur en haut des Réglages affiche tous les détails, marqués en cyan : \
+                "L'interrupteur, dans le corps des Réglages, affiche tous les détails, marqués en cyan : \
                  options de Hyprland, durées, commandes, carte graphique…",
             ),
             it(

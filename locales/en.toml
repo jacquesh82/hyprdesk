@@ -4292,7 +4292,7 @@
 "Horloge, calendrier, système, média… à poser sur le bureau en les glissant. D'autres s'installent depuis Plugins, ou s'écrivent en quelques lignes de Lua." = "Clock, calendar, system, media… dropped onto the desktop by dragging. More can be installed from Plugins, or written in a few lines of Lua."
 "L'apparence" = "Appearance"
 "L'assistante IA connaît votre bureau, s'ouvre dans son tiroir, et demande toujours avant d'agir." = "The AI assistant knows your desktop, opens in her drawer, and always asks before acting."
-"L'interrupteur en haut des Réglages affiche tous les détails, marqués en cyan : options de Hyprland, durées, commandes, carte graphique…" = "The switch at the top of Settings shows every detail, marked in cyan: Hyprland options, durations, commands, graphics card…"
+"L'interrupteur, dans le corps des Réglages, affiche tous les détails, marqués en cyan : options de Hyprland, durées, commandes, carte graphique…" = "The switch, in the body of Settings, shows every detail, marked in cyan: Hyprland options, durations, commands, graphics card…"
 "L'écran de verrouillage de hyprdesk, l'empreinte digitale si un lecteur est présent, et un écran de connexion à votre image." = "The hyprdesk lock screen, fingerprint unlock when a reader is present, and a login screen in your style."
 "La disposition de vos écrans, et le confort de lecture." = "How your screens are laid out, and reading comfort."
 "Le Panorama" = "The Panorama"

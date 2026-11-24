@@ -271,7 +271,7 @@ application : `hyprdesk binds generate --write`.
   workspace, déplacer, redimensionner, plein écran…), environnement et
   délais de veille. hyprdesk les écrit dans des fichiers générés chargés
   par `hyprland.lua`.
-- **Configuration avancée** (interrupteur en tête des Réglages) : ce qui ne
+- **Configuration avancée** (interrupteur dans le corps des Réglages) : ce qui ne
   sert qu'à l'expert, marqué en cyan — une fiole à côté de l'onglet et, avec
   le nombre de réglages avancés, à côté de chaque paquet qui en contient,
   une pastille « Avancé » en tête de page, un cadre cyan autour des sections

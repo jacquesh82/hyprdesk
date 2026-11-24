@@ -262,7 +262,7 @@ and disabled bindings are kept. A hand-written file is copied
   groups, cursor, touchpad gestures (fingers and direction → workspace,
   move, resize, fullscreen…), environment, and idle delays. hyprdesk writes
   them to generated files loaded by `hyprland.lua`.
-- **Advanced settings** (switch in the Settings header) show what only an
+- **Advanced settings** (switch in the body of Settings) show what only an
   expert needs, marked in cyan: a flask next to the tab and, with the count
   of advanced settings, next to each package that holds some, an
   *Advanced* badge on the page, a cyan frame around advanced sections.

@@ -182,7 +182,7 @@ libellés de groupes sont uniques). Tiroir large : les onglets du paquet
 choisi s'affichent sous lui, en sous-entrées ; tiroir étroit : en pastilles
 au-dessus de la page.
 
-« Configuration avancée » (en-tête du tiroir, clé `advanced_settings`) : cochée,
+« Configuration avancée » (dans le corps du tiroir, clé `advanced_settings`) : cochée,
 tout est affiché ; décochée, l'essentiel. Sont alors masqués les paquets de
 `ADVANCED_ONLY`, les onglets de `ADVANCED_TABS`, et les champs qu'une vue
 entoure de `self.adv(…)`. Rien ne disparaît de la configuration : seul
