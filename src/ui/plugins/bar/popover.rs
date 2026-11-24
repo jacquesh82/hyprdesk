@@ -48,6 +48,8 @@ pub enum Request {
         bus: String,
         menu_path: String,
     },
+    /// Choix de la fin du Silence, au centre de contrôle (HIG PAT-04).
+    Silence,
     /// Menu de la fenêtre active, sur son titre (MLG-311).
     Window,
     /// Menu du shell « hyprdesk », toujours en tête de la barre (HIG MENU-01).
@@ -303,6 +305,8 @@ pub enum MenuSource {
     },
     /// Menu « hyprdesk » : les commandes du shell (`bar::menus`).
     Shell,
+    /// Fin du Silence : l'action de l'entrée est son rang (`toasts::silence_command`).
+    Silence,
 }
 
 #[derive(Debug, Clone)]
@@ -1078,9 +1082,10 @@ impl App {
                             Msg::Repoll,
                         )
                     }
-                    MenuSource::Tray { .. } | MenuSource::Window { .. } | MenuSource::Shell => {
-                        Task::none()
-                    }
+                    MenuSource::Tray { .. }
+                    | MenuSource::Window { .. }
+                    | MenuSource::Shell
+                    | MenuSource::Silence => Task::none(),
                 };
                 Task::batch([t, self.close_popover()])
             }
@@ -1148,6 +1153,13 @@ impl App {
                     ),
                     // Menu « hyprdesk » (HIG MENU-01).
                     MenuSource::Shell => super::menus::act(self, action),
+                    MenuSource::Silence => {
+                        // Fin choisie du Silence (HIG PAT-04) : le rang de
+                        // l'entrée dit la fin.
+                        self.toasts
+                            .command(&crate::ui::toasts::silence_command(action));
+                        Task::none()
+                    }
                 };
                 Task::batch([t, self.close_popover()])
             }

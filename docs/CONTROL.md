@@ -99,7 +99,7 @@ Les alias donnent la même commande.
 | `panorama <toggle\|show\|hide>` | affiche ou escamote le Panorama des écrans bandeau |
 | `panorama page <n\|id>` | va à une page |
 | `panorama detect` | relit les écrans et refait les propositions |
-| `notifications dnd [on\|off]` | Ne pas déranger |
+| `notifications dnd [on [1h\|soir] \| off]` | Ne pas déranger : jusqu'à désactivation, une heure (`1h`) ou jusqu'à ce soir, 18 h (`soir`, refusé le soir) |
 | `notifications clear` | efface les notifications |
 | `mymfa unlock` | carte de déverrouillage du trousseau myMFA (argument inconnu : même effet) |
 | `mymfa lock` | verrouille le trousseau |

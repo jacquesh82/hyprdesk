@@ -180,6 +180,12 @@ notification sous Ne pas déranger, sauf la critique. Une action ou une
 fermeture que son application n'a pas reçue est annoncée par une notification
 de Hyprland, avec sa cause.
 
+Le Silence (Ne pas déranger) choisit sa fin à l'activation, dans le centre de
+contrôle de Continuité : une heure, jusqu'à ce soir (18 h) ou jusqu'à
+désactivation. Il s'éteint seul à son échéance, et sa tuile dit jusqu'à quand
+(« Silence · jusqu'à 18:00 »). En ligne de commande :
+`hyprdesk notifications dnd on [1h|soir]`.
+
 **Orchestrés** : l'outil externe reste, hyprdesk le pilote. Cela vaut pour
 `hypridle` (configuration écrite et supervisée), `cliphist` + `wl-clipboard`
 (l'historique derrière `:clip`), `hyprsunset` (éclairage nocturne),

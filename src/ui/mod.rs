@@ -4867,6 +4867,16 @@ impl App {
                         key,
                         popover::Kind::Calendar,
                     )),
+                    // Choix de la fin du Silence (HIG PAT-04) : la carte de menu.
+                    popover::Request::Silence => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Menu {
+                            entries: toasts::silence_menu(),
+                            source: popover::MenuSource::Silence,
+                        },
+                    )),
                     popover::Request::LuaMenu { widget, func } => {
                         let lua = self.lua.clone();
                         Task::perform(async move { lua.menu(func).await }, move |r| match r {
@@ -5665,6 +5675,14 @@ impl App {
             subs.push(
                 iced::time::every(Duration::from_millis(500))
                     .map(|_| Msg::Toasts(toasts::TMsg::Tick)),
+            );
+        }
+        // Fin programmée du Silence (HIG PAT-04) : un message à l'échéance,
+        // et rien d'autre tant qu'elle n'est pas atteinte.
+        if let Some(until) = self.toasts.dnd.then_some(self.toasts.dnd_until).flatten() {
+            subs.push(
+                Subscription::run_with(until, |until: &i64| toasts::silence_ends(*until))
+                    .map(Msg::Toasts),
             );
         }
         if self.osd.is_some() {

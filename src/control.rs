@@ -60,7 +60,7 @@ pub enum Command {
     Apps,
     /// Vue d'ensemble des fenêtres (plugin de Hyprland, sinon le sélecteur).
     Overview,
-    /// Notifications de hyprdesk : `dnd [on|off]`, `clear`.
+    /// Notifications de hyprdesk : `dnd [on [1h|soir] | off]`, `clear`.
     Notifications(String),
     /// Demande à LYRA (titre de la conversation, texte), affichée aussitôt.
     Ask(String, String),

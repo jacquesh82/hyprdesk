@@ -565,20 +565,28 @@ impl App {
             "Bluetooth",
             "bluetooth-symbolic",
         );
+        // Allumée, la tuile nomme sa fin et un clic l'éteint ; éteinte, elle
+        // ouvre le choix de la fin — choisir, c'est allumer (HIG PAT-04).
         let silence = self.toasts.dnd;
         let silence_icon = if silence {
             "notifications-disabled-symbolic"
         } else {
             "preferences-system-notifications-symbolic"
         };
+        let silence_label = match self.toasts.dnd_until {
+            Some(until) => crate::tr!(
+                "Silence · jusqu'à {hour}",
+                hour = crate::notifications::silence_end_label(until)
+            ),
+            None => tr("Silence").to_string(),
+        };
         let silence_button = if self.toasts.active || self.preview {
-            self.dashboard_pill(
-                pal,
-                silence_icon,
-                tr("Silence"),
-                silence,
-                Some(Msg::Control(Command::Notifications("dnd".into()))),
-            )
+            let action = if silence {
+                Msg::Control(Command::Notifications("dnd off".into()))
+            } else {
+                Msg::OpenPopover(bar, "silence".into(), Request::Silence)
+            };
+            self.dashboard_pill(pal, silence_icon, &silence_label, silence, Some(action))
         } else if let Some(action) = self
             .control_source("notifications")
             .and_then(|widget| Self::dashboard_widget_menu(bar, widget))
@@ -1139,11 +1147,19 @@ impl App {
         }
         let body: Element<'_, Msg> = if self.toasts.history.is_empty() {
             let (icon, label) = if dnd {
-                ("notifications-disabled-symbolic", tr("Ne pas déranger"))
+                // Le Silence à fin programmée dit quand il s'éteint (HIG PAT-04).
+                let label = match self.toasts.dnd_until {
+                    Some(until) => crate::tr!(
+                        "Ne pas déranger · jusqu'à {hour}",
+                        hour = crate::notifications::silence_end_label(until)
+                    ),
+                    None => tr("Ne pas déranger").to_string(),
+                };
+                ("notifications-disabled-symbolic", label)
             } else {
                 (
                     "preferences-system-notifications-symbolic",
-                    tr("Aucune notification"),
+                    tr("Aucune notification").to_string(),
                 )
             };
             container(

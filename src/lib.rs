@@ -114,8 +114,8 @@ Commandes :
   files             ouvre ou referme la recherche de fichiers (loupe du dock, :f)
   apps              ouvre ou referme la grille des applications (plein écran, catégories)
   overview          vue d'ensemble des fenêtres (overview_command, sinon le sélecteur)
-  notifications [list | dnd [on|off] | clear]
-                    notifications de hyprdesk : historique, Ne pas déranger
+  notifications [list | dnd [on [1h|soir] | off] | clear]
+                    notifications de hyprdesk : historique, Ne pas déranger (une heure, jusqu'à ce soir)
   ask <titre> <texte>
                     demande à LYRA (nouvelle conversation, affichée)
   switch [prev]     sélecteur de fenêtres (Alt+Tab, keys.switch) : ouvre, ou passe

@@ -177,6 +177,12 @@ under Do Not Disturb, except the critical one. An action or a dismissal its
 application did not receive is reported by a Hyprland notification, with its
 cause.
 
+Silence (Do not disturb) picks its end when it is turned on, from the Continuity
+control center: one hour, until this evening (6 PM) or until turned off. It
+turns itself off at its deadline, and its tile says until when ("Silence ·
+until 18:00"). From the command line: `hyprdesk notifications dnd on
+[1h|soir]`.
+
 **Orchestrated**: the external tool stays and hyprdesk drives it. This
 covers `hypridle` (config written and supervised), `cliphist` +
 `wl-clipboard` (the clipboard history behind `:clip`), `hyprsunset` (night

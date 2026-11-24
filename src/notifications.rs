@@ -86,7 +86,8 @@ pub enum Event {
 
 /// État pour le module de barre et `hyprdesk notifications` :
 /// `$XDG_RUNTIME_DIR/hyprdesk-notifications.txt` — `dnd=0|1`, `count=N`,
-/// puis `n=<app>\t<titre>\t<texte>` (les plus récentes d'abord).
+/// `dnd_until=<échéance>` (Silence à fin programmée, HIG PAT-04), puis
+/// `n=<app>\t<titre>\t<texte>` (les plus récentes d'abord).
 pub fn state_path() -> std::path::PathBuf {
     crate::policy::private_runtime_or_unusable().join("hyprdesk-notifications.txt")
 }
@@ -96,10 +97,115 @@ pub fn dnd_path() -> std::path::PathBuf {
     crate::layout::state_dir().join("dnd")
 }
 
+/// L'heure de « ce soir » : la HIG ne la chiffre pas (managing-notifications
+/// › Integrating with Focus).
+pub const EVENING_HOUR: u32 = 18;
+
+/// Fin du Silence (HIG PAT-04), par le mot de la commande de contrôle : `1h`,
+/// « une heure » ; `soir`, « jusqu'à ce soir ». Sans mot : jusqu'à
+/// désactivation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SilenceEnd {
+    Hour,
+    Evening,
+}
+
+impl SilenceEnd {
+    pub fn parse(word: &str) -> Option<Self> {
+        match word {
+            "1h" => Some(Self::Hour),
+            "soir" => Some(Self::Evening),
+            _ => None,
+        }
+    }
+
+    /// Échéance, en secondes depuis l'époque ; `None` quand la fin est déjà
+    /// passée : « ce soir », le soir.
+    pub fn deadline(self, now: chrono::DateTime<chrono::Local>) -> Option<i64> {
+        match self {
+            Self::Hour => Some(now.timestamp() + 3600),
+            Self::Evening => {
+                let evening = now
+                    .date_naive()
+                    .and_hms_opt(EVENING_HOUR, 0, 0)?
+                    .and_local_timezone(chrono::Local)
+                    .single()?;
+                (now < evening).then_some(evening.timestamp())
+            }
+        }
+    }
+}
+
+/// Le Silence gardé d'une session à l'autre et sa fin facultative : échéance
+/// en secondes depuis l'époque, à l'horloge murale (HIG PAT-04).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Silence {
+    pub until: Option<i64>,
+}
+
+/// L'heure courante, en secondes depuis l'époque.
+pub fn unix_now() -> i64 {
+    chrono::Local::now().timestamp()
+}
+
+/// L'échéance du Silence en toutes lettres, heure locale : « 18:00 ».
+pub fn silence_end_label(until: i64) -> String {
+    chrono::DateTime::from_timestamp(until, 0)
+        .map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string())
+        .unwrap_or_default()
+}
+
+impl Silence {
+    /// Relit le fichier gardé : `None`, le Silence est coupé. Une échéance
+    /// passée n'est plus du Silence (redémarrage, reprise de veille) : le
+    /// fichier est retiré. Un fichier sans `until=` date d'avant les fins.
+    pub fn load() -> Option<Self> {
+        let text = std::fs::read_to_string(dnd_path()).ok()?;
+        let (silence, expired) = Self::read(&text, unix_now());
+        if expired {
+            Self::off();
+        }
+        silence
+    }
+
+    /// Lit le contenu du fichier à l'heure dite : (`None`, vrai) quand son
+    /// échéance est passée.
+    fn read(text: &str, now: i64) -> (Option<Self>, bool) {
+        let until = text
+            .lines()
+            .find_map(|l| l.strip_prefix("until="))
+            .and_then(|u| u.trim().parse().ok());
+        match until {
+            Some(t) if t <= now => (None, true),
+            _ => (Some(Self { until }), false),
+        }
+    }
+
+    /// Allume le Silence, jusqu'à son échéance ou jusqu'à désactivation.
+    pub fn save(self) {
+        let p = dnd_path();
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = match self.until {
+            Some(t) => std::fs::write(&p, format!("until={t}\n")),
+            None => std::fs::write(&p, "1\n"),
+        };
+    }
+
+    /// Éteint le Silence.
+    pub fn off() {
+        let _ = std::fs::remove_file(dnd_path());
+    }
+}
+
 /// Texte de l'état : un champ par ligne, tabulations et sauts de ligne remplacés.
-pub fn render_state(dnd: bool, history: &[Notification]) -> String {
+pub fn render_state(dnd: bool, until: Option<i64>, history: &[Notification]) -> String {
     let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
     let mut out = format!("dnd={}\ncount={}\n", u8::from(dnd), history.len());
+    if dnd && let Some(t) = until {
+        out.push_str(&format!("dnd_until={t}\n"));
+    }
     for n in history.iter().take(30) {
         out.push_str(&format!(
             "n={}\t{}\t{}\n",
@@ -630,6 +736,7 @@ mod tests {
         };
         let out = render_state(
             true,
+            None,
             &[
                 n(2, "kitty", "Fini", "cargo\ttest\nok"),
                 n(1, "hyprdesk", "Capture", ""),
@@ -639,5 +746,66 @@ mod tests {
             out,
             "dnd=1\ncount=2\nn=kitty\tFini\tcargo test ok\nn=hyprdesk\tCapture\t\n"
         );
+    }
+
+    #[test]
+    fn fin_du_silence() {
+        use chrono::TimeZone;
+        let at = |h: u32, m: u32| {
+            chrono::Local
+                .with_ymd_and_hms(2026, 11, 24, h, m, 0)
+                .unwrap()
+        };
+        let morning = at(9, 15);
+        assert_eq!(
+            SilenceEnd::Hour.deadline(morning),
+            Some(morning.timestamp() + 3600)
+        );
+        assert_eq!(
+            SilenceEnd::Evening.deadline(morning),
+            Some(at(EVENING_HOUR, 0).timestamp())
+        );
+        // Le soir, « jusqu'à ce soir » est déjà passé.
+        assert_eq!(SilenceEnd::Evening.deadline(at(18, 0)), None);
+        assert_eq!(SilenceEnd::Evening.deadline(at(23, 30)), None);
+        assert_eq!(SilenceEnd::parse("1h"), Some(SilenceEnd::Hour));
+        assert_eq!(SilenceEnd::parse("soir"), Some(SilenceEnd::Evening));
+        assert_eq!(SilenceEnd::parse("nuit"), None);
+    }
+
+    #[test]
+    fn silence_garde_d_une_session_a_l_autre() {
+        let now = 1_000_000;
+        // Fichier d'avant les fins : allumé sans échéance.
+        assert_eq!(
+            Silence::read("1\n", now),
+            (Some(Silence { until: None }), false)
+        );
+        let t = (now + 600).to_string();
+        assert_eq!(
+            Silence::read(&format!("until={t}\n"), now),
+            (
+                Some(Silence {
+                    until: Some(now + 600)
+                }),
+                false
+            )
+        );
+        // Échéance passée (reprise de veille, redémarrage) : plus de Silence.
+        assert_eq!(
+            Silence::read(&format!("until={t}\n"), now + 600),
+            (None, true)
+        );
+        assert_eq!(
+            Silence::read("until=rien\n", now),
+            (Some(Silence { until: None }), false)
+        );
+    }
+
+    #[test]
+    fn etat_avec_la_fin_du_silence() {
+        let out = render_state(true, Some(1_000_600), &[]);
+        assert_eq!(out, "dnd=1\ncount=0\ndnd_until=1000600\n");
+        assert_eq!(render_state(false, None, &[]), "dnd=0\ncount=0\n");
     }
 }

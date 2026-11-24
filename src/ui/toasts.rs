@@ -23,7 +23,7 @@ use iced_layershell::reexport::{
 };
 
 use super::{App, Msg, color};
-use crate::notifications::{Event, Notification, Reason, Urgency};
+use crate::notifications::{Event, Notification, Reason, SilenceEnd, Urgency};
 use crate::ui::plugins::bar::surface::{URGENT_ICON, truncate};
 
 pub const NAMESPACE: &str = "hyprdesk-notifications";
@@ -245,6 +245,8 @@ pub enum TMsg {
     Close(u32),
     Tick,
     Shown(Id),
+    /// La fin programmée du Silence est atteinte (HIG PAT-04).
+    Expire,
 }
 
 /// Surface des bulles et ses bulles (les plus récentes en premier).
@@ -258,10 +260,69 @@ pub struct Toasts {
     pub history: Vec<Notification>,
     /// Ne pas déranger : pas de bulle, sauf pour une notification critique.
     pub dnd: bool,
+    /// Fin du Silence (HIG PAT-04) : échéance à l'horloge murale, en secondes
+    /// depuis l'époque ; `None`, jusqu'à désactivation.
+    pub dnd_until: Option<i64>,
     visibility: Option<super::Fade>,
     previous: Vec<Toast>,
     convex: bool,
     shown: bool,
+}
+
+/// Carte de choix de la fin du Silence (HIG PAT-04). L'action d'une entrée
+/// est son rang, qui ne dépend pas des entrées proposées.
+pub(in crate::ui) fn silence_menu() -> Vec<crate::config::MenuEntry> {
+    use crate::config::MenuEntry;
+    let end = |rank: i64, label: &str| MenuEntry::Item {
+        label: crate::i18n::tr(label).to_string(),
+        detail: None,
+        icon: None,
+        checked: None,
+        enabled: true,
+        action: Some(rank),
+        confirm: None,
+    };
+    let mut entries = vec![
+        MenuEntry::Header(crate::i18n::tr("Silence").to_string()),
+        end(0, "1 heure"),
+    ];
+    // Le soir, « jusqu'à ce soir » est déjà passé.
+    let soir = chrono::Timelike::hour(&chrono::Local::now());
+    if soir < crate::notifications::EVENING_HOUR {
+        entries.push(end(1, "Jusqu'à ce soir"));
+    }
+    entries.push(end(2, "Jusqu'à désactivation"));
+    entries
+}
+
+/// Commande de l'entrée `rank` de `silence_menu`.
+pub(in crate::ui) fn silence_command(rank: i64) -> String {
+    match rank {
+        0 => "dnd on 1h",
+        1 => "dnd on soir",
+        _ => "dnd on",
+    }
+    .to_string()
+}
+
+/// Abonnement de la fin du Silence (HIG PAT-04) : un message à l'échéance.
+/// Le temps monotone s'arrête en veille : le réveil est borné et l'heure
+/// relue à l'horloge murale à chaque tour.
+pub(super) fn silence_ends(until: i64) -> impl Stream<Item = TMsg> {
+    iced::stream::channel(
+        1,
+        async move |mut out: iced::futures::channel::mpsc::Sender<TMsg>| {
+            const BOUND: i64 = 300;
+            loop {
+                let left = until - crate::notifications::unix_now();
+                if left <= 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(left.min(BOUND) as u64)).await;
+            }
+            let _ = out.send(TMsg::Expire).await;
+        },
+    )
 }
 
 impl Toasts {
@@ -270,30 +331,59 @@ impl Toasts {
         if self.active {
             let _ = std::fs::write(
                 crate::notifications::state_path(),
-                crate::notifications::render_state(self.dnd, &self.history),
+                crate::notifications::render_state(self.dnd, self.dnd_until, &self.history),
             );
         }
     }
 
-    /// Applique une commande `hyprdesk notifications …` : `dnd [on|off]`, `clear`.
+    /// Bascule le Silence et le garde d'une session à l'autre.
+    fn set_silence(&mut self, on: bool, until: Option<i64>) {
+        self.dnd = on;
+        self.dnd_until = on.then_some(until).flatten();
+        if on {
+            crate::notifications::Silence { until }.save();
+        } else {
+            crate::notifications::Silence::off();
+        }
+    }
+
+    /// Éteint un Silence dont l'échéance est passée, à l'horloge murale.
+    fn silence_expire(&mut self) -> bool {
+        if !self.dnd
+            || !self
+                .dnd_until
+                .is_some_and(|t| t <= crate::notifications::unix_now())
+        {
+            return false;
+        }
+        self.set_silence(false, None);
+        self.publish();
+        true
+    }
+
+    /// Applique une commande `hyprdesk notifications …` : `dnd [on [1h|soir]
+    /// | off]`, `clear`. Sans mot de fin, le Silence dure jusqu'à
+    /// désactivation (HIG PAT-04).
     pub fn command(&mut self, cmd: &str) {
         let mut it = cmd.split_whitespace();
-        match (it.next(), it.next()) {
-            (Some("dnd"), Some("on")) => self.dnd = true,
-            (Some("dnd"), Some("off")) => self.dnd = false,
-            (Some("dnd"), _) => self.dnd = !self.dnd,
-            (Some("clear"), _) => self.history.clear(),
+        match (it.next(), it.next(), it.next()) {
+            (Some("dnd"), Some("off"), _) => self.set_silence(false, None),
+            (Some("dnd"), Some("on"), word) => {
+                let until = match word {
+                    None => None,
+                    Some(w) => {
+                        match SilenceEnd::parse(w).and_then(|e| e.deadline(chrono::Local::now())) {
+                            Some(t) => Some(t),
+                            None => return,
+                        }
+                    }
+                };
+                self.set_silence(true, until);
+            }
+            (Some("dnd"), None, _) => self.set_silence(!self.dnd, None),
+            (Some("clear"), None, _) => self.history.clear(),
             _ => return,
         }
-        let p = crate::notifications::dnd_path();
-        if let Some(d) = p.parent() {
-            let _ = std::fs::create_dir_all(d);
-        }
-        let _ = if self.dnd {
-            std::fs::write(&p, "1\n")
-        } else {
-            std::fs::remove_file(&p)
-        };
         self.publish();
     }
 }
@@ -345,11 +435,20 @@ impl App {
             }
             TMsg::Event(Event::Active) => {
                 self.toasts.active = true;
-                self.toasts.dnd = crate::notifications::dnd_path().exists();
+                // Une échéance passée n'est pas relayée (HIG PAT-04).
+                let silence = crate::notifications::Silence::load();
+                self.toasts.dnd = silence.is_some();
+                self.toasts.dnd_until = silence.and_then(|s| s.until);
                 self.toasts.publish();
                 Task::none()
             }
+            TMsg::Expire => {
+                self.toasts.silence_expire();
+                Task::none()
+            }
             TMsg::Event(Event::Shown(n)) => {
+                // Le Silence a peut-être expiré pendant une veille.
+                self.toasts.silence_expire();
                 if !n.transient {
                     self.toasts.history.retain(|h| h.id != n.id);
                     self.toasts.history.insert(0, n.clone());
@@ -1271,5 +1370,42 @@ mod tests {
             app.named_icons.contains_key(URGENT_ICON),
             "le repère de l'urgence critique est prêt dès la première image"
         );
+    }
+}
+
+#[cfg(test)]
+mod silence_tests {
+    use super::{silence_command, silence_menu};
+
+    /// HIG PAT-04 : la fin du Silence se choisit à l'activation. L'action
+    /// d'une entrée est son rang, quand bien même « ce soir » manque.
+    #[test]
+    fn la_fin_du_silence_se_choisit_a_l_activation() {
+        let items: Vec<(String, i64)> = silence_menu()
+            .iter()
+            .filter_map(|e| match e {
+                crate::config::MenuEntry::Item {
+                    label,
+                    action: Some(a),
+                    ..
+                } => Some((label.clone(), *a)),
+                _ => None,
+            })
+            .collect();
+        let mut attendu = vec![("1 heure", 0)];
+        let soir =
+            chrono::Timelike::hour(&chrono::Local::now()) < crate::notifications::EVENING_HOUR;
+        if soir {
+            attendu.push(("Jusqu'à ce soir", 1));
+        }
+        attendu.push(("Jusqu'à désactivation", 2));
+        let attendu: Vec<(String, i64)> = attendu
+            .into_iter()
+            .map(|(l, a)| (crate::i18n::tr(l).to_string(), a))
+            .collect();
+        assert_eq!(items, attendu, "soir : {soir}");
+        assert_eq!(silence_command(0), "dnd on 1h");
+        assert_eq!(silence_command(1), "dnd on soir");
+        assert_eq!(silence_command(2), "dnd on");
     }
 }
