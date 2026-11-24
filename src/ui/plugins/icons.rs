@@ -3,10 +3,10 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, radio, row, slider, text_input, toggler};
+use iced::widget::{button, column, pick_list, radio, row, text_input, toggler};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
-use super::super::panel::{Panel, PanelMsg};
+use super::super::panel::{Panel, PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::{IconScope, Origin};
@@ -219,26 +219,22 @@ impl App {
             self.field(
                 "Taille des icônes",
                 "grid.icon_size",
-                row![
-                    slider(24..=128u16, g.grid.icon_size, |v| wrap(Msg::IconSize(v)))
-                        .on_release(UiMsg::Panel(PanelMsg::Commit))
-                        .width(260),
-                    text(format!("{} px", g.grid.icon_size))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+                self.slider(
+                    &SliderSpec::new("grid.icon_size", (24.0, 128.0), 1.0, |v| wrap(Msg::IconSize(v.round() as u16)), UiMsg::Panel(PanelMsg::Commit)),
+                    f64::from(g.grid.icon_size),
+                    |v| format!("{} px", v.round() as u16),
+                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                ),
             ),
             self.field(
                 "Taille des cases",
                 "grid.cell",
-                row![
-                    slider(64..=192u16, g.grid.cell, |v| wrap(Msg::CellSize(v)))
-                        .on_release(UiMsg::Panel(PanelMsg::Commit))
-                        .width(260),
-                    text(format!("{} px", g.grid.cell)).font(self.font).size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+                self.slider(
+                    &SliderSpec::new("grid.cell", (64.0, 192.0), 1.0, |v| wrap(Msg::CellSize(v.round() as u16)), UiMsg::Panel(PanelMsg::Commit)),
+                    f64::from(g.grid.cell),
+                    |v| format!("{} px", v.round() as u16),
+                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                ),
             ),
             self.field(
                 "Thème d'icônes",

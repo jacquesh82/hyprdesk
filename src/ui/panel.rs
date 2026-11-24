@@ -148,6 +148,64 @@ pub struct SliderSpec {
     pub(in crate::ui) save: Msg,
 }
 
+impl SliderSpec {
+    pub(in crate::ui) const fn new(
+        key: &'static str,
+        range: (f64, f64),
+        step: f64,
+        pose: fn(f64) -> Msg,
+        save: Msg,
+    ) -> Self {
+        SliderSpec {
+            key,
+            range,
+            step,
+            pose,
+            save,
+        }
+    }
+}
+
+/// Présentation d'un curseur de réglage (HIG SEL-08) : celle que sa rangée
+/// avait avant de passer au composant [`App::slider`], pour qu'au repos rien
+/// ne bouge.
+#[derive(Debug, Clone, Copy)]
+pub struct SliderLook {
+    /// Taille du texte de la valeur.
+    pub(in crate::ui) size: f32,
+    /// Largeur du curseur.
+    pub(in crate::ui) width: Length,
+    /// Largeur de la valeur au repos : `Shrink`, ou fixe quand le site la
+    /// fixait.
+    pub(in crate::ui) value_width: Length,
+    /// Alignement du curseur et de sa valeur l'un à l'autre.
+    pub(in crate::ui) align_y: Alignment,
+}
+
+impl SliderLook {
+    /// Curseur à largeur fixe (en px), la valeur à sa juste largeur : la
+    /// rangée se resserre sur les deux.
+    pub(in crate::ui) const fn fixed(size: f32, width: u16, align_y: Alignment) -> Self {
+        SliderLook {
+            size,
+            width: Length::Fixed(width as f32),
+            value_width: Length::Shrink,
+            align_y,
+        }
+    }
+
+    /// Curseur souple, qui remplit la place que lui laisse la valeur ; celle-ci
+    /// garde la largeur fixe (en px) du site.
+    pub(in crate::ui) const fn fill(size: f32, value_width: u16, align_y: Alignment) -> Self {
+        SliderLook {
+            size,
+            width: Length::Fill,
+            value_width: Length::Fixed(value_width as f32),
+            align_y,
+        }
+    }
+}
+
 /// Champ de la valeur d'un curseur, ouvert (HIG SEL-08) : un seul à la fois,
 /// refermé en changeant de page.
 #[derive(Debug, Clone)]
@@ -1391,13 +1449,14 @@ impl App {
     /// l'enregistre (`enregistrer`), comme un glissé puis son relâchement ;
     /// Échap referme le champ sans rien changer. Le composant parle en `f64`
     /// (domaine, pas, valeur) : à chaque site de convertir dans `poser`.
+    /// Sa présentation (`look`) est celle que la rangée du site avait déjà :
+    /// au repos, rien ne bouge d'une rangée faite à la main.
     pub(in crate::ui) fn slider<'a>(
         &self,
         spec: &SliderSpec,
         value: f64,
         affiche: fn(f64) -> String,
-        size: f32,
-        width: impl Into<Length>,
+        look: SliderLook,
     ) -> Element<'a, Msg> {
         let (min, max) = spec.range;
         let pose = spec.pose;
@@ -1406,7 +1465,7 @@ impl App {
         })
         .step(spec.step as f32)
         .on_release(spec.save.clone())
-        .width(width);
+        .width(look.width);
         let open = self
             .panel
             .as_ref()
@@ -1423,14 +1482,17 @@ impl App {
                 // Bas, comme un champ de la HIG : la rangée grandit à peine.
                 .padding(iced::Padding::from([1, 8]))
                 .font(self.font)
-                .size(crate::ui::tokens::ts(size))
+                .size(crate::ui::tokens::ts(look.size))
                 .width(SLIDER_FIELD_W)
                 .into(),
             None => tooltip(
                 button(
                     text(affiche(value))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(size)),
+                        .size(crate::ui::tokens::ts(look.size))
+                        // Un nombre tient sur une ligne, même agrandi.
+                        .wrapping(iced::widget::text::Wrapping::None)
+                        .width(look.value_width),
                 )
                 // Un texte plein, sans la marge d'un bouton : au repos, la
                 // valeur garde la place et la taille qu'elle avait.
@@ -1446,7 +1508,17 @@ impl App {
             )
             .into(),
         };
-        row![slider, value].spacing(12).into()
+        // La rangée remplit comme son curseur ; un curseur largeur fixe laisse
+        // la rangée se resserrer sur ses deux éléments.
+        let rangee = match look.width {
+            Length::Shrink | Length::Fixed(_) => Length::Shrink,
+            souple => souple,
+        };
+        row![slider, value]
+            .spacing(12)
+            .width(rangee)
+            .align_y(look.align_y)
+            .into()
     }
 
     /// Couleurs de texte lisibles du tiroir (WCAG AA sur son fond) : texte,
@@ -1953,5 +2025,33 @@ mod tests {
         let _ = app.panel_update(PanelMsg::SliderDraft("500".into()));
         let _ = app.panel_update(PanelMsg::SliderSubmit);
         assert_eq!(app.settings.launcher_size, Some(96), "bornée au domaine");
+    }
+
+    /// Un curseur à pas passé au composant (durée du fondu, `effects.rs`) :
+    /// Entrée ramène la valeur au pas, la pose et l'enregistre comme un
+    /// relâchement ; hors domaine, elle est bornée (HIG SEL-08).
+    #[test]
+    fn la_valeur_saisie_dun_curseur_a_pas_est_ramenee_au_pas() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.open_panel();
+        let saisir = |app: &mut App, texte: &str| {
+            let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+                plugins::effects::fade_spec(),
+                200.0,
+            ))));
+            let _ = app.panel_update(PanelMsg::SliderDraft(texte.into()));
+            let _ = app.panel_update(PanelMsg::SliderSubmit);
+        };
+        saisir(&mut app, "254 ms");
+        assert_eq!(app.settings.fade_ms, Some(250), "ramenée au pas de 10");
+        assert_eq!(app.cfg.general.fade_ms, 250, "posée comme un glissé");
+        saisir(&mut app, "5000");
+        assert_eq!(app.settings.fade_ms, Some(1000), "bornée au domaine");
     }
 }

@@ -8,13 +8,24 @@ use std::time::Duration;
 
 use crate::i18n::text;
 use iced::widget::{
-    Space, button, column, container, image, pick_list, radio, row, slider, text_input, toggler,
+    Space, button, column, container, image, pick_list, radio, row, text_input, toggler,
 };
 use iced::{Alignment, Border, Color, Element, Task};
 
-use super::super::panel::{Panel, PanelMsg, SWATCHES};
+use super::super::panel::{Panel, PanelMsg, SWATCHES, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color, list_images};
 use super::{PluginInfo, PluginMsg};
+
+/// Valeur affichée de l'intervalle du diaporama (HIG SEL-08) : « 30 s » ou
+/// « 5 min 00 s », la valeur bornée que le curseur montre.
+fn affiche_rotation(v: f64) -> String {
+    let secs = v.round() as u64;
+    if secs >= 60 {
+        format!("{} min {:02} s", secs / 60, secs % 60)
+    } else {
+        format!("{secs} s")
+    }
+}
 use crate::config::resolve::resolve;
 use crate::config::{Fit, Origin, Rgba, Selector, WallSource};
 use crate::settings::hex;
@@ -318,28 +329,22 @@ impl App {
                             .size(crate::ui::tokens::ts(13.0))
                             .color(dim),
                     );
-                    col = col.push(
-                        self.field(
-                            "Changer toutes les",
-                            "",
-                            row![
-                                slider(10..=3600u32, secs.clamp(10, 3600) as u32, |v| wrap(
-                                    Msg::RotInterval(v as u64)
-                                ))
-                                .step(10u32)
-                                .on_release(UiMsg::Panel(PanelMsg::Commit))
-                                .width(260),
-                                text(if secs >= 60 {
-                                    format!("{} min {:02} s", secs / 60, secs % 60)
-                                } else {
-                                    format!("{secs} s")
-                                })
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0)),
-                            ]
-                            .spacing(12),
+                    col = col.push(self.field(
+                        "Changer toutes les",
+                        "",
+                        self.slider(
+                            &SliderSpec::new(
+                                "rotation_interval",
+                                (10.0, 3600.0),
+                                10.0,
+                                |v| wrap(Msg::RotInterval(v.round() as u64)),
+                                UiMsg::Panel(PanelMsg::Commit),
+                            ),
+                            secs.clamp(10, 3600) as f64,
+                            affiche_rotation,
+                            SliderLook::fixed(14.0, 260, Alignment::Start),
                         ),
-                    );
+                    ));
                     col = col.push(self.field(
                         "Ordre aléatoire",
                         "",

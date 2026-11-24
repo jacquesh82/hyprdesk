@@ -13,10 +13,15 @@ use crate::i18n::text;
 use iced::widget::{Space, button, column, container, radio, row, slider, text_input, toggler};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
-use super::super::panel::{PanelMsg, SWATCHES};
+use super::super::panel::{PanelMsg, SWATCHES, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::{Effect, Mode, Place, Rgba};
+
+/// Valeur affichée d'un curseur en pour cent (HIG SEL-08) : « 100 % ».
+fn affiche_pourcent(v: f64) -> String {
+    format!("{} %", v.round() as i32)
+}
 use crate::theme::{PRESETS, Saved};
 use crate::ui::color_picker::{Picker, PickerMsg, well};
 
@@ -735,12 +740,18 @@ impl App {
                 text(crate::i18n::tr("Taille du texte"))
                     .font(font)
                     .size(crate::ui::tokens::ts(13.0)),
-                slider(75..=200u32, (g.text_scale * 100.0).round() as u32, |v| {
-                    wrap(Msg::TextScale(v as f32 / 100.0))
-                })
-                .on_release(wrap(Msg::Commit))
-                .width(Length::Fill),
-                percent(g.text_scale),
+                self.slider(
+                    &SliderSpec::new(
+                        "text_scale",
+                        (75.0, 200.0),
+                        1.0,
+                        |v| wrap(Msg::TextScale(v.round() as f32 / 100.0)),
+                        wrap(Msg::Commit)
+                    ),
+                    f64::from((g.text_scale * 100.0).round()),
+                    affiche_pourcent,
+                    SliderLook::fill(13.0, 48, Alignment::Center),
+                ),
             ]
             .spacing(12)
             .align_y(Alignment::Center),
@@ -780,34 +791,40 @@ impl App {
             ),
         );
         if g.mode == Mode::Glass {
-            effects = effects.push(
-                self.field(
-                    "Voile du verre",
-                    "glass_opacity",
-                    row![
-                        slider(0..=100u32, (g.glass_opacity * 100.0).round() as u32, |v| {
-                            wrap(Msg::GlassOpacity(v as f32 / 100.0))
-                        })
-                        .on_release(wrap(Msg::Commit))
-                        .width(Length::Fill),
-                        percent(g.glass_opacity),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+            effects = effects.push(self.field(
+                "Voile du verre",
+                "glass_opacity",
+                self.slider(
+                    &SliderSpec::new(
+                        "glass_opacity",
+                        (0.0, 100.0),
+                        1.0,
+                        |v| wrap(Msg::GlassOpacity(v.round() as f32 / 100.0)),
+                        wrap(Msg::Commit),
+                    ),
+                    f64::from((g.glass_opacity * 100.0).round()),
+                    affiche_pourcent,
+                    SliderLook::fill(13.0, 48, Alignment::Center),
                 ),
-            );
+            ));
         }
         effects = effects.push(
             self.field(
                 "Verrouillage",
                 "lock_dim",
                 row![
-                    slider(0..=100u32, (g.lock.dim * 100.0).round() as u32, |v| wrap(
-                        Msg::LockDim(v as f32 / 100.0)
-                    ))
-                    .on_release(wrap(Msg::Commit))
-                    .width(Length::Fill),
-                    percent(g.lock.dim),
+                    self.slider(
+                        &SliderSpec::new(
+                            "lock_dim",
+                            (0.0, 100.0),
+                            1.0,
+                            |v| wrap(Msg::LockDim(v.round() as f32 / 100.0)),
+                            wrap(Msg::Commit)
+                        ),
+                        f64::from((g.lock.dim * 100.0).round()),
+                        affiche_pourcent,
+                        SliderLook::fill(13.0, 48, Alignment::Center),
+                    ),
                     toggler(g.lock.blur)
                         .label(crate::i18n::tr("Flou"))
                         .font(font)

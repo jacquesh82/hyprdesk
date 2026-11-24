@@ -14,7 +14,7 @@ use crate::i18n::text;
 use iced::widget::{button, column, radio, row};
 use iced::{Alignment, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 
@@ -303,17 +303,12 @@ impl App {
             self.field(
                 "Suggestions (les plus lancées)",
                 "apps_suggestions",
-                row![
-                    iced::widget::slider(0.0..=16.0, a.suggestions as f32, |v| wrap(
-                        Msg::AppsSuggestions(v.round() as u8)
-                    ))
-                    .step(1.0_f32)
-                    .on_release(wrap(Msg::AppsSuggestionsCommit))
-                    .width(220),
-                    text(a.suggestions.to_string()).font(self.font).size(crate::ui::tokens::ts(13.0)),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
+                self.slider(
+                    &SliderSpec::new("apps_suggestions", (0.0, 16.0), 1.0, |v| wrap(Msg::AppsSuggestions(v.round() as u8)), wrap(Msg::AppsSuggestionsCommit)),
+                    f64::from(a.suggestions),
+                    |v| format!("{}", v.round() as u8),
+                    SliderLook::fixed(13.0, 220, Alignment::Center),
+                ),
             ),
             self.field(
                 "Catégories dans la grande feuille",

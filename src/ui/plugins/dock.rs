@@ -31,7 +31,7 @@ use crate::i18n::text;
 use iced::widget::{button, column, radio, row};
 use iced::{Alignment, Element, Length, Task};
 
-use super::super::panel::{PanelMsg, SliderSpec};
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg};
 use super::{PluginInfo, PluginMsg};
 use crate::config::{LauncherGroup, LauncherPosition, RunningApps};
@@ -280,8 +280,7 @@ impl App {
                     &size_spec(),
                     f64::from(l.size),
                     |v| format!("{} px", v.round() as u16),
-                    14.0,
-                    260,
+                    SliderLook::fixed(14.0, 260, Alignment::Start),
                 ),
             ),
             self.field(

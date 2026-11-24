@@ -28,7 +28,7 @@ use iced::{Alignment, Border, Color, Element, Length, Task, mouse};
 use crate::config::{BAR_COLOR_SLOTS, Rgba};
 use crate::ui::color_picker::{Picker, PickerMsg, well};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 
@@ -416,26 +416,24 @@ impl App {
                     self.field(
                         "Hauteur",
                         "",
-                        row![
-                            slider(24..=64u16, b.height.clamp(24, 64), |v| wrap(Msg::Height(v)))
-                                .on_release(wrap(Msg::Commit))
-                                .width(260),
-                            text(format!("{} px", b.height)).font(self.font).size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12),
+                        self.slider(
+                            &SliderSpec::new("bar_height", (24.0, 64.0), 1.0, |v| wrap(Msg::Height(v.round() as u16)), wrap(Msg::Commit)),
+                            f64::from(b.height.clamp(24, 64)),
+                            |v| format!("{} px", v.round() as u16),
+                            SliderLook::fixed(13.0, 260, Alignment::Start),
+                        ),
                     ),
                 )
                 .push(
                     self.field(
                         "Marge au bord de l'écran",
                         crate::i18n::tr("0 = collée au bord"),
-                        row![
-                            slider(0..=24u16, b.margin.min(24), |v| wrap(Msg::Margin(v)))
-                                .on_release(wrap(Msg::Commit))
-                                .width(260),
-                            text(format!("{} px", b.margin)).font(self.font).size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12),
+                        self.slider(
+                            &SliderSpec::new("bar_margin", (0.0, 24.0), 1.0, |v| wrap(Msg::Margin(v.round() as u16)), wrap(Msg::Commit)),
+                            f64::from(b.margin.min(24)),
+                            |v| format!("{} px", v.round() as u16),
+                            SliderLook::fixed(13.0, 260, Alignment::Start),
+                        ),
                     ),
                 )
                 .push(self.bar_shape_fields(b.shape, b.style))

@@ -18,9 +18,30 @@ use crate::i18n::text;
 use iced::widget::{Space, button, column, row, slider, toggler};
 use iced::{Alignment, Color, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg, SubTab};
+
+/// Valeur affichée du voile au survol du Panorama (HIG SEL-08) : aux bornes,
+/// le sens ; entre les deux, la part de voile gardée.
+fn affiche_voile(n: f64) -> String {
+    match n.round() as u8 {
+        0 => crate::i18n::tr("voile effacé").to_string(),
+        100 => crate::i18n::tr("voile inchangé").to_string(),
+        n => crate::tr!("{n} % du voile", n = n),
+    }
+}
+
+/// Valeur affichée du délai de la veille du Panorama (HIG SEL-08) : « jamais »
+/// ou « 5 min ».
+fn affiche_veille(v: f64) -> String {
+    let minutes = v.round() as u32;
+    if minutes == 0 {
+        crate::i18n::tr("jamais").to_string()
+    } else {
+        format!("{} min", minutes)
+    }
+}
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "panorama",
@@ -734,19 +755,12 @@ impl App {
             self.field(
                 "Souris sur le Panorama",
                 "",
-                row![
-                    slider(0..=100u8, v.hover, |n| wrap(Msg::DimHover(n)))
-                        .step(5u8)
-                        .on_release(wrap(Msg::DimCommit))
-                        .width(260),
-                    value(match v.hover {
-                        0 => crate::i18n::tr("voile effacé").to_string(),
-                        100 => crate::i18n::tr("voile inchangé").to_string(),
-                        n => crate::tr!("{n} % du voile", n = n),
-                    }),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
+                self.slider(
+                    &SliderSpec::new("panorama_dim_hover", (0.0, 100.0), 5.0, |n| wrap(Msg::DimHover(n.round() as u8)), wrap(Msg::DimCommit)),
+                    f64::from(v.hover),
+                    affiche_voile,
+                    SliderLook::fixed(14.0, 260, Alignment::Center),
+                ),
             ),
             text("Quand la souris passe sur le Panorama, le voile s'atténue pour qu'on retrouve les commandes ; il revient dès qu'elle part.")
                 .font(self.font)
@@ -776,25 +790,22 @@ impl App {
         let c = self.panorama_cfg();
         let mut col = column![].spacing(10);
         col = col.push(self.section("Veille"));
-        col = col.push(
-            self.field(
-                "Horloge après inactivité",
-                "panorama",
-                row![
-                    slider(0..=30u32, c.sleep_minutes, |v| wrap(Msg::Sleep(v)))
-                        .on_release(wrap(Msg::SleepCommit))
-                        .width(260),
-                    text(if c.sleep_minutes == 0 {
-                        crate::i18n::tr("jamais").to_string()
-                    } else {
-                        format!("{} min", c.sleep_minutes)
-                    })
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+        col = col.push(self.field(
+            "Horloge après inactivité",
+            "panorama",
+            self.slider(
+                &SliderSpec::new(
+                    "panorama_sleep",
+                    (0.0, 30.0),
+                    1.0,
+                    |v| wrap(Msg::Sleep(v.round() as u32)),
+                    wrap(Msg::SleepCommit),
+                ),
+                f64::from(c.sleep_minutes),
+                affiche_veille,
+                SliderLook::fixed(14.0, 260, Alignment::Start),
             ),
-        );
+        ));
         col = col.push(
             text("Rien ne joue et personne n'a touché l'écran : l'horloge s'affiche, jusqu'au prochain toucher.")
                 .font(self.font)

@@ -5,10 +5,10 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{column, radio, row, slider};
-use iced::{Color, Element, Task};
+use iced::widget::{column, radio, row};
+use iced::{Alignment, Color, Element, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::PluginMsg;
 use crate::config::Transition;
@@ -27,6 +27,18 @@ pub enum Msg {
     CommitFade,
     /// Idem, puis rejoue un fondu enchaîné de fond (aperçu).
     CommitCrossfade,
+}
+
+/// Le curseur « Durée » du fondu d'apparition, de 0 à 1000 ms par pas de 10 :
+/// sa valeur se saisit au clavier (HIG SEL-08).
+pub(in crate::ui) fn fade_spec() -> SliderSpec {
+    SliderSpec::new(
+        "fade_ms",
+        (0.0, 1000.0),
+        10.0,
+        |v| wrap(Msg::FadeMs(v.round() as u64)),
+        wrap(Msg::CommitFade),
+    )
 }
 
 impl App {
@@ -66,35 +78,29 @@ impl App {
             self.field(
                 "Durée",
                 "fade_ms",
-                row![
-                    slider(0..=1000u32, g.fade_ms.min(1000) as u32, |v| wrap(
-                        Msg::FadeMs(v as u64)
-                    ))
-                    .step(10u32)
-                    .on_release(wrap(Msg::CommitFade))
-                    .width(260),
-                    text(format!("{} ms", g.fade_ms))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+                self.slider(
+                    &fade_spec(),
+                    g.fade_ms.min(1000) as f64,
+                    |v| format!("{} ms", v.round() as u64),
+                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                ),
             ),
             self.section("Fonds d'écran"),
             self.field(
                 "Fondu entre deux fonds",
                 "crossfade_ms",
-                row![
-                    slider(0..=3000u32, g.crossfade_ms.min(3000) as u32, |v| wrap(
-                        Msg::CrossfadeMs(v as u64)
-                    ))
-                    .step(50u32)
-                    .on_release(wrap(Msg::CommitCrossfade))
-                    .width(260),
-                    text(format!("{} ms", g.crossfade_ms))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+                self.slider(
+                    &SliderSpec::new(
+                        "crossfade_ms",
+                        (0.0, 3000.0),
+                        50.0,
+                        |v| wrap(Msg::CrossfadeMs(v.round() as u64)),
+                        wrap(Msg::CommitCrossfade)
+                    ),
+                    g.crossfade_ms.min(3000) as f64,
+                    |v| format!("{} ms", v.round() as u64),
+                    SliderLook::fixed(14.0, 260, Alignment::Start),
+                ),
             ),
             text("Couleurs, opacité et flou de chaque endroit : paquet Thème.")
                 .font(self.font)
