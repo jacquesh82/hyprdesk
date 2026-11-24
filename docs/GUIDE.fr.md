@@ -689,7 +689,9 @@ Le **SmartUI design** redessine les icônes des applications dans un style
 cohérent. Les icônes validées forment le thème `hyprdesk-smartui` sous
 `~/.local/share/icons`, utilisé partout : bureau, dock, lanceur, barre et
 notifications. La génération automatique est active par défaut quand LYRA est
-installée.
+installée. Le style par défaut demande un carré plein cadre, sans coins
+arrondis, reflet ni ombre : hyprdesk y pose son masque unique, le même pour
+toutes les icônes d'application.
 
 ![Tiroir de LYRA : aperçu en direct et demande d'approbation d'une commande](../assets/screenshots/assistant-chat.png)
 

@@ -661,7 +661,9 @@ use in `~/.local/share/hyprdesk/voice` (~350 MB, no root); see
 **SmartUI design** redraws app icons in a consistent style. Approved icons form
 the `hyprdesk-smartui` icon theme under `~/.local/share/icons`, used across the
 desktop, dock, app launcher, bar, and notifications. Automatic generation is
-enabled by default when LYRA is installed.
+enabled by default when LYRA is installed. The default style asks for a
+full-bleed square, without rounded corners, highlights or shadows: hyprdesk
+applies its single mask, the same for every app icon.
 
 ![LYRA’s drawer showing a live preview and an approval prompt for a command](../assets/screenshots/assistant-chat.png)
 
