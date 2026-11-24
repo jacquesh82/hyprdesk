@@ -19,6 +19,7 @@
 | Date | Itération | Résultat |
 | --- | --- | --- |
 | 2026-11-23 | A1 | PAT-06, PAT-08, PAT-11, STA-01 traités ; il en reste 45 dans ce couloir |
+| 2026-11-24 | A2 | FON-01, FON-03 traités ; il en reste 43 dans ce couloir |
 | 2026-11-24 | A3 | ICO-07, LAY-04, SYS-14, ICO-03, SYS-05, SYS-18 traités ; il en reste 37 dans ce couloir |
 
 ### Couloir B
