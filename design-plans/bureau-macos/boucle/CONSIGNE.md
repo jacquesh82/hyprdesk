@@ -68,6 +68,7 @@ La règle complète est dans `.zcode/hig-boucle/prochain.py` (`--regles` l'affic
 - **Un lot** : un à trois écarts d'effort S, ou un écart M, ou une à deux étapes d'un écart L (section 6.4).
 - **Recouvrements** : plusieurs écarts peuvent décrire le même changement (par exemple `SEL-01` et `DAT-09`). Un seul changement ; toutes leurs lignes passent `fait` avec le même hash et un renvoi mutuel. Si l'un d'eux appartient à un autre couloir, c'est le couloir de l'écart traité qui corrige et écrit `sans objet : couvert par <ID>` sur la ligne de l'autre.
 - À 75 minutes, ne plus commencer d'écart ni d'étape.
+- **S'il reste 20 à 40 minutes et que le prochain écart est M ou L** : ne pas rester oisif. Écrire son plan d'implémentation (section 6.4), y compris la section « Étapes » pour un écart L, et le publier : c'est une étape à part entière. L'inscrire en remarque du registre (« plan écrit ») sans changer le statut, sauf pour un écart L, qui passe `en cours`.
 - **Économiser les tours et les sorties** : le budget de génération est la ressource rare et trois couloirs le partagent. Regrouper les commandes. Ne jamais afficher une sortie longue : la rediriger vers un fichier et n'en montrer que la queue ou les lignes d'erreur. Lire la seule ligne d'un écart (`grep -n '^| SYS-04 |' design-plans/bureau-macos/*.md`), jamais un document entier.
 
 ## 6. Traitement d'un écart
