@@ -1091,11 +1091,15 @@ impl App {
         ]
         .spacing(6)
         .align_y(Alignment::Center);
+        // Aperçus masqués (HIG SYS-05) : un texte générique au lieu du corps.
+        let masque = crate::design_options::flag(&self.cfg.general, "notifications.hide_previews");
         let mut items = column![].spacing(7);
         for n in self.toasts.history.iter().take(12) {
             let title = super::super::surface::truncate(&n.summary, 42);
             let detail = if n.body.is_empty() {
                 n.app.clone()
+            } else if masque {
+                crate::i18n::tr("Notification").to_string()
             } else {
                 super::super::surface::truncate(&n.body.replace('\n', " "), 74)
             };

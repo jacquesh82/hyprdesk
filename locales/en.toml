@@ -4777,6 +4777,8 @@
 "2..60 — durée d'affichage (s) sans délai demandé par l'application" = "2..60 — display time (s) when the app asks for none"
 "Empilement" = "Stacking"
 "down | up — sens d'empilement" = "down | up — stacking direction"
+"Masquer les aperçus" = "Hide previews"
+"on | off — le corps des notifications est remplacé par un texte générique" = "on | off — notification bodies are replaced with generic text"
 "Seuil d'alerte" = "Alert threshold"
 "0.5..1 — jauge au-delà de laquelle la mesure passe en alerte" = "0.5..1 — gauge level above which the reading turns to alert"
 "Jauges" = "Gauges"

@@ -201,12 +201,17 @@ pub(super) fn card_press(n: &Notification) -> Option<Msg> {
 }
 
 /// Titre et corps d'une carte de notification, bornés (HIG LAY-04) ; le corps
-/// est `None` quand il est vide.
-pub(super) fn card_text(n: &Notification) -> (String, Option<String>) {
-    let body = truncate(&n.body.replace('\n', " "), BODY_CHARS);
+/// est `None` quand il est vide, un texte générique quand les aperçus sont
+/// masqués (HIG SYS-05).
+pub(super) fn card_text(n: &Notification, hide: bool) -> (String, Option<String>) {
+    let body = if hide {
+        crate::i18n::tr("Notification").to_string()
+    } else {
+        truncate(&n.body.replace('\n', " "), BODY_CHARS)
+    };
     (
         truncate(&n.summary, TITLE_CHARS),
-        (!body.is_empty()).then_some(body),
+        (!n.body.is_empty()).then_some(body),
     )
 }
 
@@ -737,8 +742,15 @@ impl App {
         .spacing(4)
         .width(Length::Fill);
         if !t.n.body.is_empty() {
-            // Deux lignes au plus (la carte a une hauteur fixe).
-            let body: String = t.n.body.lines().take(2).collect::<Vec<_>>().join("\n");
+            // Deux lignes au plus (la carte a une hauteur fixe) ; rien du corps
+            // quand les aperçus sont masqués (HIG SYS-05).
+            let hide =
+                crate::design_options::flag(&self.cfg.general, "notifications.hide_previews");
+            let body: String = if hide {
+                crate::i18n::tr("Notification").to_string()
+            } else {
+                t.n.body.lines().take(2).collect::<Vec<_>>().join("\n")
+            };
             col = col.push(
                 text(body)
                     .font(self.font)
@@ -829,8 +841,10 @@ impl App {
                     .color(fg),
             );
         }
+        // Aperçus masqués (HIG SYS-05) : un texte générique au lieu du corps.
+        let hide = crate::design_options::flag(&self.cfg.general, "notifications.hide_previews");
         for n in self.toasts.history.iter().take(30) {
-            let (title, body) = card_text(n);
+            let (title, body) = card_text(n, hide);
             let card: Element<'_, Msg> = row![
                 self.notif_icon(n, CARD_ICON, fg),
                 column![
@@ -1097,14 +1111,21 @@ mod tests {
         let longue = "é".repeat(100);
         let corps = format!("{}\n{longue}", "b".repeat(30));
         let n = crate::notifications::build(1, "a", "i", &longue, &corps, &[], &HashMap::new(), -1);
-        let (titre, corps) = card_text(&n);
+        let (titre, corps) = card_text(&n, false);
         assert_eq!(titre.chars().count(), TITLE_CHARS + 1);
         assert!(titre.ends_with('…'));
         let corps = corps.expect("un corps");
         assert_eq!(corps.chars().count(), BODY_CHARS + 1);
         assert!(!corps.contains('\n') && corps.ends_with('…'));
         let vide = crate::notifications::build(2, "a", "i", "t", "", &[], &HashMap::new(), -1);
-        assert_eq!(card_text(&vide), ("t".to_string(), None));
+        assert_eq!(card_text(&vide, false), ("t".to_string(), None));
+
+        // Aperçus masqués (HIG SYS-05) : le titre reste, le corps devient
+        // générique ; rien à masquer dans un corps vide.
+        let (titre, corps) = card_text(&n, true);
+        assert_eq!(titre.chars().count(), TITLE_CHARS + 1);
+        assert_eq!(corps.as_deref(), Some(crate::i18n::tr("Notification")));
+        assert_eq!(card_text(&vide, true), ("t".to_string(), None));
     }
 
     #[test]

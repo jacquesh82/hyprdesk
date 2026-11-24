@@ -1695,9 +1695,10 @@ impl App {
                     .color(dim),
             );
         }
+        let hide = crate::design_options::flag(&self.cfg.general, "notifications.hide_previews");
         for n in history.iter().take(30) {
-            // Titre et corps bornés, comme dans les autres centres (HIG LAY-04).
-            let (title, body) = crate::ui::toasts::card_text(n);
+            // Titre et corps bornés (HIG LAY-04), masqués sur réglage (HIG SYS-05).
+            let (title, body) = crate::ui::toasts::card_text(n, hide);
             let mut card = column![
                 text(n.app.clone()).size(size * 0.75).font(font).color(dim),
                 text(title)

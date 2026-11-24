@@ -185,6 +185,14 @@ pub static OPTIONS: &[Opt] = &[
         "Empilement",
         "down | up — sens d'empilement",
     ),
+    opt(
+        "notifications",
+        "hide_previews",
+        Kind::Bool,
+        Def::Bool(false),
+        "Masquer les aperçus",
+        "on | off — le corps des notifications est remplacé par un texte générique",
+    ),
     // Monitoring.
     opt(
         "monitoring",
