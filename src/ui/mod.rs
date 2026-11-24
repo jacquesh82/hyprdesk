@@ -2675,6 +2675,11 @@ impl App {
 
     fn close_panel(&mut self) -> Task<Msg> {
         self.bar_drag = None;
+        // La valeur d'un curseur en cours de saisie se referme avec le tiroir
+        // (HIG SEL-08).
+        if let Some(p) = self.panel.as_mut() {
+            p.slider = None;
+        }
         // Visite en cours : sa fenêtre part avec le tiroir (elle reste à voir).
         if let Some(w) = self.tour_win.take() {
             if let Some(p) = self.panel.as_mut() {
@@ -5494,6 +5499,11 @@ impl App {
                     if self.popover.is_some() {
                         self.menu_request += 1;
                         return self.close_popover();
+                    }
+                    // La valeur d'un curseur se saisit (HIG SEL-08) : Échap
+                    // referme son champ avant le tiroir.
+                    if self.panel.as_ref().is_some_and(|p| p.slider.is_some()) {
+                        return self.panel_update(PanelMsg::SliderClose);
                     }
                     if self.panel.is_some() {
                         return self.close_panel();

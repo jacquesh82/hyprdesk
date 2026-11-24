@@ -299,7 +299,9 @@ and disabled bindings are kept. A hand-written file is copied
   button on the right erases it and returns to the field. The launcher
   finds them too: `:r opacity` (or `:reglages opacity`) lists the matching
   pages, tabs and labels; Enter or a click closes the launcher and opens
-  the drawer on the package, the words highlighted.
+  the drawer on the package, the words highlighted. A slider value can be
+  typed too: a click on it opens a field; Enter sets and saves it, Escape
+  closes it.
 - **Make the desktop yours.** Set wallpapers and slideshows per screen or
   workspace, add app and file shortcuts, and build a theme from an image.
   Drag modules to rearrange the bar, or use the dock to group windows by

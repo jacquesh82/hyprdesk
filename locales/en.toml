@@ -2673,6 +2673,9 @@
 "couleurs de {m} : table d'origine rendue" = "colours of {m}: original table restored"
 "  color-test        mire plein écran des couleurs sur tous les écrans (ouvre ou ferme)" = "  color-test        full-screen colour test pattern on every screen (open or close)"
 
+# Réglages : valeur d'un curseur saisie au clavier.
+"Saisir une valeur" = "Enter a value"
+
 # Recherche dans les Réglages.
 "Aucun réglage ne correspond à « {q} »." = "No setting matches “{q}”."
 "Rechercher un réglage…" = "Search a setting…"

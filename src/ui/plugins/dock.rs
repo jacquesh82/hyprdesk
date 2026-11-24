@@ -31,7 +31,7 @@ use crate::i18n::text;
 use iced::widget::{button, column, radio, row};
 use iced::{Alignment, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderSpec};
 use super::super::{App, Msg as UiMsg};
 use super::{PluginInfo, PluginMsg};
 use crate::config::{LauncherGroup, LauncherPosition, RunningApps};
@@ -43,6 +43,18 @@ pub const INFO: PluginInfo = PluginInfo {
     summary: "Dock du bureau : fenêtres ouvertes, applications épinglées, style.",
     builtin: true,
 };
+
+/// Le curseur « Taille des icônes », de 24 à 96 px : sa valeur se saisit au
+/// clavier, de 1 px en 1 px (HIG SEL-08).
+pub(in crate::ui) fn size_spec() -> SliderSpec {
+    SliderSpec {
+        key: "launcher_size",
+        range: (24.0, 96.0),
+        step: 1.0,
+        pose: |v| wrap(Msg::Size(v.round() as u16)),
+        save: wrap(Msg::SizeCommit),
+    }
+}
 
 /// Onglets du paquet.
 pub const TABS: &[super::SubTab] = &[
@@ -264,15 +276,13 @@ impl App {
             self.field(
                 "Taille des icônes",
                 "launcher_size",
-                row![
-                    iced::widget::slider(24..=96u16, l.size, |v| wrap(Msg::Size(v)))
-                        .on_release(wrap(Msg::SizeCommit))
-                        .width(260),
-                    text(format!("{} px", l.size))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+                self.slider(
+                    &size_spec(),
+                    f64::from(l.size),
+                    |v| format!("{} px", v.round() as u16),
+                    14.0,
+                    260,
+                ),
             ),
             self.field(
                 "Boutons",

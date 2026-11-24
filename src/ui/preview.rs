@@ -1,4 +1,5 @@
 //! Aperçu interactif isolé : mêmes vues, données locales, aucun IPC ni lancement.
+use super::panel::SliderEdit;
 use super::plugins::{PluginMsg, desktop, icons};
 use super::*;
 use crate::config::{Anchor, BarDef, BarItem, BarPosition, Origin, Selector, WidgetDef};
@@ -24,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 169] = [
+const SCENES: [&str; 170] = [
     "desktop",
     "typography",
     "icons",
@@ -194,6 +195,7 @@ const SCENES: [&str; 169] = [
     "bar-notifications",
     "bar-unread",
     "bar-island-unread",
+    "reglages-valeur-saisie",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -860,6 +862,7 @@ impl Preview {
             "ia-services" | "smartui" => Some("assistant"),
             "a-propos" => Some("about"),
             "raccourcis" | "raccourcis-essentiels" => Some("keys"),
+            "reglages-valeur-saisie" => Some("dock"),
             "bar-graphite-edit" => Some("bar"),
             _ => None,
         });
@@ -1427,6 +1430,17 @@ impl Preview {
                 .panel_update(PanelMsg::Plugin(PluginMsg::Icons(icons::Msg::Themes(
                     launch::icon_themes(),
                 ))));
+            // Valeur d'un curseur saisie (HIG SEL-08) : « Taille des icônes »,
+            // Dock → Apparence ; l'aperçu ne peut pas cliquer la valeur.
+            if SCENES[self.scene] == "reglages-valeur-saisie"
+                && let Some(p) = self.app.panel.as_mut()
+            {
+                self.app.subtabs.insert("dock", "apparence");
+                p.slider = Some(SliderEdit::new(
+                    plugins::dock::size_spec(),
+                    f64::from(self.app.cfg.general.launcher.size),
+                ));
+            }
         }
         // Clavier et souris : la configuration de l'utilisateur (l'aperçu ne
         // lit pas Hyprland) et les dispositions de xkeyboard-config.

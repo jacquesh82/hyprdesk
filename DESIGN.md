@@ -25,6 +25,7 @@ Le bureau est un espace calme, avec des contrôles immédiatement reconnaissable
 
 - Bulles de notification : une action destructive — clé préfixée `destructive:`, convention de hyprdesk, la spécification freedesktop n'en définit pas — prend le ton « danger » pour son libellé et son icône (`toasts::action_tone`), comme une entrée de menu destructive ; les autres actions gardent la teinte du texte. Fermeture et actions sont des cibles de 28 px (`toasts::BUTTON_TARGET`), la cible par défaut de la HIG pour l'accessibilité.
 
+- Curseurs des Réglages : la valeur d'un curseur se saisit — un clic sur elle ouvre un champ, Entrée valide (bornée au domaine du curseur, ramenée à son pas), Échap referme sans rien changer ; un seul champ à la fois, refermé en changeant de page. Au repos, rien ne change : le curseur, puis sa valeur en texte plein. Pas de stepper, le curseur avance par son pas. Composant partagé : `App::slider` (`src/ui/panel.rs`).
 - Historique des notifications : groupé par application (`toasts::app_groups`) — une boîte par application, son nom en en-tête (11 px, couleur secondaire), les plus récentes en haut, dans chaque boîte comme entre elles. La boîte porte le seul cadre : les cartes n'en ont pas. Un seul découpage pour la carte Notifications de la barre, la carte « Notifications » du centre Continuité et le volet de Panorama ; le nom de l'application n'est plus répété dans chaque carte.
 
 ## Vérification visuelle

@@ -304,7 +304,8 @@ application : `hyprdesk binds generate --write`.
   main au champ. Le lanceur les trouve aussi : `:r opacité` (ou `:reglages
   opacité`) liste les pages, onglets et libellés qui correspondent ; Entrée
   ou un clic referme le lanceur et ouvre le tiroir sur le paquet, les mots
-  cherchés surlignés.
+  cherchés surlignés. La valeur d'un curseur se saisit aussi : un clic sur
+  elle ouvre un champ ; Entrée la pose et l'enregistre, Échap le referme.
 - **Faites le bureau vôtre.** Fonds d'écran et diaporamas par écran ou par
   workspace, raccourcis d'applications et de fichiers, thème tiré d'une
   image. Les modules de la barre se réorganisent au glisser, le dock

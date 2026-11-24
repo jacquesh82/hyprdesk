@@ -27,6 +27,14 @@ pub type Tab = &'static str;
 /// un effacement.
 const SEARCH_ID: &str = "hyprdesk-panel-search";
 
+/// Identifiant du champ de la valeur d'un curseur (HIG SEL-08) : un seul
+/// champ à la fois, il prend le focus à l'ouverture.
+const SLIDER_ID: &str = "hyprdesk-panel-slider";
+
+/// Largeur du champ de la valeur d'un curseur : le nombre, aligné à droite
+/// (HIG SEL-08).
+const SLIDER_FIELD_W: f32 = 72.0;
+
 /// Messages du tiroir : ceux de la coquille, et ceux des paquets (enveloppés).
 #[derive(Debug, Clone)]
 pub enum PanelMsg {
@@ -43,6 +51,14 @@ pub enum PanelMsg {
     Close,
     /// Fin d'un glissé de curseur : on enregistre.
     Commit,
+    /// La valeur d'un curseur devient un champ, qui prend le focus (HIG SEL-08).
+    SliderEdit(Box<SliderEdit>),
+    /// Saisie en cours dans le champ de la valeur d'un curseur.
+    SliderDraft(String),
+    /// Entrée dans le champ : la valeur lue est posée, puis enregistrée.
+    SliderSubmit,
+    /// Le champ de la valeur se referme sans rien changer (Échap, autre page).
+    SliderClose,
     /// Message d'un paquet de réglages.
     Plugin(PluginMsg),
     /// Recherche d'un réglage (texte tapé).
@@ -110,6 +126,90 @@ pub struct Panel {
     pub defaults_ask: Option<Tab>,
     /// Résultat de la dernière remise par défaut d'une page.
     pub defaults_done: Option<(Tab, Result<String, String>)>,
+    /// Valeur d'un curseur en cours de saisie (HIG SEL-08) : un seul à la fois,
+    /// le champ se referme en changeant de page.
+    pub slider: Option<SliderEdit>,
+}
+
+/// Curseur des Réglages dont la valeur se saisit au clavier (HIG SEL-08) :
+/// ce qu'il faut pour poser la valeur tapée comme un glissé puis son
+/// relâchement. Un par site d'[`App::slider`].
+#[derive(Debug, Clone)]
+pub struct SliderSpec {
+    /// Clé du curseur : le champ ouvert est celui-là seul.
+    pub(in crate::ui) key: &'static str,
+    /// Domaine du curseur (bornes) et pas de son incrément.
+    pub(in crate::ui) range: (f64, f64),
+    pub(in crate::ui) step: f64,
+    /// Pose la valeur, comme pendant un glissé.
+    pub(in crate::ui) pose: fn(f64) -> Msg,
+    /// Enregistre, comme au relâchement.
+    pub(in crate::ui) save: Msg,
+}
+
+/// Champ de la valeur d'un curseur, ouvert (HIG SEL-08) : un seul à la fois,
+/// refermé en changeant de page.
+#[derive(Debug, Clone)]
+pub struct SliderEdit {
+    /// Le curseur saisi.
+    pub(in crate::ui) spec: SliderSpec,
+    /// Saisie en cours.
+    draft: String,
+}
+
+impl SliderEdit {
+    /// Champ ouvert sur la valeur actuelle du curseur : le nombre seul.
+    pub(in crate::ui) fn new(spec: SliderSpec, value: f64) -> Self {
+        SliderEdit {
+            spec,
+            draft: nombre(value),
+        }
+    }
+}
+
+/// Valeur tapée pour un curseur (HIG SEL-08) : point ou virgule décimaux,
+/// l'unité qui suit le nombre est ignorée (`72 px`). La valeur est bornée au
+/// domaine, ramenée au pas. Texte illisible : `None`.
+fn slider_value(saisie: &str, range: (f64, f64), step: f64) -> Option<f64> {
+    let (min, max) = (range.0.min(range.1), range.0.max(range.1));
+    // Le nombre en tête de la saisie : signe, chiffres, décimales.
+    let mut nombre = String::new();
+    let mut digits = 0;
+    for (i, c) in saisie.trim().replace(',', ".").char_indices() {
+        match c {
+            '0'..='9' => {
+                digits += 1;
+                nombre.push(c);
+            }
+            '+' | '-' if i == 0 => nombre.push(c),
+            '.' if !nombre.contains('.') => nombre.push(c),
+            _ => break,
+        }
+    }
+    if digits == 0 {
+        return None;
+    }
+    let v: f64 = nombre.parse().ok()?;
+    let step = if step.is_finite() && step > 0.0 {
+        step
+    } else {
+        1.0
+    };
+    // Six décimales au plus : pas de bruit d'addition flottante.
+    let snapped = min + ((v.clamp(min, max) - min) / step).round() * step;
+    Some((snapped * 1e6).round() / 1e6)
+}
+
+/// Nombre seul, sans zéro de fin (`48`, `1.5`) : la saisie proposée à
+/// l'ouverture du champ de la valeur d'un curseur (HIG SEL-08).
+fn nombre(v: f64) -> String {
+    let s = format!("{v:.6}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    match s {
+        "" | "-0" => "0",
+        _ => s,
+    }
+    .to_string()
 }
 
 /// Couleurs proposées (palette Dracula PRO), partagées par les paquets.
@@ -180,6 +280,7 @@ impl Panel {
             about: Default::default(),
             defaults_ask: None,
             defaults_done: None,
+            slider: None,
         }
     }
 
@@ -199,7 +300,17 @@ impl App {
         };
         self.panel_tab = tab;
         panel.tab = tab;
+        // Autre page : la valeur d'un curseur en cours de saisie se referme.
+        panel.slider = None;
         plugins::on_show(self, tab)
+    }
+
+    /// Referme la valeur d'un curseur en cours de saisie (HIG SEL-08) : la
+    /// page qui la portait change ou disparaît.
+    fn slider_close(&mut self) {
+        if let Some(p) = self.panel.as_mut() {
+            p.slider = None;
+        }
     }
 
     /// Paquet où le tiroir rouvre : le dernier consulté, s'il est encore
@@ -487,6 +598,7 @@ impl App {
             PanelMsg::Tab(t) => self.panel_show(t),
             PanelMsg::SubTab(pkg, tab) => {
                 self.subtabs.insert(pkg, tab);
+                self.slider_close();
                 Task::none()
             }
             PanelMsg::Search(q) => {
@@ -494,6 +606,8 @@ impl App {
                     p.search_list = !q.trim().is_empty();
                     p.search = q;
                 }
+                // La page cède la place aux résultats dès que la requête est écrite.
+                self.slider_close();
                 Task::none()
             }
             PanelMsg::SearchOpen(pkg, tab) => {
@@ -509,6 +623,7 @@ impl App {
                 if let Some(p) = self.panel.as_mut() {
                     p.search_list = !p.search.trim().is_empty();
                 }
+                self.slider_close();
                 Task::none()
             }
             PanelMsg::SearchClear => {
@@ -531,17 +646,56 @@ impl App {
                     self.panel_tab = plugins::desktop::INFO.id;
                     p.tab = plugins::desktop::INFO.id;
                 }
+                self.slider_close();
                 self.commit()
             }
             PanelMsg::AdvToggle(key) => {
-                // Dépliée : on la replie ; repliée : on la déplie.
+                // Dépliée : on la replie ; repliée : on la déplie. Le champ
+                // d'un curseur qu'elle porte se referme avec elle.
                 if !self.adv_open.remove(&key) {
                     self.adv_open.insert(key);
                 }
+                self.slider_close();
                 Task::none()
             }
             PanelMsg::Close => self.close_panel(),
             PanelMsg::Commit => self.commit(),
+            PanelMsg::SliderEdit(edit) => {
+                // Un seul champ ouvert à la fois.
+                self.slider_close();
+                let Some(p) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                p.slider = Some(*edit);
+                // Le champ prend le focus, son nombre sélectionné : la
+                // saisie le remplace.
+                use iced::widget::operation;
+                operation::focus(SLIDER_ID).chain(operation::select_all(SLIDER_ID))
+            }
+            PanelMsg::SliderDraft(s) => {
+                if let Some(e) = self.panel.as_mut().and_then(|p| p.slider.as_mut()) {
+                    e.draft = s;
+                }
+                Task::none()
+            }
+            PanelMsg::SliderSubmit => {
+                let Some(e) = self.panel.as_ref().and_then(|p| p.slider.clone()) else {
+                    return Task::none();
+                };
+                // Illisible : rien, le champ garde la saisie.
+                let Some(v) = slider_value(&e.draft, e.spec.range, e.spec.step) else {
+                    return Task::none();
+                };
+                self.slider_close();
+                // Comme un glissé puis son relâchement : la valeur est posée,
+                // puis enregistrée.
+                let save = e.spec.save;
+                self.update_inner((e.spec.pose)(v)).chain(Task::done(save))
+            }
+            PanelMsg::SliderClose => {
+                self.slider_close();
+                Task::none()
+            }
             PanelMsg::Plugin(m) => plugins::update(self, m),
             PanelMsg::Defaults(tab) => {
                 let Some(p) = self.panel.as_mut() else {
@@ -1229,6 +1383,70 @@ impl App {
         column![head, control].spacing(6).into()
     }
 
+    /// Curseur d'un réglage et sa valeur, saisissable au clavier (HIG SEL-08).
+    /// Au repos : le curseur, puis sa valeur en texte plein ; un clic sur la
+    /// valeur ouvre un champ. Entrée pose la valeur (`poser`), puis
+    /// l'enregistre (`enregistrer`), comme un glissé puis son relâchement ;
+    /// Échap referme le champ sans rien changer. Le composant parle en `f64`
+    /// (domaine, pas, valeur) : à chaque site de convertir dans `poser`.
+    pub(in crate::ui) fn slider<'a>(
+        &self,
+        spec: &SliderSpec,
+        value: f64,
+        affiche: fn(f64) -> String,
+        size: f32,
+        width: impl Into<Length>,
+    ) -> Element<'a, Msg> {
+        let (min, max) = spec.range;
+        let pose = spec.pose;
+        let slider = iced::widget::slider(min as f32..=max as f32, value as f32, move |v| {
+            pose(f64::from(v))
+        })
+        .step(spec.step as f32)
+        .on_release(spec.save.clone())
+        .width(width);
+        let open = self
+            .panel
+            .as_ref()
+            .and_then(|p| p.slider.as_ref())
+            .filter(|e| e.spec.key == spec.key);
+        let value: Element<'a, Msg> = match open {
+            // La saisie : le nombre seul, aligné à droite, dans le champ de
+            // recherche du tiroir.
+            Some(e) => iced::widget::text_input("", &e.draft)
+                .id(SLIDER_ID)
+                .on_input(|s| Msg::Panel(PanelMsg::SliderDraft(s)))
+                .on_submit(Msg::Panel(PanelMsg::SliderSubmit))
+                .align_x(iced::alignment::Horizontal::Right)
+                // Bas, comme un champ de la HIG : la rangée grandit à peine.
+                .padding(iced::Padding::from([1, 8]))
+                .font(self.font)
+                .size(crate::ui::tokens::ts(size))
+                .width(SLIDER_FIELD_W)
+                .into(),
+            None => tooltip(
+                button(
+                    text(affiche(value))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(size)),
+                )
+                // Un texte plein, sans la marge d'un bouton : au repos, la
+                // valeur garde la place et la taille qu'elle avait.
+                .padding(0)
+                .style(button::text)
+                .on_press(Msg::Panel(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+                    spec.clone(),
+                    value,
+                ))))),
+                crate::i18n::text(crate::i18n::tr("Saisir une valeur")).font(self.font),
+                // La bulle s'ouvre dessous, sans couvrir le libellé du réglage.
+                iced::widget::tooltip::Position::Bottom,
+            )
+            .into(),
+        };
+        row![slider, value].spacing(12).into()
+    }
+
     /// Couleurs de texte lisibles du tiroir (WCAG AA sur son fond) : texte,
     /// texte secondaire (aides, comptes, états) et accent utilisé en texte.
     pub(in crate::ui) fn ink(&self) -> Ink {
@@ -1638,5 +1856,100 @@ mod tests {
             Some(plugins::desktop::INFO.id),
             "paquet devenu invisible : le Bureau"
         );
+    }
+
+    /// La valeur tapée pour un curseur (HIG SEL-08) : lue avec une virgule
+    /// décimale ou une unité, bornée au domaine, ramenée au pas ; illisible,
+    /// refusée.
+    #[test]
+    fn la_valeur_tapee_est_bornee_au_domaine_et_ramenee_au_pas() {
+        let taille = (24.0, 96.0);
+        assert_eq!(slider_value("72", taille, 1.0), Some(72.0));
+        assert_eq!(
+            slider_value(" 72 px ", taille, 1.0),
+            Some(72.0),
+            "l'unité est ignorée"
+        );
+        assert_eq!(
+            slider_value("1", taille, 1.0),
+            Some(24.0),
+            "bornée au domaine"
+        );
+        assert_eq!(
+            slider_value("500", taille, 1.0),
+            Some(96.0),
+            "bornée au domaine"
+        );
+        assert_eq!(
+            slider_value("72,6", taille, 1.0),
+            Some(73.0),
+            "ramenée au pas"
+        );
+        assert_eq!(slider_value("+0,50", (-1.0, 1.0), 0.05), Some(0.5));
+        assert_eq!(slider_value("1500 Hz", (150.0, 1000.0), 10.0), Some(1000.0));
+        assert_eq!(slider_value("0.37", (0.0, 1.0), 0.05), Some(0.35));
+        for illisible in ["", "  ", "px", "-", "+.", "abc", "."] {
+            assert_eq!(slider_value(illisible, taille, 1.0), None, "{illisible:?}");
+        }
+    }
+
+    /// Le champ de la valeur d'un curseur (HIG SEL-08) : un seul à la fois ;
+    /// Entrée le referme, un texte illisible le garde avec sa saisie ; Échap
+    /// et le changement de page le referment.
+    #[test]
+    fn le_champ_de_la_valeur_dun_curseur_se_referme() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.open_panel();
+        let saisie = |app: &App| {
+            app.panel
+                .as_ref()
+                .and_then(|p| p.slider.as_ref())
+                .map(|e| e.draft.clone())
+        };
+        let ouvrir = |app: &mut App, taille: u16| {
+            let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+                plugins::dock::size_spec(),
+                f64::from(taille),
+            ))));
+        };
+        ouvrir(&mut app, 48);
+        assert_eq!(saisie(&app).as_deref(), Some("48"), "le nombre seul");
+        let _ = app.panel_update(PanelMsg::SliderDraft("72 px".into()));
+        assert_eq!(saisie(&app).as_deref(), Some("72 px"));
+        // Texte illisible : le champ garde la saisie.
+        let _ = app.panel_update(PanelMsg::SliderDraft("px".into()));
+        let _ = app.panel_update(PanelMsg::SliderSubmit);
+        assert_eq!(saisie(&app).as_deref(), Some("px"));
+        // Un second champ ouvert remplace le premier : un seul à la fois.
+        ouvrir(&mut app, 60);
+        assert_eq!(saisie(&app).as_deref(), Some("60"));
+        let _ = app.panel_update(PanelMsg::SliderClose);
+        assert_eq!(saisie(&app), None, "Échap referme");
+        ouvrir(&mut app, 48);
+        let _ = app.panel_update(PanelMsg::Tab("bar"));
+        assert_eq!(saisie(&app), None, "changer de paquet referme");
+        // Entrée valide : la valeur est posée comme un glissé, l'unité tapée
+        // est ignorée.
+        ouvrir(&mut app, 48);
+        let _ = app.panel_update(PanelMsg::SliderDraft("72 px".into()));
+        let _ = app.panel_update(PanelMsg::SliderSubmit);
+        assert_eq!(saisie(&app), None, "Entrée valide referme");
+        assert_eq!(
+            app.settings.launcher_size,
+            Some(72),
+            "Entrée pose la valeur"
+        );
+        assert_eq!(app.cfg.general.launcher.size, 72, "le dock la suit");
+        // Hors domaine : bornée.
+        ouvrir(&mut app, 72);
+        let _ = app.panel_update(PanelMsg::SliderDraft("500".into()));
+        let _ = app.panel_update(PanelMsg::SliderSubmit);
+        assert_eq!(app.settings.launcher_size, Some(96), "bornée au domaine");
     }
 }
