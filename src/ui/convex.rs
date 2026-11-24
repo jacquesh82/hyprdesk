@@ -353,9 +353,16 @@ impl App {
                             .size(crate::ui::tokens::ts(16.0))
                             .color(fg)
                             .width(Length::Fill),
-                        button(text("×").color(fg))
-                            .on_press(Msg::ConvexClose(close, part))
-                            .style(iced::widget::button::text)
+                        button(
+                            crate::ui::icons::glyph(
+                                "window-close",
+                                crate::ui::tokens::ts(16.0),
+                                fg,
+                            )
+                            .expect("glyphe de fermeture"),
+                        )
+                        .on_press(Msg::ConvexClose(close, part))
+                        .style(iced::widget::button::text)
                     ]
                     .align_y(Alignment::Center);
                     let body = if part == Part::Left {

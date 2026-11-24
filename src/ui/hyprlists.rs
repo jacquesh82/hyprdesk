@@ -426,10 +426,14 @@ impl App {
                 );
         }
         head = head.push(
-            button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
-                .padding([2, 10])
-                .style(button::text)
-                .on_press(wrap(Msg::SpecDel(list, i))),
+            // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07).
+            button(
+                crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(14.0), self.ink().fg)
+                    .expect("glyphe de fermeture"),
+            )
+            .padding([2, 10])
+            .style(button::text)
+            .on_press(wrap(Msg::SpecDel(list, i))),
         );
         let mut card = column![head].spacing(6);
         if let Some(e) = head_extra {
@@ -972,10 +976,18 @@ impl App {
                     )
                     .font(self.font)
                     .width(140),
-                    button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
-                        .padding([2, 10])
-                        .style(button::text)
-                        .on_press(wrap(Msg::Perm(i, None, true))),
+                    // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07).
+                    button(
+                        crate::ui::icons::glyph(
+                            "window-close",
+                            crate::ui::tokens::ts(14.0),
+                            self.ink().fg,
+                        )
+                        .expect("glyphe de fermeture"),
+                    )
+                    .padding([2, 10])
+                    .style(button::text)
+                    .on_press(wrap(Msg::Perm(i, None, true))),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),

@@ -736,7 +736,19 @@ impl App {
                     r = r.push(small("→", wrap(Msg::Zone(z, i, 1))));
                 }
                 if draggable {
-                    r = r.push(small("×", wrap(Msg::Remove(z, i))));
+                    // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07).
+                    r = r.push(
+                        button(
+                            crate::ui::icons::glyph(
+                                "window-close",
+                                crate::ui::tokens::ts(12.0),
+                                self.ink().fg,
+                            )
+                            .expect("glyphe de fermeture"),
+                        )
+                        .padding([4, 8])
+                        .on_press(wrap(Msg::Remove(z, i))),
+                    );
                 }
                 group = group.push(marker(i));
                 let item = container(r)

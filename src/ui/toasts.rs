@@ -666,10 +666,9 @@ impl App {
             )
             .push(
                 button(
-                    text("✕")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                        .color(dim),
+                    // Fermeture : le glyphe du jeu, comme les menus (HIG ICO-07).
+                    crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(14.0), dim)
+                        .expect("glyphe de fermeture"),
                 )
                 .padding([0, 6])
                 .style(button::text)

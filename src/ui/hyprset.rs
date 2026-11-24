@@ -628,10 +628,18 @@ impl App {
                         .font(self.font)
                         .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
-                    button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
-                        .padding([2, 10])
-                        .style(button::text)
-                        .on_press(wrap(Msg::Env(i, None))),
+                    // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07).
+                    button(
+                        crate::ui::icons::glyph(
+                            "window-close",
+                            crate::ui::tokens::ts(14.0),
+                            self.ink().fg,
+                        )
+                        .expect("glyphe de fermeture"),
+                    )
+                    .padding([2, 10])
+                    .style(button::text)
+                    .on_press(wrap(Msg::Env(i, None))),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),

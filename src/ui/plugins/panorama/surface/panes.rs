@@ -1437,27 +1437,31 @@ impl App {
         } else {
             !self.panorama.media.as_ref().is_some_and(|m| m.playing)
         };
-        let btn = |label: &'static str, msg: Msg| {
+        // Lecture, pause et fermeture : les glyphes du jeu (HIG ICO-07).
+        let btn = |name: &'static str, msg: Msg| {
             self.panorama_feedback(
-                button(text(label).size(crate::ui::tokens::ts(16.0)).color(fg))
-                    .padding([4, 12])
-                    .on_press(msg)
-                    .style(move |_, st| button::Style {
-                        background: Some(
-                            fx::alpha(
-                                accent,
-                                if matches!(st, button::Status::Pressed) {
-                                    0.6
-                                } else {
-                                    0.25
-                                },
-                            )
-                            .into(),
-                        ),
-                        border: Border::default().rounded(12),
-                        text_color: fg,
-                        ..Default::default()
-                    }),
+                button(
+                    crate::ui::icons::glyph(name, crate::ui::tokens::ts(16.0), fg)
+                        .expect("glyphe du jeu"),
+                )
+                .padding([6, 12])
+                .on_press(msg)
+                .style(move |_, st| button::Style {
+                    background: Some(
+                        fx::alpha(
+                            accent,
+                            if matches!(st, button::Status::Pressed) {
+                                0.6
+                            } else {
+                                0.25
+                            },
+                        )
+                        .into(),
+                    ),
+                    border: Border::default().rounded(12),
+                    text_color: fg,
+                    ..Default::default()
+                }),
             )
         };
         let pill = container(
@@ -1465,8 +1469,15 @@ impl App {
                 text(format!("♪ {name}"))
                     .size(crate::ui::tokens::ts(14.0))
                     .color(fg),
-                btn(if paused { "▶" } else { "⏸" }, wrap(PMsg::NowPlayingToggle)),
-                btn("✕", wrap(PMsg::VideoClose)),
+                btn(
+                    if paused {
+                        "media-playback-start"
+                    } else {
+                        "media-playback-pause"
+                    },
+                    wrap(PMsg::NowPlayingToggle),
+                ),
+                btn("window-close", wrap(PMsg::VideoClose)),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -1664,10 +1675,15 @@ impl App {
         }
         head = head.push(
             self.panorama_feedback(
-                button(text("✕").size(crate::ui::tokens::ts(size)).color(fg))
-                    .padding([5, 12])
-                    .on_press(wrap(PMsg::Notifs(None)))
-                    .style(pill),
+                // Fermeture : le glyphe du jeu (HIG ICO-07). Le remplissage garde à la
+                // pastille la hauteur de ses voisines de texte (interligne 1,3).
+                button(
+                    crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(size + 2.0), fg)
+                        .expect("glyphe de fermeture"),
+                )
+                .padding([0.15 * crate::ui::tokens::ts(size) + 4.0, 12.0])
+                .on_press(wrap(PMsg::Notifs(None)))
+                .style(pill),
             ),
         );
         let mut list = column![].spacing(size * 0.7);

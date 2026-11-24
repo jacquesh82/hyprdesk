@@ -337,6 +337,26 @@ pub fn get(name: &str) -> Option<svg::Handle> {
     Some(svg::Handle::from_memory(format!(r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{path}</svg>"##).into_bytes()))
 }
 
+/// Glyphe du jeu tel qu'il se pose dans un bouton : `size` pixels logiques de
+/// côté, teinté par `color`. `None` pour un nom que le jeu ne dessine pas.
+///
+/// Fermer, lire, mettre en pause s'écrivent avec lui, jamais avec un caractère
+/// de police (HIG ICO-07) : même trait et même graisse que le reste de
+/// l'interface.
+pub(crate) fn glyph<'a, Message>(
+    name: &str,
+    size: f32,
+    color: iced::Color,
+) -> Option<iced::Element<'a, Message>> {
+    get(name).map(|handle| {
+        svg(handle)
+            .width(size)
+            .height(size)
+            .style(move |_, _| svg::Style { color: Some(color) })
+            .into()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -390,6 +410,23 @@ mod tests {
         ] {
             assert!(get(n).is_some(), "{n}");
         }
+    }
+
+    /// Fermer, lire, mettre en pause : les glyphes des boutons, jamais un
+    /// caractère de police (HIG ICO-07).
+    #[test]
+    fn glyphes_des_boutons() {
+        for name in [
+            "window-close",
+            "media-playback-start",
+            "media-playback-pause",
+            "battery-level-40-charging",
+        ] {
+            let g: Option<iced::Element<'_, ()>> = glyph(name, 16.0, iced::Color::BLACK);
+            assert!(g.is_some(), "{name}");
+        }
+        let absent: Option<iced::Element<'_, ()>> = glyph("nom-hors-jeu", 16.0, iced::Color::BLACK);
+        assert!(absent.is_none());
     }
 
     #[test]

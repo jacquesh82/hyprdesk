@@ -1180,10 +1180,14 @@ impl App {
             );
         }
         conv_row = conv_row.push(iced::widget::tooltip(
-            button(text("×").font(self.font).size(crate::ui::tokens::ts(15.0)))
-                .padding([2, 8])
-                .style(button::text)
-                .on_press(Msg::Chat(ChatMsg::CloseConversation(c.session))),
+            // Fermeture : le glyphe du jeu, comme les menus (HIG ICO-07).
+            button(
+                crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(14.0), fg)
+                    .expect("glyphe de fermeture"),
+            )
+            .padding([2, 8])
+            .style(button::text)
+            .on_press(Msg::Chat(ChatMsg::CloseConversation(c.session))),
             text(crate::i18n::tr("Fermer cette conversation")).font(self.font),
             iced::widget::tooltip::Position::Left,
         ));
@@ -1658,10 +1662,18 @@ impl App {
                             .width(40)
                             .height(40)
                             .content_fit(iced::ContentFit::Cover),
-                        button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
-                            .padding([0, 6])
-                            .style(button::text)
-                            .on_press(Msg::Chat(ChatMsg::RemoveAttachment(i))),
+                        // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07).
+                        button(
+                            crate::ui::icons::glyph(
+                                "window-close",
+                                crate::ui::tokens::ts(14.0),
+                                fg,
+                            )
+                            .expect("glyphe de fermeture"),
+                        )
+                        .padding([0, 6])
+                        .style(button::text)
+                        .on_press(Msg::Chat(ChatMsg::RemoveAttachment(i))),
                     ]
                     .spacing(2)
                     .align_y(Alignment::Center),

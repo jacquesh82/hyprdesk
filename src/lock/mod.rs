@@ -725,10 +725,21 @@ impl Lock {
             && let Some((p, charging)) = self.battery
         {
             foot = foot.push(
-                text(format!("{}{p} %", if charging { "⚡ " } else { "" }))
-                    .font(self.font)
-                    .size(14)
-                    .color(dim),
+                row![
+                    // Batterie du jeu, éclair dedans quand elle charge (HIG ICO-07).
+                    crate::ui::icons::glyph(
+                        &format!(
+                            "battery-level-{p}{}",
+                            if charging { "-charging" } else { "" }
+                        ),
+                        16.0,
+                        dim,
+                    )
+                    .expect("glyphe de batterie"),
+                    text(format!("{p} %")).font(self.font).size(14).color(dim),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
             );
         }
         if st.show_media
@@ -741,15 +752,27 @@ impl Lock {
             };
             foot = foot.push(
                 row![
-                    button(text(if m.playing { "⏸" } else { "▶" }).size(16).color(fg))
-                        .padding([4, 10])
-                        .style(move |_, _| button::Style {
-                            background: Some(Color { a: 0.15 * a, ..fg }.into()),
-                            border: Border::default().rounded(10),
-                            text_color: fg,
-                            ..Default::default()
-                        })
-                        .on_press(Msg::PlayPause),
+                    // Lecture et pause : les glyphes du jeu (HIG ICO-07).
+                    button(
+                        crate::ui::icons::glyph(
+                            if m.playing {
+                                "media-playback-pause"
+                            } else {
+                                "media-playback-start"
+                            },
+                            16.0,
+                            fg,
+                        )
+                        .expect("glyphe de lecture"),
+                    )
+                    .padding([6, 10])
+                    .style(move |_, _| button::Style {
+                        background: Some(Color { a: 0.15 * a, ..fg }.into()),
+                        border: Border::default().rounded(10),
+                        text_color: fg,
+                        ..Default::default()
+                    })
+                    .on_press(Msg::PlayPause),
                     text(label).font(self.font).size(14).color(dim),
                 ]
                 .spacing(10)

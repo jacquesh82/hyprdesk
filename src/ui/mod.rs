@@ -26,7 +26,8 @@ mod engine;
 mod glass;
 mod hyprlists;
 mod hyprset;
-mod icons;
+// Le jeu de glyphes sert aussi à l'écran de verrouillage (HIG ICO-07).
+pub(crate) mod icons;
 mod kinetic;
 mod lens;
 mod menu;

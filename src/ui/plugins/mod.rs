@@ -453,33 +453,34 @@ impl App {
         use iced::widget::button;
         let warn = crate::ui::tone::danger();
         let fg = super::color(self.cfg.general.theme.fg, 1.0);
-        button(
-            crate::i18n::text(if armed {
-                crate::i18n::tr("Supprimer ?")
-            } else {
-                "×"
+        // Au repos, le glyphe de fermeture du jeu (HIG ICO-07) ; armé, la question.
+        let content: Element<'_, Msg> = if armed {
+            crate::i18n::text(crate::i18n::tr("Supprimer ?"))
+                .font(self.font)
+                .size(12.0)
+                .into()
+        } else {
+            crate::ui::icons::glyph("window-close", 14.0, fg).expect("glyphe de fermeture")
+        };
+        button(content)
+            .padding(if armed { [3, 10] } else { [4, 8] })
+            .on_press(msg)
+            .style(move |_, status| button::Style {
+                background: Some(
+                    if armed {
+                        iced::Color { a: 0.85, ..warn }
+                    } else if matches!(status, button::Status::Hovered) {
+                        iced::Color { a: 0.25, ..warn }
+                    } else {
+                        iced::Color::TRANSPARENT
+                    }
+                    .into(),
+                ),
+                text_color: if armed { iced::Color::BLACK } else { fg },
+                border: iced::Border::default().rounded(999),
+                ..Default::default()
             })
-            .font(self.font)
-            .size(if armed { 12.0 } else { 15.0 }),
-        )
-        .padding(if armed { [3, 10] } else { [1, 8] })
-        .on_press(msg)
-        .style(move |_, status| button::Style {
-            background: Some(
-                if armed {
-                    iced::Color { a: 0.85, ..warn }
-                } else if matches!(status, button::Status::Hovered) {
-                    iced::Color { a: 0.25, ..warn }
-                } else {
-                    iced::Color::TRANSPARENT
-                }
-                .into(),
-            ),
-            text_color: if armed { iced::Color::BLACK } else { fg },
-            border: iced::Border::default().rounded(999),
-            ..Default::default()
-        })
-        .into()
+            .into()
     }
 
     /// L'onglet `tab` du paquet `pkg` est affiché.

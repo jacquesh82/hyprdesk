@@ -177,10 +177,15 @@ impl App {
         }
         head = head.push(
             self.panorama_feedback(
-                button(text("✕").size(crate::ui::tokens::ts(size)).color(fg))
-                    .padding([5, 12])
-                    .on_press(wrap(PMsg::TasksClose))
-                    .style(pill(false)),
+                // Fermeture : le glyphe du jeu (HIG ICO-07). Le remplissage garde à la
+                // pastille la hauteur de ses voisines de texte (interligne 1,3).
+                button(
+                    crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(size + 2.0), fg)
+                        .expect("glyphe de fermeture"),
+                )
+                .padding([0.15 * crate::ui::tokens::ts(size) + 4.0, 12.0])
+                .on_press(wrap(PMsg::TasksClose))
+                .style(pill(false)),
             ),
         );
         let gib = |b: u64| {

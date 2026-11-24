@@ -265,12 +265,21 @@ impl App {
                                 .font(self.title_font())
                                 .size(crate::ui::tokens::ts(14.0))
                                 .width(Length::Fill),
-                            button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
-                                .padding([2, 10])
-                                .style(button::text)
-                                .on_press_maybe(
-                                    users.is_empty().then(|| wrap(Msg::Remove(name.clone())))
-                                ),
+                            // Retrait : le glyphe du jeu (HIG ICO-07), estompé tant que la
+                            // courbe est employée.
+                            button(
+                                crate::ui::icons::glyph(
+                                    "window-close",
+                                    crate::ui::tokens::ts(14.0),
+                                    if users.is_empty() { self.ink().fg } else { dim },
+                                )
+                                .expect("glyphe de fermeture"),
+                            )
+                            .padding([2, 10])
+                            .style(button::text)
+                            .on_press_maybe(
+                                users.is_empty().then(|| wrap(Msg::Remove(name.clone())))
+                            ),
                         ]
                         .align_y(Alignment::Center),
                         sliders,

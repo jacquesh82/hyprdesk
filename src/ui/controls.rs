@@ -215,12 +215,11 @@ impl App {
         if bar.is_some() {
             header = header.push(
                 button(
-                    text("×")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(18.0))
-                        .color(fg),
+                    // Fermeture : le glyphe du jeu, comme les menus (HIG ICO-07).
+                    crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(16.0), fg)
+                        .expect("glyphe de fermeture"),
                 )
-                .padding([2, 7])
+                .padding([5, 7])
                 .on_press(Msg::ClosePopover)
                 .style(move |_, _| iced::widget::button::Style {
                     text_color: fg,
