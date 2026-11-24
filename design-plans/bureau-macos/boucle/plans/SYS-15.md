@@ -30,7 +30,7 @@ Un champ `family` par widget, à quatre valeurs — `small`, `medium`, `large`, 
 
 ## Changements
 
-Voir « Étapes » ; état : plan écrit et relu, aucune étape faite.
+Voir « Étapes » ; état : étape 1 faite (d3a58fe), « Rétablir » garde la taille (c'est le contenu du widget, pas sa place), `hd.place` ne pose pas de taille sur un widget à une seule taille ; prochaine : étape 2.
 
 ## Portée
 
