@@ -38,6 +38,8 @@ pub const DESKTOP_OFF_ICON: &str = "hyprdesk-desktop-off-symbolic";
 /// Losange « fenêtre urgente » dessiné par hyprdesk, à côté du numéro d'un
 /// espace qui porte une fenêtre demandant l'attention.
 pub const URGENT_ICON: &str = "hyprdesk-urgent-symbolic";
+/// Chevron qui marque le titre de la fenêtre active comme un menu (HIG MENU-07).
+pub const MENU_CHEVRON: &str = "go-down-symbolic";
 
 /// Icônes symboliques demandées dès que la barre existe.
 pub const STATIC_ICONS: &[&str] = &[
@@ -58,6 +60,8 @@ pub const STATIC_ICONS: &[&str] = &[
     "preferences-system-controls-symbolic",
     "view-more-symbolic",
     "display-brightness-symbolic",
+    // Chevron du titre de la fenêtre active : c'est un titre de menu.
+    MENU_CHEVRON,
     URGENT_ICON,
 ];
 
@@ -1950,7 +1954,8 @@ impl App {
                     .font(self.font)
                     .size(crate::ui::tokens::ts(size))
                     .color(fg)
-                    .font(self.ui_font(iced::font::Weight::Normal));
+                    // Titres de menus : semibold (DESIGN.md, HIG MENU-07).
+                    .font(self.ui_font(iced::font::Weight::Semibold));
                 motion::anchor(
                     self.module(
                         s,
@@ -2015,20 +2020,32 @@ impl App {
                     .as_ref()
                     .map(|(c, t)| if t.is_empty() { c.clone() } else { t.clone() })
                     .unwrap_or_default();
-                let title = text(truncate(&t, if compact { 18 } else { 36 }))
+                // Titre d'un menu, comme « hyprdesk », « Fenêtre » et « Espaces » :
+                // semibold (HIG MENU-07), suivi d'un chevron — seul titre de la
+                // barre dont le libellé n'est pas un nom de menu.
+                let ink = if open { fg } else { dim };
+                let label = text(truncate(&t, if compact { 18 } else { 36 }))
                     .wrapping(iced::widget::text::Wrapping::None)
                     .font(self.font)
                     .size(crate::ui::tokens::ts(size))
-                    .color(if open { fg } else { dim })
-                    .font(self.ui_font(iced::font::Weight::Normal));
+                    .color(ink)
+                    .font(self.ui_font(iced::font::Weight::Semibold));
                 if t.is_empty() {
-                    return container(title).padding([0, 8]).into();
+                    return container(label).padding([0, 8]).into();
                 }
+                let content: Element<'a, Msg> =
+                    match self.icon_named(MENU_CHEVRON, (size * 0.75).round(), ink) {
+                        Some(chevron) => row![label, chevron]
+                            .spacing(4)
+                            .align_y(Alignment::Center)
+                            .into(),
+                        None => label.into(),
+                    };
                 // Clic : le menu de la fenêtre (MLG-311).
                 self.module(
                     bar,
                     alpha,
-                    title.into(),
+                    content,
                     Some(Msg::OpenPopover(bar_id, "window".into(), Request::Window)),
                     None,
                     None,

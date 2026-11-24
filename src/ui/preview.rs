@@ -1724,7 +1724,17 @@ impl Preview {
         } else if SCENES[self.scene] == "menu-dock" {
             // Menu d'une application du dock (MLG-307) : ses fenêtres, ses
             // actions `.desktop`, l'épingler, la fermer.
-            self.app.icon_menu = Some(Self::menu_dock_app());
+            // Dock en bas dans l'aperçu : la carte s'ouvre vers le haut et ses
+            // groupes s'inversent (HIG MENU-09).
+            let mut m = Self::menu_dock_app();
+            m.upward = true;
+            let launch = crate::i18n::tr("Nouvelle fenêtre").to_string();
+            m.hover = self
+                .app
+                .icon_menu_lines(&m)
+                .iter()
+                .position(|l| matches!(l, super::menu::Line::Item(i) if i.label == launch));
+            self.app.icon_menu = Some(m);
         } else if SCENES[self.scene] == "menu-dock-long" {
             // Le même menu, plus haut que l'écran (HIG MENU-02) : la carte est
             // plafonnée à l'écran et ses lignes défilent à l'intérieur.

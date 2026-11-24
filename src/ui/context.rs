@@ -154,6 +154,9 @@ pub struct IconMenu {
     pub entry: Option<crate::launch::DesktopEntry>,
     /// « Partager… » : les destinations, à la place des entrées.
     pub share: Option<Vec<Share>>,
+    /// La carte s'ouvre vers le haut (dock en bas) : le groupe le plus près du
+    /// pointeur vient en dernier (HIG MENU-09).
+    pub upward: bool,
 }
 
 impl IconMenu {
@@ -180,6 +183,7 @@ impl IconMenu {
             offset: 0.0,
             entry: None,
             share: None,
+            upward: false,
         }
     }
 
@@ -902,7 +906,16 @@ impl App {
                 .into(),
             ),
         }
-        groups(vec![windows, open, actions, keep])
+        let mut parts = vec![windows, open, actions, keep];
+        // Carte ouverte vers le haut : le groupe le plus près du bouton vient
+        // en dernier, la liste des fenêtres n'est plus à l'extrémité opposée au
+        // pointeur (HIG MENU-09). Carte plafonnée à l'écran : ordre conservé —
+        // le défilement part du haut, qui doit montrer les fenêtres, et
+        // l'action destructrice reste hors de vue tant qu'on n'a pas défilé.
+        if m.upward && !m.scrolls {
+            parts.reverse();
+        }
+        groups(parts)
     }
 
     /// Destinations de « Partager… » : seules celles qu'on peut utiliser.
@@ -1234,6 +1247,9 @@ impl App {
             _ => None,
         };
         menu.monitor = monitor.to_string();
+        // Dock en bas : la carte s'ouvre vers le haut, au-dessus du bouton.
+        menu.upward =
+            self.launcher_bar_position(monitor) == crate::config::LauncherPosition::Bottom;
         let size = iced::Size::new(
             Self::icon_menu_width(&menu) + 2.0 * SHADOW,
             self.icon_menu_height(&menu) + 2.0 * SHADOW,
@@ -2417,6 +2433,72 @@ mod tests {
         let it2 = items(&it2);
         assert!(matches!(it2[0].msg, CMsg::Launch));
         assert!(!it2.iter().any(|i| matches!(i.msg, CMsg::CloseWindows)));
+    }
+
+    /// Dock en bas : la carte s'ouvre vers le haut, les groupes en ordre
+    /// inverse — épingler et fermer en tête, la liste des fenêtres contre le
+    /// bouton (HIG MENU-09). Carte plafonnée : l'ordre ne change pas.
+    #[test]
+    fn menu_du_dock_ouvert_vers_le_haut() {
+        type Entry = super::super::menu::Item<CMsg>;
+        let group = |i: &Entry| match &i.msg {
+            CMsg::Focus(_) => 0,
+            CMsg::Launch => 1,
+            CMsg::Action(_) => 2,
+            _ => 3,
+        };
+        let keys =
+            |lines: &[Line<CMsg>]| items(lines).iter().map(|i| group(i)).collect::<Vec<u8>>();
+        let labels = |lines: &[Line<CMsg>], k: u8| {
+            items(lines)
+                .iter()
+                .filter(|i| group(i) == k)
+                .map(|i| i.label.clone())
+                .collect::<Vec<_>>()
+        };
+        let mut app = app();
+        let c = |a: &str, t: &str| crate::hypr::Client {
+            address: a.into(),
+            class: "firefox".into(),
+            title: t.into(),
+            workspace: "1".into(),
+            monitor: "A".into(),
+        };
+        app.clients = vec![c("0x1", "Un"), c("0x2", "Deux")];
+        let mut m = IconMenu::new(
+            MenuTarget::App(AppRef {
+                id: Some("firefox".into()),
+                class: None,
+                name: "Firefox".into(),
+            }),
+            Id::unique(),
+        );
+        // Vers le bas : fenêtres, ouvrir, actions, épingler et fermer.
+        let down = app.icon_menu_lines(&m);
+        let d = keys(&down);
+        assert!(d.windows(2).all(|w| w[0] <= w[1]), "{d:?}");
+        // Vers le haut : l'ordre des groupes s'inverse, pas celui des lignes.
+        m.upward = true;
+        let up = app.icon_menu_lines(&m);
+        let u = keys(&up);
+        assert!(u.windows(2).all(|w| w[0] >= w[1]), "{u:?}");
+        for k in 0..=3 {
+            assert_eq!(labels(&down, k), labels(&up, k), "groupe {k}");
+        }
+        let it = items(&up);
+        let n = it.len();
+        let windows: Vec<_> = it[n - 2..]
+            .iter()
+            .map(|i| match &i.msg {
+                CMsg::Focus(a) => Some(a.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(windows, vec![Some("0x1"), Some("0x2")]);
+        assert!(matches!(&it[0].msg, CMsg::Pin | CMsg::CloseWindows));
+        // Carte plafonnée à l'écran : l'ordre est celui d'origine.
+        m.scrolls = true;
+        assert_eq!(keys(&app.icon_menu_lines(&m)), d);
     }
 
     /// Champ de saisie : Couper et Copier grisés sans sélection, Coller sans
