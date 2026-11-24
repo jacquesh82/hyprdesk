@@ -55,6 +55,87 @@ pub struct FilesState {
     pub cat: Option<u8>,
 }
 
+/// Aperçu du résultat de fichier sélectionné (HIG DAT-03).
+#[derive(Debug, Clone)]
+pub enum Apercu {
+    /// Demandé, pas encore lu : la date seule.
+    Attente,
+    /// Vignette d'une image.
+    Image(iced::widget::image::Handle),
+    /// Premières lignes non vides d'un texte.
+    Texte(Vec<String>),
+    /// Ni image ni texte lisible : la date seule.
+    Rien,
+}
+
+/// Taille au-delà de laquelle un fichier n'est pas lu pour son aperçu.
+const APERCU_MAX_OCTETS: u64 = 32 * 1024 * 1024;
+/// Pixels au-delà desquels une image n'est pas décodée.
+const APERCU_MAX_PIXELS: u64 = 40_000_000;
+/// Rangée d'aperçu sous la ligne sélectionnée.
+const APERCU_H: f32 = 40.0;
+
+/// Les deux premières lignes non vides d'un début de fichier, s'il est du
+/// texte : UTF-8 sans octet nul, une coupure en fin de tampon tolérée ;
+/// 80 caractères au plus par ligne.
+pub fn texte_apercu(buf: &[u8]) -> Option<Vec<String>> {
+    if buf.contains(&0) {
+        return None;
+    }
+    let s = match std::str::from_utf8(buf) {
+        Ok(s) => s,
+        Err(e) if e.error_len().is_none() => std::str::from_utf8(&buf[..e.valid_up_to()]).ok()?,
+        Err(_) => return None,
+    };
+    let lignes: Vec<String> = s
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.trim().is_empty())
+        .take(2)
+        .map(|l| {
+            let l = l.replace('\t', "    ");
+            if l.chars().count() > 80 {
+                let mut c: String = l.chars().take(79).collect();
+                c.push('…');
+                c
+            } else {
+                l
+            }
+        })
+        .collect();
+    (!lignes.is_empty()).then_some(lignes)
+}
+
+/// Lit l'aperçu d'un chemin (hors du fil de l'interface).
+fn charger_apercu(path: &Path) -> Apercu {
+    use crate::fileindex::index::{CAT_IMAGES, categorie_de};
+    use std::io::Read;
+    let Ok(meta) = std::fs::metadata(path) else {
+        return Apercu::Rien;
+    };
+    // Un fichier ordinaire seulement : une FIFO bloquerait la lecture.
+    if !meta.is_file() || meta.len() > APERCU_MAX_OCTETS {
+        return Apercu::Rien;
+    }
+    let nom = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    if categorie_de(nom) == CAT_IMAGES {
+        return match ::image::image_dimensions(path) {
+            Ok((w, h)) if u64::from(w) * u64::from(h) <= APERCU_MAX_PIXELS => {
+                super::wizard::scene_thumb(path).map_or(Apercu::Rien, Apercu::Image)
+            }
+            _ => Apercu::Rien,
+        };
+    }
+    let mut buf = Vec::with_capacity(4096);
+    match std::fs::File::open(path).and_then(|f| f.take(4096).read_to_end(&mut buf)) {
+        Ok(_) => texte_apercu(&buf).map_or(Apercu::Rien, Apercu::Texte),
+        Err(_) => Apercu::Rien,
+    }
+}
+
 /// Contenu du coffre en mode `:2fa` / `:mdp`.
 #[derive(Debug, Clone)]
 pub enum MfaList {
@@ -93,9 +174,27 @@ pub struct Search {
     /// Mode réglages (`:r`) : les entrées trouvées dans l'index des réglages,
     /// les plus parlantes d'abord ; `results` y sont des indices.
     pub settings: Vec<&'static super::settings_search::Entry>,
+    /// Mode fichiers : aperçu du résultat sélectionné, avec son chemin.
+    pub apercu: Option<(String, Apercu)>,
 }
 
 impl Search {
+    /// Chemin du résultat de fichier sélectionné (mode `:f`).
+    pub fn fichier_choisi(&self) -> Option<&str> {
+        crate::fileindex::proto::query(&self.query)?;
+        let i = *self.results.get(self.selected)?;
+        self.files.as_ref()?.hits.get(i).map(|h| h.path.as_str())
+    }
+
+    /// Garde un aperçu arrivé s'il est celui de la sélection ; sinon jeté.
+    pub fn garde_apercu(&mut self, path: String, a: Apercu) -> bool {
+        if self.fichier_choisi() != Some(path.as_str()) {
+            return false;
+        }
+        self.apercu = Some((path, a));
+        true
+    }
+
     /// Mode presse-papiers (`:clip …`) : la requête dans l'historique.
     pub fn clip_query(&self) -> Option<&str> {
         crate::clipboard::query(&self.query)
@@ -204,6 +303,11 @@ pub enum SMsg {
     Shown,
     /// Bouton Clear du champ : la requête est vidée et le champ reprend le focus.
     Clear,
+    /// Aperçu voulu pour ce chemin, après un court délai (une flèche tenue
+    /// ne lit pas un fichier par pas) : lu s'il est encore la sélection.
+    ApercuVoulu(String),
+    /// Aperçu lu pour ce chemin.
+    Apercu(String, Apercu),
 }
 
 impl App {
@@ -417,6 +521,7 @@ impl App {
             suggested,
             mfa: None,
             settings: Vec::new(),
+            apercu: None,
         });
         let mut tasks = vec![Task::done(Msg::NewLayerShell {
             settings: NewLayerShellSettings {
@@ -573,7 +678,29 @@ impl App {
             let n = s.results.len() as i64;
             s.selected = (s.selected as i64 + d).rem_euclid(n) as usize;
         }
-        Task::none()
+        self.file_preview()
+    }
+
+    /// Mode fichiers : demande l'aperçu de la sélection s'il n'est ni là ni
+    /// en route (HIG DAT-03).
+    fn file_preview(&mut self) -> Task<Msg> {
+        let Some(s) = self.search.as_mut() else {
+            return Task::none();
+        };
+        let Some(path) = s.fichier_choisi().map(str::to_string) else {
+            return Task::none();
+        };
+        if s.apercu.as_ref().is_some_and(|(p, _)| *p == path) {
+            return Task::none();
+        }
+        s.apercu = Some((path.clone(), Apercu::Attente));
+        if self.preview {
+            return Task::none();
+        }
+        Task::perform(
+            tokio::time::sleep(std::time::Duration::from_millis(120)),
+            move |_| Msg::Search(SMsg::ApercuVoulu(path.clone())),
+        )
     }
 
     /// Interroge le démon d'index pour la requête `:f` en cours (après
@@ -838,7 +965,7 @@ impl App {
                     s.rank_files();
                     a_jour = true;
                 }
-                let mut taches: Vec<Task<Msg>> = Vec::new();
+                let mut taches: Vec<Task<Msg>> = vec![self.file_preview()];
                 if a_jour && patienter {
                     let delai = if self
                         .search
@@ -919,7 +1046,7 @@ impl App {
                 let ouvre = Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
-                            crate::launch::open_path(Path::new(&hit.path))
+                            crate::launch::open_path_checked(Path::new(&hit.path))
                         })
                         .await
                         .unwrap_or(Err("tâche interrompue".into()))
@@ -1023,6 +1150,31 @@ impl App {
                     s.selected = 0;
                 }
                 Task::batch(icons.iter().map(|n| self.want_icon(n)).collect::<Vec<_>>())
+            }
+            SMsg::ApercuVoulu(path) => {
+                let attendu = self.search.as_ref().is_some_and(|s| {
+                    s.fichier_choisi() == Some(path.as_str())
+                        && matches!(&s.apercu, Some((p, Apercu::Attente)) if *p == path)
+                });
+                if !attendu {
+                    return Task::none();
+                }
+                Task::perform(
+                    async move {
+                        let p = path.clone();
+                        let a = tokio::task::spawn_blocking(move || charger_apercu(Path::new(&p)))
+                            .await
+                            .unwrap_or(Apercu::Rien);
+                        (path, a)
+                    },
+                    |(p, a)| Msg::Search(SMsg::Apercu(p, a)),
+                )
+            }
+            SMsg::Apercu(path, a) => {
+                if let Some(s) = self.search.as_mut() {
+                    s.garde_apercu(path, a);
+                }
+                Task::none()
             }
             SMsg::Shown => {
                 if let Some(s) = self.search.as_mut()
@@ -1407,39 +1559,120 @@ impl App {
                 .icon_named(icone, 22.0, dim)
                 .unwrap_or_else(|| iced::widget::Space::new().width(22).height(22).into());
             let selected = k == s.selected;
-            list = list.push(
-                button(
-                    row![
-                        icon,
-                        text(h.name.clone())
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                            .color(fg),
-                        iced::widget::Space::new().width(Length::Fill),
-                        text(detail)
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                            .color(dim),
+            let ligne = row![
+                icon,
+                text(h.name.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(fg),
+                iced::widget::Space::new().width(Length::Fill),
+                text(detail)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(dim),
+            ]
+            .spacing(14)
+            .align_y(Alignment::Center);
+            // Le résultat sélectionné porte son aperçu (HIG DAT-03).
+            let apercu = s
+                .apercu
+                .as_ref()
+                .filter(|(p, _)| selected && *p == h.path)
+                .map(|(_, a)| self.file_preview_row(a, h.mtime, dim));
+            let (contenu, haut): (Element<'_, Msg>, f32) = match apercu {
+                Some(a) => (
+                    column![
+                        container(ligne).height(ROW - 16.0).center_y(Length::Fill),
+                        a
                     ]
-                    .spacing(14)
-                    .align_y(Alignment::Center),
-                )
-                .padding([8, 12])
-                .width(Length::Fill)
-                .height(ROW)
-                .style(move |_, status| {
-                    crate::ui::tokens::item(
-                        accent,
-                        fg,
-                        selected,
-                        status,
-                        f32::from(super::apps_grid::shape().selection_radius).min(10.0),
-                    )
-                })
-                .on_press(Msg::Search(SMsg::Launch(k))),
+                    .spacing(8)
+                    .into(),
+                    ROW + APERCU_H + 8.0,
+                ),
+                None => (ligne.into(), ROW),
+            };
+            list = list.push(
+                button(contenu)
+                    .padding([8, 12])
+                    .width(Length::Fill)
+                    .height(haut)
+                    .style(move |_, status| {
+                        crate::ui::tokens::item(
+                            accent,
+                            fg,
+                            selected,
+                            status,
+                            f32::from(super::apps_grid::shape().selection_radius).min(10.0),
+                        )
+                    })
+                    .on_press(Msg::Search(SMsg::Launch(k))),
             );
         }
         list.into()
+    }
+
+    /// Rangée d'aperçu sous le résultat sélectionné, alignée sur le nom :
+    /// vignette d'image ou premières lignes d'un texte, puis la date de
+    /// modification. Hauteur fixe : la liste ne saute pas à l'arrivée.
+    fn file_preview_row<'a>(&self, a: &Apercu, mtime: i64, dim: Color) -> Element<'a, Msg> {
+        let petit = |t: String| {
+            text(t)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim)
+                .wrapping(iced::widget::text::Wrapping::None)
+        };
+        let date = (mtime > 0)
+            .then(|| chrono::DateTime::from_timestamp(mtime, 0))
+            .flatten()
+            .map(|d| {
+                crate::tr!(
+                    "Modifié le {d}",
+                    d = d
+                        .with_timezone(&chrono::Local)
+                        .format("%d/%m/%Y %H:%M")
+                        .to_string()
+                )
+            })
+            .unwrap_or_default();
+        let corps: Element<'a, Msg> = match a {
+            Apercu::Image(h) => row![
+                container(
+                    iced::widget::image(h.clone())
+                        .width(64)
+                        .height(36)
+                        .content_fit(iced::ContentFit::Cover)
+                        .border_radius(10),
+                ),
+                petit(date),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center)
+            .into(),
+            Apercu::Texte(l) => {
+                let mut c = column![].spacing(2);
+                for (i, t) in l.iter().enumerate() {
+                    // Une ligne longue est coupée au bord, pas dessinée sur la date.
+                    let ligne = container(petit(t.clone())).width(Length::Fill).clip(true);
+                    c = c.push(if i == 0 {
+                        row![ligne, petit(date.clone())].spacing(12)
+                    } else {
+                        row![ligne]
+                    });
+                }
+                c.into()
+            }
+            Apercu::Attente | Apercu::Rien => petit(date).into(),
+        };
+        container(corps)
+            .padding(iced::Padding {
+                left: 36.0,
+                ..iced::Padding::ZERO
+            })
+            .height(APERCU_H)
+            .center_y(APERCU_H)
+            .width(Length::Fill)
+            .into()
     }
 
     /// Mode coffre (`:2fa`, `:mdp`) : la même carte que le presse-papiers.
@@ -1767,5 +2000,65 @@ fn backdrop<'a>(alpha: f32) -> Element<'a, Msg> {
         area.on_press(Msg::Search(SMsg::Close)).into()
     } else {
         area.on_press(Msg::Noop).into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Début de fichier : du texte UTF-8 donne ses deux premières lignes
+    /// non vides ; un octet nul ou de l'UTF-8 invalide, rien (HIG DAT-03).
+    #[test]
+    fn apercu_texte() {
+        assert_eq!(
+            texte_apercu(b"\n\n# Titre\n\nligne deux\nligne trois"),
+            Some(vec!["# Titre".to_string(), "ligne deux".to_string()])
+        );
+        assert_eq!(texte_apercu(b"PNG\0\x01"), None);
+        assert_eq!(texte_apercu(b"\xff\xfe abc"), None);
+        assert_eq!(texte_apercu(b"   \n\t\n"), None);
+        // Coupure au milieu d'un caractère en fin de tampon : tolérée.
+        let mut b = "été".as_bytes().to_vec();
+        b.push(0xc3);
+        assert_eq!(texte_apercu(&b), Some(vec!["été".to_string()]));
+        let long = "x".repeat(200);
+        let l = texte_apercu(long.as_bytes()).unwrap();
+        assert_eq!(l[0].chars().count(), 80);
+        assert!(l[0].ends_with('…'));
+    }
+
+    /// Un aperçu arrivé pour un autre chemin que la sélection est jeté ; la
+    /// sélection déplacée en demande un nouveau.
+    #[test]
+    fn apercu_de_la_selection() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        let _ = app.toggle_search();
+        let hit = |p: &str| crate::fileindex::index::Hit {
+            path: p.into(),
+            name: p.rsplit('/').next().unwrap_or(p).into(),
+            kind: crate::fileindex::index::KIND_FILE,
+            size: 10,
+            mtime: 1_700_000_000,
+            fs: "ext4".into(),
+        };
+        let s = app.search.as_mut().unwrap();
+        s.query = ":f note".into();
+        s.files = Some(FilesState {
+            hits: vec![hit("/a/note.txt"), hit("/b/notes.md")],
+            ..Default::default()
+        });
+        s.results = vec![0, 1];
+        s.selected = 0;
+        assert!(!s.garde_apercu("/b/notes.md".into(), Apercu::Rien));
+        assert!(s.apercu.is_none());
+        assert!(s.garde_apercu("/a/note.txt".into(), Apercu::Texte(vec!["x".into()])));
+        let _ = app.search_step(1);
+        let s = app.search.as_ref().unwrap();
+        assert!(matches!(&s.apercu, Some((p, Apercu::Attente)) if p == "/b/notes.md"));
     }
 }

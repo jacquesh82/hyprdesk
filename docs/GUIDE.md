@@ -557,7 +557,9 @@ The dock's loupe (or `:f` in the launcher, or `hyprdesk files`) searches an
 index of all your files, home and mounted volumes (NTFS, FAT…) included, by
 name, path, or category: answers come back in a few milliseconds. Filter by
 kind (files, folders, links) and by category (documents, images, videos,
-programs…).
+programs…). The selected result carries a preview: an image's
+thumbnail, a text's first lines, and the modification date. When no
+application opens the file, a notification tells why.
 
 The launcher's search field carries the loupe in every mode (including `:f`,
 `:clip`, `:2fa`, `:mdp`, `:r`) and, as soon as it holds a query, a Clear button on

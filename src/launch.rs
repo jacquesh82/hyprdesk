@@ -209,6 +209,10 @@ pub fn executable(prog: &str) -> bool {
 /// détaché du lanceur (`xdg-open`). Utilisé par le mode `:f` de la
 /// recherche.
 pub fn open_path(p: &std::path::Path) -> Result<(), String> {
+    spawn_xdg_open(p).map(|_| ())
+}
+
+fn spawn_xdg_open(p: &std::path::Path) -> Result<std::process::Child, String> {
     use std::process::{Command, Stdio};
     Command::new("xdg-open")
         .arg(p)
@@ -216,8 +220,49 @@ pub fn open_path(p: &std::path::Path) -> Result<(), String> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map(|_| ())
         .map_err(|e| format!("xdg-open {p:?} : {e}"))
+}
+
+/// Comme [`open_path`], mais lit le code de sortie de `xdg-open` (HIG
+/// DAT-03) : il rend la main vite quand il délègue (gio, kde-open) ; en
+/// environnement générique il attend parfois l'application. Au plus 1,5 s,
+/// puis succès présumé, et un fil récupère le processus à sa fin. À appeler
+/// hors du fil de l'interface.
+pub fn open_path_checked(p: &std::path::Path) -> Result<(), String> {
+    use std::time::{Duration, Instant};
+    let mut child = spawn_xdg_open(p)?;
+    let fin = Instant::now() + Duration::from_millis(1500);
+    loop {
+        match child.try_wait() {
+            Ok(Some(st)) => {
+                return match st.code().and_then(xdg_open_error) {
+                    Some(e) => Err(format!("{} : {e}", p.display())),
+                    None => Ok(()),
+                };
+            }
+            Ok(None) if Instant::now() < fin => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+                return Ok(());
+            }
+        }
+    }
+}
+
+/// Cause d'un code de sortie de `xdg-open` (0 : aucune).
+pub fn xdg_open_error(code: i32) -> Option<String> {
+    use crate::i18n::tr;
+    Some(match code {
+        0 => return None,
+        1 => tr("erreur dans la commande d'ouverture").to_string(),
+        2 => tr("fichier introuvable").to_string(),
+        3 => tr("aucune application pour ce type de fichier").to_string(),
+        4 => tr("l'ouverture a échoué").to_string(),
+        5 => tr("lecture refusée").to_string(),
+        c => crate::tr!("xdg-open a rendu le code {c}", c = c),
+    })
 }
 
 /// Premier mot d'une ligne Exec (guillemets compris), après `env VAR=…`.
@@ -600,6 +645,17 @@ pub fn resolve(def: &IconDef, theme: Option<&str>, size: u16, terminal: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Codes de sortie de `xdg-open` : 0 n'est pas une erreur, les autres
+    /// sont nommés (HIG DAT-03).
+    #[test]
+    fn codes_xdg_open() {
+        assert_eq!(xdg_open_error(0), None);
+        for c in 1..=5 {
+            assert!(xdg_open_error(c).is_some_and(|e| !e.contains("code")));
+        }
+        assert!(xdg_open_error(9).is_some_and(|e| e.contains('9')));
+    }
 
     const FIREFOX: &str = "[Desktop Entry]\nName=Firefox\nName[fr]=Navigateur Firefox\nExec=/usr/lib/firefox/firefox %u\nIcon=firefox\nType=Application\n\n[Desktop Action new-window]\nName=New Window\nExec=firefox --new-window %u\n";
 

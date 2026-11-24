@@ -577,7 +577,9 @@ La loupe du dock (ou `:f` dans le lanceur, ou `hyprdesk files`) cherche dans
 un index de tous vos fichiers, home et volumes montés (NTFS, FAT…) compris,
 par nom, chemin ou catégorie : réponse en quelques millisecondes. Filtrez par
 nature (fichiers, dossiers, liens) et par catégorie (documents, images,
-vidéos, programmes…).
+vidéos, programmes…). Le résultat sélectionné porte un aperçu : la vignette
+d'une image, les premières lignes d'un texte, et la date de modification. Si
+aucune application n'ouvre le fichier, une notification en dit la cause.
 
 Le champ de recherche du lanceur porte la loupe dans tous ses modes (`:f`,
 `:clip`, `:2fa`, `:mdp`, `:r` compris) et, dès qu'il contient une requête, un bouton
