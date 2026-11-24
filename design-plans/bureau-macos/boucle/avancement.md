@@ -46,6 +46,7 @@
 | 2026-11-24 | A26 | SYS-10 traité (plan écrit et relu, diff relu) ; il en reste 6 dans ce couloir |
 | 2026-11-24 | A27 | SYS-11 traité (plan écrit et relu, diff relu) ; il en reste 5 dans ce couloir |
 | 2026-11-24 | A28 | SYS-12 traité (plan écrit et relu, diff relu) ; il en reste 4 dans ce couloir |
+| 2026-11-24 | A29 | SYS-15 « en cours » : plan en six étapes écrit et relu ; il en reste 4 dans ce couloir |
 
 ### Couloir B
 
@@ -279,7 +280,7 @@ Référence verte : `9b19a8e` (porte complète `scripts/verify.sh` passée le 24
 | SYS-12 | Centre de contrôle : tailles | ABSENT | M | haute | fait | 449e2fa | plan `boucle/plans/SYS-12.md`, relu par un agent indépendant, diff relu ; option de composant `controls.compact` (Thème › Composants › Réglages rapides, éteinte par défaut) : tuiles Wi-Fi et Bluetooth réduites à leur pastille (bascule au clic, menu au clic droit, titre, état ou erreur en infobulle), pilules Continuité carrées au symbole seul (titre en infobulle, « › » des détails conservé) ; la taille actuelle reste celle par défaut ; reste : le menu d'une tuile compacte n'est pas atteignable au clavier (la tuile n'a pas de navigation au clavier) |
 | DAT-04 | Dock comme cible de dépôt | ABSENT | L | haute | à faire | — | — |
 | ICO-10 | Apparence des icônes d'application | ABSENT | L | moyenne | à faire | — | — |
-| SYS-15 | Widgets de bureau : tailles | ABSENT | L | haute | à faire | — | — |
+| SYS-15 | Widgets de bureau : tailles | ABSENT | L | haute | en cours | — | plan écrit, relu par un agent indépendant et corrigé : `boucle/plans/SYS-15.md`, six étapes (modèle et `Placement`, réglage, horloge et calendrier, système, média, documentation) ; aucune étape faite |
 | DAT-16 | Image de glissement de l'aperçu | PISTE | S | haute | à faire | — | — |
 | DAT-17 | Curseur pendant le glisser d'une fenêtre | PISTE | S | haute | à faire | — | — |
 | PRES-08 | Dock : clic sur une application groupée | PISTE | S | moyenne | à faire | — | — |
