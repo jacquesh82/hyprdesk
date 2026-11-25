@@ -312,17 +312,17 @@ mod tests {
         let ids = |z: &[BarEntry]| z.iter().map(|e| e.type_id.clone()).collect::<Vec<_>>();
         // Les menus entrent ensuite, par `menus_module`.
         assert!(bar.zones[0].is_empty());
-        assert_eq!(ids(&bar.zones[1]), ["window"]);
+        assert_eq!(ids(&bar.zones[1]), ["window", "workspaces"]);
         assert_eq!(
             ids(&bar.zones[2]),
             [
                 "tray",
                 "media",
-                "updates",
                 "network",
                 "bluetooth",
                 "battery",
                 "volume",
+                "updates",
                 "gpu",
                 "desktop",
                 "notifications",

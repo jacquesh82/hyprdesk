@@ -1577,24 +1577,18 @@ impl BarStyle {
     pub fn preset(self) -> [Vec<BarPreset>; 3] {
         match self {
             // Continuité, le style par défaut : la barre des menus de macOS.
-            // À gauche, les menus du shell ; au centre, la fenêtre active ; à
-            // droite, les icônes d'état, le centre de contrôle et l'horloge en
-            // bout de barre. Session est dans le menu hyprdesk, comme le menu
-            // Pomme ; les numéros d'espaces, masqués : le menu Espaces les
-            // donne.
+            // À gauche, les menus du shell ; au centre, la fenêtre active et
+            // les espaces de travail ; à droite, les icônes d'état, le centre
+            // de contrôle et l'horloge en bout de barre. Session est dans le
+            // menu hyprdesk, comme le menu Pomme. Les modules qui se cachent
+            // d'eux-mêmes (clavier, éclairage nocturne, luminosité…) n'y sont
+            // pas d'office : Réglages → Barre les ajoute.
             BarStyle::Continuite => [
                 vec![sans_option("menus")],
-                vec![sans_option("window")],
+                vec![sans_option("window"), sans_option("workspaces")],
                 vec![
                     sans_option("tray"),
                     sans_option("media"),
-                    // Cachés d'eux-mêmes quand ils n'ont rien à montrer.
-                    sans_option("keyboard"),
-                    sans_option("nightlight"),
-                    sans_option("removable"),
-                    sans_option("capture"),
-                    sans_option("updates"),
-                    sans_option("brightness"),
                     sans_option("network"),
                     sans_option("bluetooth"),
                     sans_option("battery"),

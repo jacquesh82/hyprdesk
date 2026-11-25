@@ -4291,14 +4291,13 @@ mod tests {
             ]
         );
         assert_eq!(b.zones[2], vec![BarItem::Volume]);
-        // Pose macOS par défaut : les menus à gauche, la fenêtre au centre,
-        // l'horloge en bout.
+        // Pose macOS par défaut : les menus à gauche, la fenêtre et les
+        // espaces au centre, l'horloge en bout.
         let c = load("hd.bar({})").unwrap().config;
         let zones = c.bar.as_ref().unwrap().zones.clone();
         assert_eq!(zones[0], vec![BarItem::Menus]);
-        assert_eq!(zones[1], vec![BarItem::Window]);
+        assert_eq!(zones[1], vec![BarItem::Window, BarItem::Workspaces]);
         assert_eq!(zones[2][0], BarItem::Tray);
-        assert!(!zones.iter().flatten().any(|i| *i == BarItem::Workspaces));
         assert!(
             !c.widgets
                 .iter()
