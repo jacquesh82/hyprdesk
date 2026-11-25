@@ -109,6 +109,15 @@ pub(in crate::ui) fn samples(
     })
 }
 
+/// Texte tenu dans `px` pixels logiques à la taille `size` : coupé d'après
+/// la chasse moyenne de la police d'interface, points de suspension compris.
+/// Les libellés de la carte ne passent pas à la ligne : sans cela, ils
+/// débordaient de leur tuile.
+fn fit(s: &str, px: f32, size: f32) -> String {
+    let glyph = crate::ui::tokens::ts(size) * 0.58;
+    truncate(s, (px / glyph).floor().max(4.0) as usize)
+}
+
 /// Largeur d'une moitié de rangée, et côté d'une tuile carrée, pour une
 /// carte de largeur `width`.
 fn halves(width: f32) -> (f32, f32) {
@@ -283,8 +292,8 @@ impl App {
 
         let connections = container(
             column![
-                self.dashboard_connection(pal, bar, monitor, "network", "Wi-Fi"),
-                self.dashboard_connection(pal, bar, monitor, "bluetooth", "Bluetooth"),
+                self.dashboard_connection(pal, bar, monitor, ("network", "Wi-Fi"), half),
+                self.dashboard_connection(pal, bar, monitor, ("bluetooth", "Bluetooth"), half),
             ]
             .spacing(4),
         )
@@ -348,7 +357,15 @@ impl App {
         ]
         .spacing(GAP);
         container(
+            // Une barre de défilement, s'il en faut une, à côté des tuiles et
+            // non sur elles.
             scrollable(body)
+                .direction(scrollable::Direction::Vertical(
+                    scrollable::Scrollbar::new()
+                        .width(4)
+                        .scroller_width(4)
+                        .spacing(4),
+                ))
                 .id(keyboard::SCROLL)
                 .style(move |theme, status| pal.scroll(theme, status))
                 .height(Length::Fill)
@@ -439,8 +456,8 @@ impl App {
         pal: Palette,
         bar: iced::window::Id,
         monitor: &str,
-        type_id: &str,
-        label: &str,
+        (type_id, label): (&str, &str),
+        half: f32,
     ) -> Element<'_, Msg> {
         let Some(widget) = self.control_source(type_id) else {
             return Space::new().into();
@@ -523,12 +540,17 @@ impl App {
             (on, pulse.unwrap_or(1.0)),
             (!pending).then_some(toggle),
         );
+        // Place des mots : la tuile moins ses marges, la pastille et l'écart.
+        let room = half - 12.0 - 8.0 - ORB - 4.0 - 12.0;
         let words = button(
-            column![
-                self.dash_strong(tr(label), 13.0, pal.fg),
-                self.dash_label(truncate(&state, 18), 11.0, pal.muted),
-            ]
-            .spacing(1),
+            container(
+                column![
+                    self.dash_strong(fit(tr(label), room, 13.0), 13.0, pal.fg),
+                    self.dash_label(fit(&state, room, 11.0), 11.0, pal.muted),
+                ]
+                .spacing(1),
+            )
+            .clip(true),
         )
         .padding([4, 6])
         .width(Length::Fill)
@@ -604,7 +626,10 @@ impl App {
         let on = if silence { 1.0 } else { 0.0 };
         let mut words = column![self.dash_strong(label, 13.0, pal.fg)].spacing(1);
         if let Some(state) = state {
-            words = words.push(self.dash_label(truncate(&state, 16), 11.0, pal.muted));
+            // La tuile Silence fait une demi-rangée : moins ses marges, la
+            // pastille et l'écart.
+            let room = halves(WIDTH).0 - 2.0 * 12.0 - ORB - 10.0;
+            words = words.push(self.dash_label(fit(&state, room, 11.0), 11.0, pal.muted));
         }
         let tile = button(
             container(
@@ -903,9 +928,12 @@ impl App {
                 })
                 .into(),
         };
-        let mut words = column![self.dash_strong(truncate(title, 24), 13.0, pal.fg)].spacing(1);
+        // Place du titre : la carte moins ses marges, la pochette, les deux
+        // commandes et les écarts.
+        let room = WIDTH - 2.0 * PADDING - 2.0 * 12.0 - 40.0 - 2.0 * 30.0 - 3.0 * GAP;
+        let mut words = column![self.dash_strong(fit(title, room, 13.0), 13.0, pal.fg)].spacing(1);
         if !artist.is_empty() {
-            words = words.push(self.dash_label(truncate(artist, 28), 11.0, pal.muted));
+            words = words.push(self.dash_label(fit(artist, room, 11.0), 11.0, pal.muted));
         }
         let control = |(icon, fallback, label): (&str, &str, &str), action: Option<Msg>| {
             let fg = if action.is_some() { pal.fg } else { pal.muted };

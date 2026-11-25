@@ -171,6 +171,12 @@ and this project adheres to
   its application icon; a click focuses it and goes to its workspace
   (a minimised window comes back to the shown one). The active window's
   commands stay on its title.
+- The Continuity control center no longer overflows (MLG-321): labels are
+  cut to their tile, the card takes its height again once the screen's
+  brightness is known (DDC/CI answers after it opens), and a scroll bar, if
+  any, sits beside the tiles.
+- The clock marked with unread notifications opens them (MLG-323); without
+  unread ones it keeps the calendar.
 - **Windows and hyprdesk share their corners** (MLG-320): Hyprland's
   `decoration.rounding` defaults to 12 px when neither Effects nor the theme
   pack set it, and the Settings drawer uses the same radius.

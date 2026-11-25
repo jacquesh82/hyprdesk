@@ -5505,6 +5505,12 @@ impl App {
                         key,
                         popover::Kind::Calendar,
                     )),
+                    popover::Request::Notifications => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Notifications,
+                    )),
                     // Vue étendue de la bulle de la pilule Island (HIG
                     // SYS-13) : la notification cliquée, rien à lire.
                     popover::Request::Activity { id } => Task::done(Msg::PopoverReady(
@@ -5781,6 +5787,12 @@ impl App {
             Msg::LightValue(l) => {
                 self.pending_widgets.remove("bar:light");
                 self.light = l;
+                // Le bandeau Affichage du centre de contrôle n'existe qu'une
+                // fois la luminosité de l'écran connue (DDC/CI répond après
+                // l'ouverture) : la carte reprend sa hauteur.
+                if self.popover.as_ref().is_some_and(|p| p.dashboard.is_some()) {
+                    return self.refresh_popover_anchor();
+                }
                 Task::none()
             }
             Msg::LightSet(t, v) => {

@@ -201,11 +201,15 @@ pub(in crate::ui) fn clock_press(
     module: &str,
     style: crate::config::BarStyle,
     toast: Option<&crate::ui::toasts::Toast>,
+    unread: usize,
 ) -> Msg {
     match (style, toast) {
         (crate::config::BarStyle::Island, Some(t)) => {
             Msg::OpenPopover(bar, module.to_string(), Request::Activity { id: t.n.id })
         }
+        // L'ovale des non-lues (HIG SYS-02) dit qu'il y a à lire : l'horloge
+        // ouvre les notifications, comme le centre de notifications de macOS.
+        _ if unread > 0 => Msg::OpenPopover(bar, module.to_string(), Request::Notifications),
         _ => Msg::OpenPopover(bar, module.to_string(), Request::Calendar),
     }
 }
@@ -2198,7 +2202,7 @@ impl App {
                     let toast = (style == crate::config::BarStyle::Island)
                         .then(|| self.toasts.list.first())
                         .flatten();
-                    Some(clock_press(bar_id, id, style, toast))
+                    Some(clock_press(bar_id, id, style, toast, self.toasts.unread()))
                 }
                 _ => None,
             },
@@ -3107,14 +3111,14 @@ Video
         };
         let calendrier = |style, toast| {
             matches!(
-                clock_press(Id::unique(), "clock", style, toast),
+                clock_press(Id::unique(), "clock", style, toast, 0),
                 Msg::OpenPopover(_, key, Request::Calendar) if key == "clock"
             )
         };
         let sept = bulle(7);
         assert!(
             matches!(
-                clock_press(Id::unique(), "clock", BarStyle::Island, Some(&sept)),
+                clock_press(Id::unique(), "clock", BarStyle::Island, Some(&sept), 0),
                 Msg::OpenPopover(_, key, Request::Activity { id }) if key == "clock" && id == 7
             ),
             "Island, bulle vivante : la vue étendue de cette bulle"
@@ -3129,5 +3133,10 @@ Video
             calendrier(BarStyle::Island, None),
             "sans bulle vivante, l'horloge garde le calendrier"
         );
+        // Des non-lues (l'ovale sur l'horloge) : la carte des notifications.
+        assert!(matches!(
+            clock_press(Id::unique(), "clock", BarStyle::Continuite, None, 1),
+            Msg::OpenPopover(_, key, Request::Notifications) if key == "clock"
+        ));
     }
 }
