@@ -35,7 +35,11 @@ pub(in crate::ui) fn anchor<'a>(
     key: String,
     duration: Duration,
 ) -> Element<'a, Msg> {
-    let press = !matches!(key.as_str(), "window" | "workspaces" | "tray" | "desktop");
+    // Les menus (`menus`) : chaque titre a sa propre pression, pas la rangée.
+    let press = !matches!(
+        key.as_str(),
+        "window" | "workspaces" | "tray" | "desktop" | "menus"
+    );
     Element::new(Motion {
         content: content.into(),
         anchor: Some((bar, key)),

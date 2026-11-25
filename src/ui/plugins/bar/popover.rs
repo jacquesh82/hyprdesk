@@ -1690,7 +1690,10 @@ impl App {
                     Size::new(1.0, b.height as f32),
                 )
             });
-        if matches!(kind, Kind::Notifications) {
+        // La carte Notifications du module Notifications se centre sur
+        // l'écran ; ouverte depuis l'horloge marquée de non-lues (HIG
+        // SYS-02), elle reste sous l'horloge, comme son calendrier.
+        if matches!(kind, Kind::Notifications) && anchor_key == "notifications" {
             anchor.x = m.width as f32 * 0.5 - anchor.width * 0.5;
         }
         let wide = self.cfg.bar.as_ref().is_some_and(|bar| {
