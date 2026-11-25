@@ -248,6 +248,50 @@ impl IconMenu {
     }
 }
 
+/// Retrait du bureau ou du dock, à annuler depuis sa bulle (HIG PAT-12) :
+/// l'élément et son rang d'origine.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShellUndo {
+    Icon {
+        at: usize,
+        def: crate::config::IconDef,
+    },
+    Widget {
+        at: usize,
+        def: crate::config::WidgetDef,
+    },
+    Pin {
+        at: usize,
+        app: String,
+    },
+}
+
+impl ShellUndo {
+    /// Rétablit l'élément à son rang (borné à la liste actuelle) ; déjà
+    /// revenu par ailleurs, il ne l'est pas deux fois.
+    pub(super) fn apply(self, settings: &mut crate::settings::Settings, pinned: Vec<String>) {
+        match self {
+            ShellUndo::Icon { at, def } => {
+                if !settings.icons.iter().any(|i| i.id == def.id) {
+                    settings.icons.insert(at.min(settings.icons.len()), def);
+                }
+            }
+            ShellUndo::Widget { at, def } => {
+                if !settings.widgets.iter().any(|w| w.id == def.id) {
+                    settings.widgets.insert(at.min(settings.widgets.len()), def);
+                }
+            }
+            ShellUndo::Pin { at, app } => {
+                let mut l = pinned;
+                if !l.contains(&app) {
+                    l.insert(at.min(l.len()), app);
+                }
+                settings.launcher_pinned = Some(l);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum CMsg {
     Open,
@@ -1735,13 +1779,24 @@ impl App {
                     return close;
                 };
                 let mut l = self.pinned();
+                let mut undo = Task::none();
                 if let Some(at) = l.iter().position(|x| x == &a) {
                     l.remove(at);
+                    // Retiré du dock : la bulle propose de le rétablir (HIG PAT-12).
+                    let name = self
+                        .apps
+                        .iter()
+                        .find(|x| x.id == a)
+                        .map_or_else(|| a.clone(), |x| x.name.clone());
+                    undo = self.show_undo(
+                        crate::tr!("Retiré du dock : « {name} »", name = name),
+                        ShellUndo::Pin { at, app: a },
+                    );
                 } else {
                     l.push(a);
                 }
                 self.settings.launcher_pinned = Some(l);
-                Task::batch([close, self.commit()])
+                Task::batch([close, self.commit(), undo])
             }
             CMsg::RemoveWidget => {
                 let target = self.icon_menu_target();
@@ -1754,8 +1809,25 @@ impl App {
                 {
                     p.widgets.widget_sel = None;
                 }
+                let undo = match self.settings.widgets.iter().position(|w| w.id == id) {
+                    Some(at) => {
+                        let def = self.settings.widgets[at].clone();
+                        // Le nom du catalogue, comme la page Widgets.
+                        let name = self
+                            .cfg
+                            .catalog
+                            .iter()
+                            .find(|t| t.id == def.type_id)
+                            .map_or_else(|| def.type_id.clone(), |t| t.name.clone());
+                        self.show_undo(
+                            crate::tr!("Widget retiré du bureau : « {name} »", name = name),
+                            ShellUndo::Widget { at, def },
+                        )
+                    }
+                    None => Task::none(),
+                };
                 self.settings.remove_widget(&id);
-                Task::batch([close, self.commit()])
+                Task::batch([close, self.commit(), undo])
             }
             CMsg::WidgetSettings => {
                 let target = self.icon_menu_target();
@@ -1806,9 +1878,27 @@ impl App {
                 let Some(i) = own else {
                     return close;
                 };
+                let undo = match self.settings.icons.get(i).cloned() {
+                    Some(def) => {
+                        // Le nom affiché sous l'icône (application résolue
+                        // comprise), sinon celui des réglages.
+                        let name = self
+                            .icons
+                            .get(idx)
+                            .map(|r| r.label.clone())
+                            .filter(|l| !l.is_empty())
+                            .or_else(|| def.label.clone())
+                            .unwrap_or_else(|| def.id.clone());
+                        self.show_undo(
+                            crate::tr!("Retiré du bureau : « {name} »", name = name),
+                            ShellUndo::Icon { at: i, def },
+                        )
+                    }
+                    None => Task::none(),
+                };
                 self.settings.remove_icon(i);
                 self.selected = None;
-                Task::batch([close, self.commit()])
+                Task::batch([close, self.commit(), undo])
             }
             CMsg::Settings => {
                 let page = match self.icon_menu_target() {

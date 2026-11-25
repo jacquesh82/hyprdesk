@@ -549,6 +549,9 @@ pub struct App {
     /// Dock survolé par une application qu'il peut épingler (HIG DAT-04) :
     /// sa surface et l'application.
     dock_drop: Option<(Id, String)>,
+    /// Dernier retrait du bureau ou du dock, que sa bulle peut annuler (HIG
+    /// PAT-12).
+    shell_undo: Option<context::ShellUndo>,
     /// Applications installées (liste des raccourcis, icônes des fenêtres).
     apps: Arc<Vec<AppInfo>>,
     clients: Vec<Client>,
@@ -1143,6 +1146,7 @@ impl App {
             panel_tab: plugins::desktop::INFO.id,
             drop_hover: None,
             dock_drop: None,
+            shell_undo: None,
             drop_count: 0,
             apps: Arc::new(Vec::new()),
             clients: Vec::new(),

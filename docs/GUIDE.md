@@ -259,6 +259,11 @@ You can also drag an application from a file manager (its `.desktop` file)
 onto the dock: the dock is outlined in the accent color, and the application
 is pinned at the end of the dock when you drop it.
 
+Removing an application from the dock, or an icon or a widget from the
+desktop, shows an “Undo removal” bubble: while it is there, it puts the item
+back in its place. It follows the notification timeout, and only exists when
+hyprdesk shows notifications.
+
 ## The desktop and its modes
 
 When your tiled windows fill the screen, press `SUPER + D` twice (dock, then

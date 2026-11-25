@@ -261,6 +261,11 @@ Une application se glisse aussi depuis un gestionnaire de fichiers (son
 fichier `.desktop`) sur le dock : le dock s'entoure de la couleur d'accent, et
 l'application s'épingle en fin de dock au dépôt.
 
+Retirer une application du dock, ou une icône ou un widget du bureau, montre
+une bulle « Annuler le retrait » : tant qu'elle est là, elle remet l'élément
+à sa place. Elle suit le délai des notifications, et n'existe que lorsque
+hyprdesk affiche les notifications.
+
 ## Le bureau et ses modes
 
 En tuiles, les fenêtres couvrent l'écran : `SUPER + D` (deux fois : le dock,

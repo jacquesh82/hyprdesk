@@ -51,6 +51,11 @@ pub(super) const ICON: &str = "preferences-system-notifications-symbolic";
 /// Identifiant du résumé du Silence (HIG PAT-20) : le serveur numérote les
 /// notifications reçues à partir de 1, celui-ci n'est jamais le leur.
 const SUMMARY_ID: u32 = 0;
+/// Identifiant de la bulle d'annulation d'un retrait (HIG PAT-12) : le
+/// serveur ne l'atteint jamais non plus.
+const UNDO_ID: u32 = u32::MAX;
+/// Action de cette bulle.
+const UNDO_ACTION: &str = "undo";
 /// Côté de l'icône de l'application dans une bulle.
 const APP_ICON: f32 = 36.0;
 /// Côté de l'icône de l'application dans une carte du centre.
@@ -547,9 +552,10 @@ impl Toasts {
         );
     }
 
-    /// La bulle `id` est le résumé du Silence (HIG PAT-20).
-    fn is_summary(&self, id: u32) -> bool {
-        self.list.iter().any(|t| t.summary && t.n.id == id)
+    /// La bulle `id` est de hyprdesk, d'aucune application : le résumé du
+    /// Silence (HIG PAT-20) ou l'annulation d'un retrait (HIG PAT-12).
+    fn is_own(&self, id: u32) -> bool {
+        id == UNDO_ID || self.list.iter().any(|t| t.summary && t.n.id == id)
     }
 
     /// Éteint un Silence dont l'échéance est passée, à l'horloge murale.
@@ -1033,8 +1039,19 @@ impl App {
                 // L'action part vers l'application : la pile lui rend le
                 // clavier (HIG ENT-01).
                 let release = self.toasts_release();
+                // Annulation d'un retrait (HIG PAT-12) : l'élément revient.
+                // Une autre action que « Annuler le retrait » (aucune n'est
+                // posée aujourd'hui) ferme la bulle sans rien rétablir.
+                let undo = match (id == UNDO_ID).then(|| self.shell_undo.take()).flatten() {
+                    Some(u) if key == UNDO_ACTION => {
+                        let pinned = self.pinned();
+                        u.apply(&mut self.settings, pinned);
+                        self.commit()
+                    }
+                    _ => Task::none(),
+                };
                 // Le résumé du Silence (HIG PAT-20) n'est d'aucune application.
-                if !self.toasts.is_summary(id) {
+                if !self.toasts.is_own(id) {
                     send(Cmd::Invoke(id, key));
                 }
                 let resident = self
@@ -1052,7 +1069,7 @@ impl App {
                 } else {
                     Task::none()
                 };
-                Task::batch([release, close, self.sync_toasts()])
+                Task::batch([release, close, undo, self.sync_toasts()])
             }
             // Carte du centre : ce qu'elle ouvre, puis le centre se referme.
             TMsg::Card(id) => {
@@ -1104,10 +1121,13 @@ impl App {
             TMsg::Close(id) => {
                 // Le résumé du Silence (HIG PAT-20) n'est d'aucune
                 // application : rien à lui signaler.
-                if !self.toasts.is_summary(id) {
+                if !self.toasts.is_own(id) {
                     send(Cmd::Dismiss(id, Reason::Dismissed));
                 }
                 self.toasts.list.retain(|t| t.n.id != id);
+                if id == UNDO_ID {
+                    self.shell_undo = None;
+                }
                 // La vue étendue de cette bulle (HIG SYS-13) se referme avec
                 // elle.
                 let close = if self.activity_open(id) {
@@ -1171,11 +1191,14 @@ impl App {
                 }
                 for id in &expired {
                     // Le résumé du Silence (HIG PAT-20) n'est d'aucune application.
-                    if !self.toasts.is_summary(*id) {
+                    if !self.toasts.is_own(*id) {
                         send(Cmd::Dismiss(*id, Reason::Expired));
                     }
                 }
                 self.toasts.list.retain(|t| !expired.contains(&t.n.id));
+                if expired.contains(&UNDO_ID) {
+                    self.shell_undo = None;
+                }
                 self.sync_toasts()
             }
         }
@@ -1283,6 +1306,52 @@ impl App {
             },
         })
     }
+    /// Bulle d'annulation d'un retrait du bureau ou du dock (HIG PAT-12), en
+    /// tête des bulles : elle nomme ce qui est parti et propose « Annuler le
+    /// retrait ». Une seule à la fois ; sans le service de notifications,
+    /// pas de bulle ni d'annulation.
+    pub(super) fn show_undo(&mut self, text: String, undo: super::context::ShellUndo) -> Task<Msg> {
+        self.toasts.list.retain(|t| t.n.id != UNDO_ID);
+        if !self.toasts.active {
+            self.shell_undo = None;
+            return self.sync_toasts();
+        }
+        self.shell_undo = Some(undo);
+        let mut hints = std::collections::HashMap::new();
+        hints.insert(
+            "transient".to_string(),
+            zbus::zvariant::OwnedValue::from(true),
+        );
+        let actions = [
+            UNDO_ACTION.to_string(),
+            crate::i18n::tr("Annuler le retrait").to_string(),
+        ];
+        let n = crate::notifications::build(
+            UNDO_ID,
+            "hyprdesk",
+            "edit-undo-symbolic",
+            &text,
+            "",
+            &actions,
+            &hints,
+            -1,
+        );
+        // Le glyphe d'annulation vient du thème : demandé comme celui d'une
+        // notification.
+        let icons = self.want_notif_icons(&n);
+        self.toasts.list.insert(
+            0,
+            Toast {
+                n,
+                since: Instant::now(),
+                request: None,
+                alert: false,
+                summary: false,
+            },
+        );
+        Task::batch([icons, self.sync_toasts()])
+    }
+
     pub(super) fn sync_toasts(&mut self) -> Task<Msg> {
         // Plus de bulle : la pile rend le clavier, quel que soit le style
         // (HIG ENT-01).
@@ -3502,6 +3571,81 @@ mod tests {
             bulles(&app).is_empty(),
             "un historique effacé n'a rien à proposer"
         );
+    }
+
+    /// HIG PAT-12 : un retrait du bureau ou du dock pose une bulle de
+    /// hyprdesk, en tête et hors de l'historique ; « Annuler le retrait »
+    /// rétablit l'élément à son rang, la fermeture oublie l'annulation, et
+    /// sans le service il n'y a ni bulle ni annulation.
+    #[test]
+    fn un_retrait_s_annule_depuis_sa_bulle() {
+        use crate::ui::context::ShellUndo;
+        let mut app = application();
+        app.toasts.active = true;
+        let history = app.toasts.history.len();
+        let l = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        app.settings.launcher_pinned = Some(l(&["a", "b", "c"]));
+        let _ = app.show_undo(
+            "Retiré du dock : « b »".into(),
+            ShellUndo::Pin {
+                at: 1,
+                app: "b".into(),
+            },
+        );
+        app.settings.launcher_pinned = Some(l(&["a", "c"]));
+        assert_eq!(app.toasts.list.first().map(|t| t.n.id), Some(UNDO_ID));
+        assert_eq!(app.toasts.history.len(), history, "hors de l'historique");
+        assert!(app.toasts.is_own(UNDO_ID), "rien à signaler au serveur");
+        // L'action d'une autre bulle ne touche pas l'annulation.
+        let _ = app.toasts_update(TMsg::Invoke(7, "default".into()));
+        assert!(app.shell_undo.is_some());
+        let _ = app.toasts_update(TMsg::Invoke(UNDO_ID, UNDO_ACTION.into()));
+        assert_eq!(app.settings.launcher_pinned, Some(l(&["a", "b", "c"])));
+        assert!(app.shell_undo.is_none());
+        assert!(app.toasts.list.iter().all(|t| t.n.id != UNDO_ID));
+        // Fermée : l'annulation est oubliée.
+        let pin = || ShellUndo::Pin {
+            at: 0,
+            app: "z".into(),
+        };
+        let _ = app.show_undo("x".into(), pin());
+        let _ = app.toasts_update(TMsg::Close(UNDO_ID));
+        assert!(app.shell_undo.is_none());
+        // Une autre action de la bulle la ferme sans rien rétablir.
+        let _ = app.show_undo("x".into(), pin());
+        let _ = app.toasts_update(TMsg::Invoke(UNDO_ID, "default".into()));
+        assert!(app.shell_undo.is_none());
+        assert_eq!(app.settings.launcher_pinned, Some(l(&["a", "b", "c"])));
+        // Sans le service : ni bulle ni annulation.
+        app.toasts.active = false;
+        let _ = app.show_undo("x".into(), pin());
+        assert!(app.shell_undo.is_none());
+        assert!(app.toasts.list.iter().all(|t| t.n.id != UNDO_ID));
+    }
+
+    /// HIG PAT-12 : une icône retirée revient à son rang, une seule fois.
+    #[test]
+    fn une_icone_retiree_revient_a_son_rang() {
+        use crate::ui::context::ShellUndo;
+        let mut s = crate::settings::Settings::default();
+        for f in ["/tmp/a.txt", "/tmp/b.txt", "/tmp/c.txt"] {
+            s.add_dropped(std::path::Path::new(f), Default::default());
+        }
+        let before = s.icons.clone();
+        assert_eq!(before.len(), 3);
+        s.remove_icon(1);
+        ShellUndo::Icon {
+            at: 1,
+            def: before[1].clone(),
+        }
+        .apply(&mut s, Vec::new());
+        assert_eq!(s.icons, before);
+        ShellUndo::Icon {
+            at: 0,
+            def: before[1].clone(),
+        }
+        .apply(&mut s, Vec::new());
+        assert_eq!(s.icons, before, "déjà revenue : pas deux fois");
     }
 }
 
