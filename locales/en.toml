@@ -5053,3 +5053,4 @@
 "on | off — plein bureau, focus au clic : le clic qui met une fenêtre au premier plan ne lui est pas transmis" = "on | off — full desktop, focus on click: the click that brings a window to the front is not passed on to it"
 "on | off — plein bureau : une application peut prendre le focus et passer devant d'elle-même" = "on | off — full desktop: an application can take the focus and come to the front by itself"
 "next | cursor | recent — plein bureau : fenêtre qui prend le focus quand celle qui l'avait se ferme" = "next | cursor | recent — full desktop: the window that takes the focus when the one holding it closes"
+"En développement" = "In development"

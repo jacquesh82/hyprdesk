@@ -28,6 +28,8 @@ pub enum Etat {
     Integre,
     Livre,
     Tiers,
+    /// Fonction livrée mais pas terminée : à essayer, elle peut changer.
+    EnDeveloppement,
 }
 
 impl Etat {
@@ -47,6 +49,7 @@ impl Etat {
             Self::Integre => "Intégré",
             Self::Livre => "Livré",
             Self::Tiers => "Tiers",
+            Self::EnDeveloppement => "En développement",
         }
     }
 
@@ -85,6 +88,7 @@ mod tests {
             Etat::Integre,
             Etat::Livre,
             Etat::Tiers,
+            Etat::EnDeveloppement,
         ];
         let mut termes: Vec<&str> = tous.iter().map(|e| e.terme()).collect();
         termes.push("Actif (pid {pid})");

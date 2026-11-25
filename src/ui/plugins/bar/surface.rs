@@ -201,15 +201,11 @@ pub(in crate::ui) fn clock_press(
     module: &str,
     style: crate::config::BarStyle,
     toast: Option<&crate::ui::toasts::Toast>,
-    unread: usize,
 ) -> Msg {
     match (style, toast) {
         (crate::config::BarStyle::Island, Some(t)) => {
             Msg::OpenPopover(bar, module.to_string(), Request::Activity { id: t.n.id })
         }
-        // L'ovale des non-lues (HIG SYS-02) dit qu'il y a à lire : l'horloge
-        // ouvre les notifications, comme le centre de notifications de macOS.
-        _ if unread > 0 => Msg::OpenPopover(bar, module.to_string(), Request::Notifications),
         _ => Msg::OpenPopover(bar, module.to_string(), Request::Calendar),
     }
 }
@@ -1904,7 +1900,45 @@ impl App {
             .into()
     }
 
-    /// Coin de l'ovale des non-lues sur le cadre de l'horloge (HIG SYS-02) :
+    /// Ovale des non-lues (HIG SYS-02) posé sur le cadre `frame` d'un module.
+    /// La pile mesure son premier enfant : le cadre, posé au centre de
+    /// l'épaisseur de la barre. L'ovale y déborde dans la marge du cadre, à
+    /// ras du bord de l'écran, sans déplacer ni couvrir le module. Sans non
+    /// lue, le cadre seul.
+    fn with_unread_badge<'a>(
+        &self,
+        frame: Element<'a, Msg>,
+        bar: &BarSurface,
+        alpha: f32,
+    ) -> Element<'a, Msg> {
+        let Some(badge) = self.unread_badge(self.toasts.unread(), alpha) else {
+            return frame;
+        };
+        let (x, y) = Self::badge_corner(bar.position);
+        let vertical = bar.position.vertical();
+        let base = container(frame)
+            .width(if vertical {
+                Length::Fixed(bar.height as f32)
+            } else {
+                Length::Shrink
+            })
+            .height(if vertical {
+                Length::Shrink
+            } else {
+                Length::Fixed(bar.height as f32)
+            })
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center);
+        let over: Element<'a, Msg> = container(badge)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(x)
+            .align_y(y)
+            .into();
+        iced::widget::stack![base, over].into()
+    }
+
+    /// Coin de l'ovale des non-lues sur le cadre d'un module (HIG SYS-02) :
     /// celui qui touche le bord de l'écran où la barre est posée, côté fin
     /// (bas d'une barre verticale).
     fn badge_corner(position: BarPosition) -> (Alignment, Alignment) {
@@ -2189,7 +2223,7 @@ impl App {
                     let toast = (style == crate::config::BarStyle::Island)
                         .then(|| self.toasts.list.first())
                         .flatten();
-                    Some(clock_press(bar_id, id, style, toast, self.toasts.unread()))
+                    Some(clock_press(bar_id, id, style, toast))
                 }
                 _ => None,
             },
@@ -2589,15 +2623,9 @@ impl App {
                                 fg,
                             )
                         };
-                        // Ovale des non-lues sur l'horloge (HIG SYS-02). La
-                        // pile mesure son premier enfant : le cadre, posé au
-                        // centre de l'épaisseur de la barre. L'ovale y déborde
-                        // dans la marge du cadre, à ras du bord de l'écran, sans
-                        // déplacer ni couvrir l'heure. Son nom, en
-                        // info-bulle, dit le compte.
-                        let unread = self.toasts.unread();
-                        let tip = (unread > 0).then(|| crate::tr!("Non lues : {n}", n = unread));
-                        let frame = self.module(
+                        // L'ovale des non-lues est sur le module des
+                        // notifications, pas sur l'horloge.
+                        self.module(
                             bar,
                             alpha,
                             shown,
@@ -2605,36 +2633,9 @@ impl App {
                             Some(module_menu(bar_id, id)),
                             None,
                             None,
-                            tip,
+                            None,
                             open,
-                        );
-                        match self.unread_badge(unread, alpha) {
-                            Some(badge) => {
-                                let (x, y) = Self::badge_corner(bar.position);
-                                let vertical = bar.position.vertical();
-                                let base = container(frame)
-                                    .width(if vertical {
-                                        Length::Fixed(bar.height as f32)
-                                    } else {
-                                        Length::Shrink
-                                    })
-                                    .height(if vertical {
-                                        Length::Shrink
-                                    } else {
-                                        Length::Fixed(bar.height as f32)
-                                    })
-                                    .align_x(Alignment::Center)
-                                    .align_y(Alignment::Center);
-                                let over: Element<'_, Msg> = container(badge)
-                                    .width(Length::Fill)
-                                    .height(Length::Fill)
-                                    .align_x(x)
-                                    .align_y(y)
-                                    .into();
-                                iced::widget::stack![base, over].into()
-                            }
-                            None => frame,
-                        }
+                        )
                     }
                     WidgetKind::Calendar => self.module(
                         bar,
@@ -2828,7 +2829,7 @@ impl App {
                             Box::new(move |d: i64| Msg::LuaCall(wid.clone(), f, Some(d)))
                                 as Box<dyn Fn(i64) -> Msg + 'a>
                         });
-                        self.module(
+                        let frame = self.module(
                             bar,
                             alpha,
                             content.into(),
@@ -2838,7 +2839,14 @@ impl App {
                             scroll_cb,
                             r.tooltip.clone(),
                             open,
-                        )
+                        );
+                        // Ovale des non-lues sur le module des notifications
+                        // (HIG SYS-02).
+                        if w.type_id == "notifications" {
+                            self.with_unread_badge(frame, bar, alpha)
+                        } else {
+                            frame
+                        }
                     }
                 }
             }
@@ -3072,14 +3080,14 @@ Video
         };
         let calendrier = |style, toast| {
             matches!(
-                clock_press(Id::unique(), "clock", style, toast, 0),
+                clock_press(Id::unique(), "clock", style, toast),
                 Msg::OpenPopover(_, key, Request::Calendar) if key == "clock"
             )
         };
         let sept = bulle(7);
         assert!(
             matches!(
-                clock_press(Id::unique(), "clock", BarStyle::Island, Some(&sept), 0),
+                clock_press(Id::unique(), "clock", BarStyle::Island, Some(&sept)),
                 Msg::OpenPopover(_, key, Request::Activity { id }) if key == "clock" && id == 7
             ),
             "Island, bulle vivante : la vue étendue de cette bulle"
@@ -3094,10 +3102,5 @@ Video
             calendrier(BarStyle::Island, None),
             "sans bulle vivante, l'horloge garde le calendrier"
         );
-        // Des non-lues (l'ovale sur l'horloge) : la carte des notifications.
-        assert!(matches!(
-            clock_press(Id::unique(), "clock", BarStyle::Continuite, None, 1),
-            Msg::OpenPopover(_, key, Request::Notifications) if key == "clock"
-        ));
     }
 }

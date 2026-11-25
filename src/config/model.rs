@@ -1404,6 +1404,12 @@ pub const BAR_STYLES: &[(BarStyle, &str, &str)] = &[
 ];
 
 impl BarStyle {
+    /// Style encore en cours de développement : signalé comme tel dans
+    /// Réglages → Barre. Seul Continuité est terminé.
+    pub fn in_development(self) -> bool {
+        self != BarStyle::Continuite
+    }
+
     pub fn parse(s: &str) -> Option<Self> {
         // Anciens noms (français) toujours lus.
         let s = match s {

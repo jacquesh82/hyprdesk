@@ -5583,12 +5583,6 @@ impl App {
                         key,
                         popover::Kind::Calendar,
                     )),
-                    popover::Request::Notifications => Task::done(Msg::PopoverReady(
-                        request,
-                        bar_id,
-                        key,
-                        popover::Kind::Notifications,
-                    )),
                     // Vue étendue de la bulle de la pilule Island (HIG
                     // SYS-13) : la notification cliquée, rien à lire.
                     popover::Request::Activity { id } => Task::done(Msg::PopoverReady(

@@ -502,13 +502,31 @@ impl App {
                             BAR_STYLES
                                 .iter()
                                 .map(|&(style, _, label)| {
-                                    self.focusable(radio(
+                                    let choice = self.focusable(radio(
                                         crate::i18n::tr(label),
                                         style,
                                         Some(b.style),
                                         |v| { wrap(Msg::Style(v)) }
                                     )
-                                    .font(self.font))
+                                    .font(self.font));
+                                    if !style.in_development() {
+                                        return choice;
+                                    }
+                                    // Style pas encore terminé : une étiquette
+                                    // le dit, à côté de son nom.
+                                    let dim = self.ink().dim;
+                                    let tag = container(
+                                        text(crate::ui::etats::Etat::EnDeveloppement.libelle())
+                                            .font(self.font)
+                                            .size(crate::ui::tokens::ts(11.0))
+                                            .color(dim),
+                                    )
+                                    .padding([1, 6])
+                                    .style(move |_| container::Style {
+                                        border: Border::default().rounded(8).width(1).color(Color { a: 0.5, ..dim }),
+                                        ..Default::default()
+                                    });
+                                    row![choice, tag].spacing(6).align_y(Alignment::Center).into()
                                 })
                                 .collect::<Vec<_>>(),
                         )

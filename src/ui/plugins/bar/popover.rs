@@ -60,9 +60,6 @@ pub enum Request {
     Window,
     /// Menu « Fenêtres » : toutes les fenêtres ouvertes, un clic y mène.
     Windows,
-    /// Carte des notifications, depuis l'horloge marquée de non-lues (HIG
-    /// SYS-02).
-    Notifications,
     /// Menu du shell « hyprdesk », toujours en tête de la barre (HIG MENU-01).
     Shell,
     /// Menu « Aide », en dernier des titres de la barre (HIG MENU-05).

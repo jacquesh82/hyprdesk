@@ -72,6 +72,24 @@ impl App {
             column![self.pop_header(alpha, crate::i18n::tr("Workspaces").into())].spacing(4);
         for workspace in self.workspaces.iter().filter(|w| w.monitor == bar.monitor) {
             let active = workspace.name == current;
+            // Le mode du bureau de cet espace, à droite : celui en place pour
+            // l'espace affiché, sinon l'imposé, sinon le mémorisé.
+            let mode = if active {
+                self.monitor_mode(&bar.monitor)
+            } else {
+                match self.cfg.general.forced_mode(&bar.monitor, &workspace.name) {
+                    Some("no-desktop") => crate::ui::DesktopMode::NoDesktop,
+                    Some("launcher-only") => crate::ui::DesktopMode::LauncherOnly,
+                    Some("full-desktop") => crate::ui::DesktopMode::FullDesktop,
+                    _ => self.ws_mode(&workspace.name),
+                }
+            };
+            let mode = crate::i18n::tr(match mode {
+                crate::ui::DesktopMode::NoDesktop => "Fenêtres seules",
+                crate::ui::DesktopMode::LauncherOnly => "Lanceur seul",
+                crate::ui::DesktopMode::FullDesktop => "Bureau complet",
+            })
+            .to_string();
             col = col.push(
                 self.pop_row(
                     alpha,
@@ -86,7 +104,7 @@ impl App {
                     )
                     .unwrap_or_else(|| Space::new().into()),
                     workspace.name.clone(),
-                    None,
+                    Some(mode),
                     true,
                     true,
                     Some(Msg::BarWorkspace(

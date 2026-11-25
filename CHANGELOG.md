@@ -202,8 +202,13 @@ and this project adheres to
   cut to their tile, the card takes its height again once the screen's
   brightness is known (DDC/CI answers after it opens), and a scroll bar, if
   any, sits beside the tiles.
-- The clock marked with unread notifications opens them (MLG-323); without
-  unread ones it keeps the calendar.
+- The unread-notifications badge sits on the notifications (bell) module,
+  no longer on the clock (MLG-330); the clock opens the calendar.
+- The Workspaces menu shows each workspace's desktop mode (windows only,
+  launcher only, full desktop) (MLG-328); the Windows menu names the window
+  its commands act on (MLG-329).
+- Settings → Bar marks the Graphite, Island and Convex styles « In
+  development » (MLG-331).
 - **Windows and hyprdesk share their corners** (MLG-320): Hyprland's
   `decoration.rounding` defaults to 12 px when neither Effects nor the theme
   pack set it, and the Settings drawer uses the same radius.

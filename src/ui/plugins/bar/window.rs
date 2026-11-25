@@ -46,7 +46,18 @@ pub(in crate::ui) fn read_all(
     let active = ipc::query_json("activewindow").ok();
     let commands = active.as_ref().and_then(|v| {
         let same_app = raw.as_ref().map_or(1, |c| same_application(v, c));
-        entries(v, workspaces, same_app)
+        let (address, mut out) = entries(v, workspaces, same_app)?;
+        // La fenêtre visée par ces commandes, nommée en tête.
+        let title = v["title"].as_str().map(str::trim).unwrap_or("");
+        let name = if title.is_empty() {
+            v["class"].as_str().unwrap_or("").to_string()
+        } else {
+            truncate(title, TITLE_MAX)
+        };
+        if !name.is_empty() {
+            out.insert(0, MenuEntry::Header(name));
+        }
+        Some((address, out))
     });
     let current = commands.as_ref().map(|(a, _)| a.as_str());
     let mut icons = std::collections::HashMap::new();
