@@ -53,7 +53,7 @@ Voir « Étapes ».
 5. **Réglages** : « Apparence des icônes » (Automatique, Par défaut, Sombre, Teintée), champ dédié dans Réglages › Thème ; libellés traduits ; scène `reglages-icones`.
 6. **Documentation** : guides (FR, EN), `DESIGN.md` ; l'écart passe `fait`.
 
-État : étape 1 faite (`d5bf48e`) ; prochaine : étape 2.
+État : étape 1 faite (`d5bf48e`) ; étape 2 faite (`1180d73` : `icons::app_svg`, filtre sur la région du masque ; les scènes d'aperçu hors ICO-10 imposent l'apparence par défaut) ; prochaine : étapes 3 et 4.
 
 ## Validation
 
