@@ -370,12 +370,37 @@ fn item_mut(h: &mut Hypr, list: List, i: usize) -> Option<&mut serde_json::Value
     }
 }
 
-/// Geste ajouté : la première combinaison libre parmi les courantes.
+/// Le sens `a` couvre le sens `b` (HIG ENT-03) : « vertical » couvre « up »
+/// et « down », « horizontal » « left » et « right », « swipe » tout
+/// balayement, « pinch » « pinchin » et « pinchout » ; tout sens se couvre.
+pub(crate) fn covers(a: &str, b: &str) -> bool {
+    a == b
+        || match a {
+            "horizontal" => matches!(b, "left" | "right"),
+            "vertical" => matches!(b, "up" | "down"),
+            "swipe" => matches!(
+                b,
+                "horizontal" | "vertical" | "left" | "right" | "up" | "down"
+            ),
+            "pinch" => matches!(b, "pinchin" | "pinchout"),
+            _ => false,
+        }
+}
+
+/// Deux sens se recouvrent : l'un couvre l'autre (« vertical » et « up »).
+pub(crate) fn overlaps(a: &str, b: &str) -> bool {
+    covers(a, b) || covers(b, a)
+}
+
+/// Geste ajouté : la première combinaison libre parmi les courantes ; un
+/// geste déjà réglé dont le sens recouvre la combinaison la prend.
 fn new_gesture(h: &Hypr) -> serde_json::Value {
     let taken = |f: i64, d: &str| {
         h.gestures.iter().any(|g| {
             g.get("fingers").and_then(|v| v.as_i64()) == Some(f)
-                && g.get("direction").and_then(|v| v.as_str()) == Some(d)
+                && g.get("direction")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|gd| overlaps(gd, d))
                 && g.get("mods").is_none()
         })
     };
@@ -450,12 +475,10 @@ impl App {
         head = head.push(
             container(tooltip(
                 button(
-                    // Trait du titre voisin (HIG ICO-12).
-                    crate::ui::icons::glyph_weighted(
+                    crate::ui::icons::glyph(
                         "window-close",
                         crate::ui::tokens::ts(14.0),
                         self.ink().fg,
-                        self.title_font().weight,
                     )
                     .expect("glyphe de fermeture"),
                 )
@@ -1257,6 +1280,39 @@ pub fn texts() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Les sens se recouvrent : un geste vertical prend « up » et « down »,
+    /// un balayement tout sens, un pincement ses deux sens (HIG ENT-03).
+    #[test]
+    fn sens_qui_se_recouvrent() {
+        assert!(overlaps("vertical", "up") && overlaps("down", "vertical"));
+        assert!(overlaps("horizontal", "left") && overlaps("swipe", "right"));
+        assert!(overlaps("pinch", "pinchout") && overlaps("up", "up"));
+        assert!(!overlaps("vertical", "horizontal") && !overlaps("up", "down"));
+        assert!(!overlaps("swipe", "pinch") && !overlaps("pinchin", "pinchout"));
+        // Un geste vertical à trois doigts : le geste ajouté ne prend pas
+        // trois doigts vers le haut ou le bas.
+        let h = Hypr {
+            gestures: vec![
+                serde_json::json!({ "fingers": 3, "direction": "up", "action": "hyprdesk:overview" }),
+            ],
+            ..Default::default()
+        };
+        let g = new_gesture(&h);
+        assert_eq!(g["direction"], "horizontal");
+        let h = Hypr {
+            gestures: vec![
+                serde_json::json!({ "fingers": 3, "direction": "swipe", "action": "move" }),
+                serde_json::json!({ "fingers": 4, "direction": "down", "action": "close" }),
+            ],
+            ..Default::default()
+        };
+        let g = new_gesture(&h);
+        assert_eq!(
+            (g["fingers"].as_i64(), g["direction"].as_str()),
+            (Some(4), Some("horizontal"))
+        );
+    }
 
     /// Chaque action hyprdesk du formulaire des gestes a sa commande
     /// (HIG ENT-03).
