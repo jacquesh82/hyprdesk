@@ -53,7 +53,7 @@ Voir « Étapes ».
 5. **Réglages** : « Apparence des icônes » (Automatique, Par défaut, Sombre, Teintée), champ dédié dans Réglages › Thème ; libellés traduits ; scène `reglages-icones`.
 6. **Documentation** : guides (FR, EN), `DESIGN.md` ; l'écart passe `fait`.
 
-État : étape 1 faite (`d5bf48e`) ; étape 2 faite (`1180d73` : `icons::app_svg`, filtre sur la région du masque ; les scènes d'aperçu hors ICO-10 imposent l'apparence par défaut) ; étapes 3 et 4 faites (`0c13c32` : `icons::prepare_app_raster` dans les tâches de résolution, hors du fil de l'interface, `icons::app_raster` dans `app_handle_for`, cache vidé par `reload_icons` ; les messages gardent leurs chemins) ; prochaine : étape 5.
+État : étape 1 faite (`d5bf48e`) ; étape 2 faite (`1180d73` : `icons::app_svg`, filtre sur la région du masque ; les scènes d'aperçu hors ICO-10 imposent l'apparence par défaut) ; étapes 3 et 4 faites (`0c13c32` : `icons::prepare_app_raster` dans les tâches de résolution, hors du fil de l'interface, `icons::app_raster` dans `app_handle_for`, cache vidé par `reload_icons` ; les messages gardent leurs chemins) ; étapes 5 et 6 faites (`d3a1835`). Écart fait.
 
 ## Validation
 
