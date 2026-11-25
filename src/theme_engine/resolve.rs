@@ -838,7 +838,13 @@ mod tests {
         ));
         let r = resolve(&[p], "dark").unwrap();
         assert!(r.warnings.is_empty(), "{:?}", r.warnings);
-        assert_eq!(r.effects[&Place::Dock], r.effects[&Place::Launcher]);
+        let (dock, launcher) = (r.effects[&Place::Dock], r.effects[&Place::Launcher]);
+        assert_eq!(
+            (dock.opacity, dock.blur, dock.material),
+            (launcher.opacity, launcher.blur, launcher.material)
+        );
+        // Le dock garde sa densification par défaut (MLG-337).
+        assert_eq!(dock.adaptive, Some(1.0));
         assert_eq!(r.design.glass(Place::Dock), r.design.glass(Place::Launcher));
         assert_eq!(
             r.design.fallback.get("dock"),

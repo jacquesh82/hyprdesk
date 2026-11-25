@@ -345,6 +345,10 @@ pub fn write_custom(roots: &Roots, theme: &Theme) -> Result<PathBuf> {
     // explicite de l'utilisateur, que Réglages → Thème signale.
     let mut contrast = toml::Table::new();
     contrast.insert("enforce".into(), false.into());
+    // Pas de plancher d'opacité non plus (MLG-337) : une opacité réglée dans
+    // hyprdesk est celle qui s'affiche — les préférences d'accessibilité
+    // (transparence réduite, contraste renforcé) restent au-dessus.
+    contrast.insert("min_opacity".into(), 0.0.into());
     doc.insert("contrast".into(), contrast.into());
     let text =
         toml::to_string(&doc).map_err(|e| Error::Manifest(CUSTOM_ID.to_string(), e.to_string()))?;

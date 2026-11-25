@@ -154,11 +154,23 @@ impl App {
         )
     }
 
+    /// Opacité du dock : celle réglée, relevée sur un fond qui gênerait la
+    /// lecture tant qu'il est adaptatif, jusqu'à son plafond (MLG-337) ;
+    /// non adaptatif, l'opacité choisie telle quelle.
     pub(super) fn launcher_material_opacity(&self, monitor: &str, roi: Rectangle) -> f32 {
         let g = &self.cfg.general;
-        let base = g.theme.shown(crate::config::Place::Dock).opacity;
+        let shown = g.theme.shown(crate::config::Place::Dock);
+        let Some(max) = shown.adaptive else {
+            return shown.opacity;
+        };
         let behind = self.wall_range(monitor, roi);
-        readable_opacity(color(g.theme.fg, 1.0), color(g.theme.bg, 1.0), behind, base)
+        readable_opacity(
+            color(g.theme.fg, 1.0),
+            color(g.theme.bg, 1.0),
+            behind,
+            shown.opacity,
+        )
+        .min(max.max(shown.opacity))
     }
 
     /// Taille logique d'un écran (1920×1080 s'il est inconnu).

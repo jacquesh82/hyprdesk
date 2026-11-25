@@ -2107,13 +2107,7 @@ fn dynamic_set(
             "material" => match v.trim() {
                 "theme" | "none" | "" => e.material = None,
                 m => match crate::config::Material::parse(m) {
-                    Some(m) => {
-                        let mut fresh = m.effect();
-                        if !place.blurrable() {
-                            fresh.blur = false;
-                        }
-                        e = fresh;
-                    }
+                    Some(m) => e = m.effect_for(place),
                     None => {
                         return Some(Err(crate::tr!(
                             "« {v} » : matériau inconnu (theme, transparent, glass_clear, glass_regular, content_surface)",
@@ -2123,7 +2117,16 @@ fn dynamic_set(
                 },
             },
             _ => match number(v, 0.0f32, 1.0) {
-                Ok(n) => e.opacity = n,
+                Ok(n) => {
+                    e.opacity = n;
+                    // Comme le curseur de Thème → Surfaces : l'opacité propre
+                    // de la barre (`bar.opacity`) rend la main (MLG-337).
+                    if place == Place::Bar
+                        && let Some(b) = s.bar.as_mut()
+                    {
+                        b.colors.opacity = None;
+                    }
+                }
                 Err(err) => return Some(Err(err)),
             },
         }
@@ -3245,6 +3248,13 @@ mod tests {
             "content_surface"
         );
         assert!(run_s(&p, &["set", "theme.effects.dock.material", "papier"]).is_err());
+        // L'opacité de la barre réglée au thème rend la main à celui-ci
+        // (MLG-337) : `bar.opacity` l'emportait en silence.
+        run_s(&p, &["set", "bar", "on"]).unwrap();
+        run_s(&p, &["set", "bar.opacity", "0.4"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "bar.opacity"]).unwrap(), "0.4");
+        run_s(&p, &["set", "theme.effects.bar.opacity", "0.9"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "bar.opacity"]).unwrap(), "theme");
     }
 
     /// Transparence adaptative d'une surface (MLG-261).

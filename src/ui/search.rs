@@ -2099,7 +2099,10 @@ impl App {
             fg,
             self.launcher_tint(bg),
             container::Style {
-                background: Some(bg.into()),
+                // Fond à l'opacité du lanceur (MLG-337) : sans réfraction,
+                // la carte peint ce fond tel quel ; opaque, le réglage
+                // Thème → Surfaces → Lanceur restait sans effet.
+                background: Some(self.launcher_tint(bg).into()),
                 border: Border::default()
                     .rounded(super::design::RADIUS)
                     .width(1)

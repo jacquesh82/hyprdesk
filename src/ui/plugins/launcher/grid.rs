@@ -573,7 +573,8 @@ impl App {
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
         );
-        // La feuille : opaque, coins arrondis, ombre ; un clic autour referme.
+        // La feuille : à l'opacité du lanceur, coins arrondis, ombre ; un clic
+        // autour referme.
         // Verre du thème, vraie réfraction du fond en plein bureau (MLG-275).
         let sheet = crate::ui::glass::card(
             container(body)
@@ -585,7 +586,10 @@ impl App {
             fg,
             self.launcher_tint(surface),
             container::Style {
-                background: Some(surface.into()),
+                // Fond à l'opacité du lanceur (MLG-337) : sans réfraction,
+                // la carte peint ce fond tel quel ; opaque, le réglage
+                // Thème → Surfaces → Lanceur restait sans effet.
+                background: Some(self.launcher_tint(surface).into()),
                 border: Border::default()
                     .rounded(f32::from(shape().radius) + 4.0)
                     .width(1)
@@ -726,7 +730,10 @@ impl App {
             fg,
             self.launcher_tint(bg),
             container::Style {
-                background: Some(bg.into()),
+                // Fond à l'opacité du lanceur (MLG-337) : sans réfraction,
+                // la carte peint ce fond tel quel ; opaque, le réglage
+                // Thème → Surfaces → Lanceur restait sans effet.
+                background: Some(self.launcher_tint(bg).into()),
                 border: Border::default()
                     .rounded(f32::from(shape().radius))
                     .width(1)

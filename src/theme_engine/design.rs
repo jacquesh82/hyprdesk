@@ -710,7 +710,13 @@ pub fn resolve(
     }
     for p in inherit {
         if let Some(parent) = p.parent() {
-            effects.insert(p, effects[&parent]);
+            let mut e = effects[&parent];
+            // Une surface adaptable garde sa densification par défaut quand
+            // sa parente n'en a pas (le dock, MLG-337).
+            if p.adaptable() && e.adaptive.is_none() {
+                e.adaptive = p.default_effect().adaptive;
+            }
+            effects.insert(p, e);
             glass.insert(p, glass[&parent].clone());
             if let Some(o) = design.fallback.get(parent.as_str()).copied() {
                 design.fallback.insert(p.as_str().to_string(), o);

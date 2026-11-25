@@ -706,9 +706,14 @@ impl App {
                 );
                 // Les interrupteurs restent sur la ligne du curseur, au-dessus de
                 // son échelle (HIG SEL-09).
+                // La barre peut avoir sa propre opacité (Barre → Couleurs),
+                // qui l'emporte : le curseur montre celle qui s'applique.
+                let bar_own = (place == Place::Bar)
+                    .then(|| self.cfg.bar.as_ref().and_then(|b| b.colors.opacity))
+                    .flatten();
                 let mut line = row![self.slider(
                     &spec,
-                    f64::from((e.opacity * 100.0).round() as u32),
+                    f64::from((bar_own.unwrap_or(e.opacity) * 100.0).round() as u32),
                     percent,
                     SliderLook::fill(13.0, 48, Alignment::Center),
                 ),]
@@ -726,10 +731,9 @@ impl App {
                     ));
                 }
                 // Transparence adaptative : les surfaces posées sur le fond
-                // d'écran (le lanceur l'est toujours ; menus et Réglages
-                // passent devant des fenêtres, invisibles pour hyprdesk).
-                let adaptable = matches!(place, Place::Bar | Place::Widgets);
-                if adaptable {
+                // d'écran (menus, Réglages et LYRA passent devant des
+                // fenêtres, invisibles pour hyprdesk).
+                if place.adaptable() {
                     line = line.push(beside_slider(
                         &spec,
                         self.focusable(
@@ -758,9 +762,17 @@ impl App {
                 .wrap();
                 let mut cell = column![materials, line].spacing(8);
                 let note = match (place, e.adaptive) {
-                    (Place::Launcher, _) => Some(
-                        crate::i18n::tr("Densifié selon le fond d'écran pour rester lisible.")
-                            .to_string(),
+                    (Place::Bar, _) if bar_own.is_some() => Some(
+                        crate::i18n::tr(
+                            "Opacité fixée dans Barre → Couleurs ; déplacer ce curseur rend la main au thème.",
+                        )
+                        .to_string(),
+                    ),
+                    (Place::Dock, Some(_)) => Some(
+                        crate::i18n::tr(
+                            "Densifié si le fond gêne la lecture ; coupez « Adaptatif » pour garder l'opacité choisie.",
+                        )
+                        .to_string(),
                     ),
                     (Place::Bar, Some(max)) => {
                         let now = self.bar_palette().opacity;
@@ -1556,6 +1568,13 @@ impl App {
                 let mut e = self.theme_effect(place);
                 e.opacity = v.clamp(0.0, 1.0);
                 self.settings.effects.insert(place, e);
+                // L'opacité propre de la barre (Barre → Couleurs) l'emportait
+                // sur ce curseur : il lui rend la main (MLG-337).
+                if place == Place::Bar
+                    && let Some(b) = self.settings.bar.as_mut()
+                {
+                    b.colors.opacity = None;
+                }
                 self.apply()
             }
             Msg::Blur(place, v) => {
@@ -1576,14 +1595,7 @@ impl App {
                 // Un matériau pose son opacité, son flou et sa densification ;
                 // revenir au thème ne garde que l'opacité réglée.
                 let e = match material {
-                    Some(m) => {
-                        let mut e = m.effect();
-                        e.blur &= place.blurrable();
-                        if !matches!(place, Place::Bar | Place::Widgets) {
-                            e.adaptive = None;
-                        }
-                        e
-                    }
+                    Some(m) => m.effect_for(place),
                     None => Effect {
                         material: None,
                         ..self.theme_effect(place)

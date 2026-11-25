@@ -5069,3 +5069,5 @@
 "Verre clair" = "Clear glass"
 "Matériau, opacité du fond et flou (fourni par Hyprland) de chaque surface. « Thème » garde le verre du thème choisi ; un autre matériau pose son opacité, réglable ensuite." = "Material, background opacity and blur (provided by Hyprland) of each surface. “Theme” keeps the chosen theme's glass; another material sets its own opacity, adjustable afterwards."
 "Surfaces" = "Surfaces"
+"Densifié si le fond gêne la lecture ; coupez « Adaptatif » pour garder l'opacité choisie." = "Thickened when the wallpaper hurts readability; turn off “Adaptive” to keep the chosen opacity."
+"Opacité fixée dans Barre → Couleurs ; déplacer ce curseur rend la main au thème." = "Opacity set in Bar → Colours; moving this slider hands it back to the theme."

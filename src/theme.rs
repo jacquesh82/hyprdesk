@@ -61,8 +61,12 @@ impl PipeChildren for std::collections::BTreeMap<Place, Effect> {
         for p in Place::ALL {
             if let Some(parent) = p.parent()
                 && !self.contains_key(&p)
-                && let Some(e) = self.get(&parent).copied()
+                && let Some(mut e) = self.get(&parent).copied()
             {
+                // Même règle que le moteur : le dock garde sa densification.
+                if p.adaptable() && e.adaptive.is_none() {
+                    e.adaptive = p.default_effect().adaptive;
+                }
                 self.insert(p, e);
             }
         }

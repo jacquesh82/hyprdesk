@@ -856,9 +856,21 @@ impl Place {
             // Barre et widgets sont posés sur le fond d'écran : ils se
             // densifient jusqu'à ce plafond quand le fond rendrait leur texte
             // illisible (HIG FON-01) ; le lanceur l'est toujours.
-            adaptive: matches!(self, Place::Bar | Place::Widgets).then_some(0.95),
+            adaptive: match self {
+                Place::Bar | Place::Widgets => Some(0.95),
+                // Le dock se densifie jusqu'à l'opaque sur un fond qui
+                // gênerait la lecture (son plancher d'origine), réglable.
+                Place::Dock => Some(1.0),
+                _ => None,
+            },
             material: None,
         }
+    }
+
+    /// Surface posée sur le fond d'écran, qui peut se densifier quand le
+    /// fond gênerait la lecture (`Effect::adaptive`).
+    pub fn adaptable(self) -> bool {
+        matches!(self, Place::Bar | Place::Widgets | Place::Dock)
     }
 
     /// Les widgets sont dessinés sur la couche du bureau, avec le fond
@@ -957,6 +969,17 @@ impl Material {
             adaptive,
             material: Some(self),
         }
+    }
+
+    /// Effet du matériau posé sur `place` : sans flou là où la surface n'en
+    /// a pas, sans densification là où elle ne se densifie pas.
+    pub fn effect_for(self, place: Place) -> Effect {
+        let mut e = self.effect();
+        e.blur &= place.blurrable();
+        if !place.adaptable() {
+            e.adaptive = None;
+        }
+        e
     }
 }
 
