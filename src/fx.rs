@@ -202,6 +202,12 @@ pub const OPTIONS: &[Opt] = &[
     ),
 ];
 
+/// Rayon commun des fenêtres et des surfaces de hyprdesk, en pixels
+/// logiques : `decoration.rounding` de Hyprland quand ni Effets ni le
+/// thème ne le règlent, et le tiroir des Réglages. Les fenêtres et le shell
+/// ont ainsi les mêmes coins.
+pub const WINDOW_RADIUS: u16 = 12;
+
 /// `render.direct_scanout` de Hyprland 0.57 (entier).
 pub const SCANOUT: &[(i64, &str)] = &[(0, "Jamais"), (1, "Toujours"), (2, "Jeux seulement")];
 

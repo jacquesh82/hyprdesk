@@ -297,6 +297,12 @@ pub fn render_with(cfg: &Config, pack: Option<&PackHypr>) -> Vec<(&'static str, 
                         .filter(|(k, _)| fx_domain(k) == "appearance")
                         .map(|(k, v)| (k.clone(), v.clone())),
                 );
+                // Coins des fenêtres au rayon des surfaces de hyprdesk, quand
+                // ni Effets ni le pack du thème n'en décident.
+                if !pack.is_some_and(|p| p.options.contains_key("decoration:rounding")) {
+                    opts.entry("decoration.rounding".into())
+                        .or_insert(OptValue::Num(f64::from(crate::fx::WINDOW_RADIUS)));
+                }
                 if hypr.theme_borders
                     && let Some(p) = pack.filter(|p| !p.borders.is_empty())
                 {
@@ -576,6 +582,12 @@ mod tests {
         });
         let files: BTreeMap<_, _> = render(&cfg).into_iter().collect();
         assert!(files["appearance"].contains("border_size = 2,"));
+        // Rien ne règle l'arrondi : les fenêtres au rayon de hyprdesk.
+        assert!(
+            files["appearance"].contains(&format!("rounding = {},", crate::fx::WINDOW_RADIUS)),
+            "{}",
+            files["appearance"]
+        );
         assert!(files["system"].contains("disable_hyprland_logo = true,"));
         assert!(
             !files["system"].contains("force_no_accel"),

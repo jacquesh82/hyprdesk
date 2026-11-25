@@ -1784,7 +1784,8 @@ impl App {
         let card = super::glass::card(
             card,
             crate::config::Place::Settings,
-            24.0,
+            // Le rayon des fenêtres de Hyprland (`fx::WINDOW_RADIUS`).
+            f32::from(crate::fx::WINDOW_RADIUS),
             color(th.fg, 1.0),
             color(
                 super::tokens::tinted(th.bg, crate::config::Place::Settings),
