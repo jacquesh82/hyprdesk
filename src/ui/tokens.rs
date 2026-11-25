@@ -374,11 +374,15 @@ impl Shown for Theme {
                     opacity: sp.opacity,
                     blur: sp.blur,
                     adaptive: sp.adaptive,
+                    material: base.material,
                 })
                 .unwrap_or(base);
             (e, d.contrast.min_opacity)
         });
-        if matches!(p, Place::Menus | Place::Launcher | Place::Settings) {
+        if matches!(
+            p,
+            Place::Menus | Place::Launcher | Place::Settings | Place::Dock | Place::Assistant
+        ) {
             e.opacity = e.opacity.max(min);
         }
         if reduced_transparency() {

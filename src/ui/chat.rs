@@ -1702,18 +1702,31 @@ impl App {
             .padding(8)
             .width(Length::Fill)
             .style(appearance::composer);
+        // Opacité et verre de la surface LYRA (Réglages → Thème → Surfaces,
+        // MLG-336) ; sans flou de Hyprland, la transparence la rendrait
+        // illisible : opaque, comme le tiroir des Réglages.
+        let opacity = if self.hypr_blur_off() {
+            1.0
+        } else {
+            use crate::ui::tokens::Shown;
+            self.cfg
+                .general
+                .theme
+                .shown(crate::config::Place::Assistant)
+                .opacity
+        };
         let card = container(column![header, conv_row, body, composer].spacing(16))
             .padding(24)
             .width(Length::Fill)
             .height(Length::Fill)
-            .style(|theme| {
+            .style(move |theme| {
                 let mut style = super::design::surface(theme, super::design::Surface::Panel);
                 let p = theme.palette();
                 let tint = |amount| Color {
                     r: p.background.r + (p.primary.r - p.background.r) * amount,
                     g: p.background.g + (p.primary.g - p.background.g) * amount,
                     b: p.background.b + (p.primary.b - p.background.b) * amount,
-                    a: 0.99,
+                    a: opacity,
                 };
                 style.background = Some(
                     iced::gradient::Linear::new(iced::Radians(1.1))
@@ -1729,6 +1742,7 @@ impl App {
                 style.shadow = iced::Shadow::default();
                 style
             });
+        let card = crate::ui::glass::over(card, crate::config::Place::Assistant, 30.0, fg);
         container(iced::widget::mouse_area(card).on_press(Msg::Noop))
             .width(Length::Fill)
             .height(Length::Fill)

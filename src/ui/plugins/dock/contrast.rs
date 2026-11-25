@@ -149,14 +149,14 @@ impl App {
             color(g.theme.fg, 1.0),
             color(g.theme.bg, 1.0),
             (0.0, 1.0),
-            g.theme.shown(crate::config::Place::Launcher).opacity,
+            g.theme.shown(crate::config::Place::Dock).opacity,
             0.95 / 0.88,
         )
     }
 
     pub(super) fn launcher_material_opacity(&self, monitor: &str, roi: Rectangle) -> f32 {
         let g = &self.cfg.general;
-        let base = g.theme.shown(crate::config::Place::Launcher).opacity;
+        let base = g.theme.shown(crate::config::Place::Dock).opacity;
         let behind = self.wall_range(monitor, roi);
         readable_opacity(color(g.theme.fg, 1.0), color(g.theme.bg, 1.0), behind, base)
     }

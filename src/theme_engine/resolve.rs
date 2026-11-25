@@ -820,5 +820,37 @@ mod tests {
             ),
             (14.0, 40.0, 12.0)
         );
+        // Matériau nommé porté par l'effet résolu (MLG-336).
+        assert_eq!(
+            r.effects[&Place::Launcher].material,
+            Some(crate::config::Material::GlassRegular)
+        );
+        assert_eq!(r.effects[&Place::Menus].material, None);
+    }
+
+    /// MLG-336 : un pack qui ne règle ni le dock ni LYRA les voit suivre le
+    /// lanceur et les Réglages ; un pack qui les règle garde la main.
+    #[test]
+    fn dock_et_lyra_suivent_lanceur_et_reglages() {
+        let p = manifest(&format!(
+            "{BASE}[effects.launcher]\nmaterial = \"glass_clear\"\nfallback = \"content_surface\"\n\
+             [effects.settings]\nopacity = 0.8\n"
+        ));
+        let r = resolve(&[p], "dark").unwrap();
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+        assert_eq!(r.effects[&Place::Dock], r.effects[&Place::Launcher]);
+        assert_eq!(r.design.glass(Place::Dock), r.design.glass(Place::Launcher));
+        assert_eq!(
+            r.design.fallback.get("dock"),
+            r.design.fallback.get("launcher")
+        );
+        assert!((r.effects[&Place::Assistant].opacity - 0.8).abs() < 1e-6);
+        let p = manifest(&format!(
+            "{BASE}[effects.launcher]\nopacity = 0.5\n[effects.dock]\nmaterial = \"transparent\"\n"
+        ));
+        let r = resolve(&[p], "dark").unwrap();
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+        assert_eq!(r.effects[&Place::Dock].opacity, 0.0);
+        assert!((r.effects[&Place::Launcher].opacity - 0.5).abs() < 1e-6);
     }
 }

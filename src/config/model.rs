@@ -777,17 +777,35 @@ pub enum Place {
     /// Surface de lecture stable sous le contenu (résultats, formulaires,
     /// graphiques) d'une surface de verre (MLG-282).
     Content,
+    /// Le dock et ses bulles (MLG-336) ; sans réglage propre, celui du
+    /// lanceur (moteur de thème).
+    Dock,
+    /// Le tiroir de LYRA (MLG-336) ; sans réglage propre, celui des
+    /// Réglages (moteur de thème).
+    Assistant,
 }
 
 impl Place {
-    pub const ALL: [Place; 6] = [
+    pub const ALL: [Place; 8] = [
         Place::Bar,
         Place::Menus,
         Place::Launcher,
         Place::Settings,
         Place::Widgets,
         Place::Content,
+        Place::Dock,
+        Place::Assistant,
     ];
+
+    /// Surface dont celle-ci hérite quand un thème ne la règle pas : le
+    /// dock a longtemps suivi le lanceur, LYRA s'ouvre à côté des Réglages.
+    pub fn parent(self) -> Option<Place> {
+        match self {
+            Place::Dock => Some(Place::Launcher),
+            Place::Assistant => Some(Place::Settings),
+            _ => None,
+        }
+    }
 
     pub fn parse(s: &str) -> Option<Self> {
         Place::ALL.into_iter().find(|p| p.as_str() == s)
@@ -801,6 +819,8 @@ impl Place {
             Place::Settings => "settings",
             Place::Widgets => "widgets",
             Place::Content => "content",
+            Place::Dock => "dock",
+            Place::Assistant => "assistant",
         }
     }
 
@@ -812,6 +832,8 @@ impl Place {
             Place::Settings => crate::i18n::tr("Réglages"),
             Place::Widgets => crate::i18n::tr("Widgets du bureau"),
             Place::Content => crate::i18n::tr("Contenu (résultats, formulaires)"),
+            Place::Dock => "Dock",
+            Place::Assistant => "LYRA",
         }
     }
 
@@ -822,8 +844,8 @@ impl Place {
         let opacity = match self {
             Place::Bar => 0.72,
             Place::Menus => 0.90,
-            Place::Launcher => 0.88,
-            Place::Settings => 0.97,
+            Place::Launcher | Place::Dock => 0.88,
+            Place::Settings | Place::Assistant => 0.97,
             Place::Widgets => 0.84,
             // Pas de surface de contenu sans thème : l'apparence d'origine.
             Place::Content => 0.0,
@@ -835,6 +857,7 @@ impl Place {
             // densifient jusqu'à ce plafond quand le fond rendrait leur texte
             // illisible (HIG FON-01) ; le lanceur l'est toujours.
             adaptive: matches!(self, Place::Bar | Place::Widgets).then_some(0.95),
+            material: None,
         }
     }
 
@@ -849,12 +872,11 @@ impl Place {
         match self {
             Place::Bar => &["hyprdesk-bar", "hyprdesk-convex-frame"],
             Place::Menus => &["hyprdesk-popover"],
-            Place::Launcher => &[
-                "hyprdesk-launcher",
-                "hyprdesk-launcher-popup",
-                "hyprdesk-search",
-            ],
+            // Le dock est la couche « launcher » (son nom d'origine).
+            Place::Launcher => &["hyprdesk-search"],
+            Place::Dock => &["hyprdesk-launcher", "hyprdesk-launcher-popup"],
             Place::Settings => &["hyprdesk-settings", "hyprdesk-wizard"],
+            Place::Assistant => &["hyprdesk-assistant"],
             Place::Widgets | Place::Content => &[],
         }
     }
@@ -869,6 +891,73 @@ pub struct Effect {
     /// verre se densifie quand le fond d'écran derrière rendrait le texte
     /// illisible (4,5:1) ; `None` : opacité fixe.
     pub adaptive: Option<f32>,
+    /// Matériau choisi pour la surface (MLG-336) : son verre (reflet,
+    /// réfraction, teinte) ; `None` : celui du thème.
+    pub material: Option<Material>,
+}
+
+/// Matériau d'une surface (MLG-282, MLG-336), d'après les Human Interface
+/// Guidelines : les préréglages du moteur de thème du même nom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Material {
+    /// Le bureau reste visible : ni fond, ni flou, ni verre.
+    Transparent,
+    /// Verre très transparent, bord réfractif.
+    GlassClear,
+    /// Verre des commandes : flou, reflet, densifié sur un fond gênant.
+    GlassRegular,
+    /// Surface de lecture stable, presque opaque.
+    ContentSurface,
+}
+
+impl Material {
+    pub const ALL: [Material; 4] = [
+        Material::Transparent,
+        Material::GlassClear,
+        Material::GlassRegular,
+        Material::ContentSurface,
+    ];
+
+    /// Nom du préréglage du moteur de thème.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Material::Transparent => "transparent",
+            Material::GlassClear => "glass_clear",
+            Material::GlassRegular => "glass_regular",
+            Material::ContentSurface => "content_surface",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Material::ALL.into_iter().find(|m| m.as_str() == s)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Material::Transparent => "Transparent",
+            Material::GlassClear => crate::i18n::tr("Verre clair"),
+            Material::GlassRegular => crate::i18n::tr("Verre"),
+            Material::ContentSurface => crate::i18n::tr("Surface opaque"),
+        }
+    }
+
+    /// Opacité, flou et densification du matériau, tels que le moteur les
+    /// pose (`theme_engine::design::builtin_presets`) : la surface les prend
+    /// quand on le choisit, l'utilisateur règle ensuite son opacité.
+    pub fn effect(self) -> Effect {
+        let (opacity, blur, adaptive) = match self {
+            Material::Transparent => (0.0, false, None),
+            Material::GlassClear => (0.35, true, None),
+            Material::GlassRegular => (0.72, true, Some(0.94)),
+            Material::ContentSurface => (0.94, true, None),
+        };
+        Effect {
+            opacity,
+            blur,
+            adaptive,
+            material: Some(self),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

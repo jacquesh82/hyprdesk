@@ -67,7 +67,11 @@ pub fn card<'a, M: 'a>(
     // Matériau de secours (MLG-282) : la surface ne voit pas ce qu'il y a
     // derrière elle (rendu logiciel, ou fenêtres sans capture).
     let blind = !super::lens::available()
-        || (under.is_none() && matches!(place, Place::Menus | Place::Settings | Place::Launcher));
+        || (under.is_none()
+            && matches!(
+                place,
+                Place::Menus | Place::Settings | Place::Launcher | Place::Dock | Place::Assistant
+            ));
     let fallback = blind
         .then(|| {
             super::tokens::design()

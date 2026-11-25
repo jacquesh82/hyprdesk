@@ -188,7 +188,6 @@ pub const ADVANCED_TABS: &[(&str, &str)] = &[
     ("desktop", "dependances"),
     ("assistant", "services"),
     ("performance", "hyprdesk"),
-    ("theme", "transparence"),
     ("animations", "courbes"),
     ("animations", "bureau"),
     ("layouts", "custom"),
@@ -890,10 +889,12 @@ mod tests {
             ("hyprconfig", "environnement"),
             ("animations", "courbes"),
             ("animations", "bureau"),
-            ("theme", "transparence"),
         ] {
             assert!(is_advanced(p, Some(t)), "{p}/{t}");
         }
+        // Thème → Surfaces (MLG-336) : matériau et transparence de chaque
+        // surface, en configuration de base.
+        assert!(!is_advanced("theme", Some("transparence")));
         // Ancien paquet Effets : Animations → Bureau ; ancien onglet Thème → Effets.
         assert_eq!(find("effets").map(|p| p.id), Some("animations"));
         assert_eq!(find_tab("theme", "effets"), Some("transparence"));

@@ -606,6 +606,9 @@ impl Ctx<'_> {
                 Some(p) => {
                     apply_effect(effect, p);
                     apply_look(glass, &p.glass, self.palette, warn);
+                    // Matériau nommé (MLG-336) : Réglages → Thème le montre ;
+                    // un autre préréglage (« tinted »…) n'en est pas un.
+                    effect.material = crate::config::Material::parse(name);
                 }
                 None => warn.push(format!("préréglage de verre inconnu ignoré : {name}")),
             }
@@ -663,12 +666,21 @@ pub fn resolve(
     }
     let ctx = Ctx { presets, palette };
     let mut glass: BTreeMap<Place, Glass> = Place::ALL.iter().map(|p| (*p, base.clone())).collect();
-    let specs = chain.iter().map(|m| &m.effects).chain(
-        chain
-            .iter()
-            .filter_map(|m| m.variant.get(variant))
-            .map(|v| &v.effects),
-    );
+    let specs = || {
+        chain.iter().map(|m| &m.effects).chain(
+            chain
+                .iter()
+                .filter_map(|m| m.variant.get(variant))
+                .map(|v| &v.effects),
+        )
+    };
+    // Surfaces qu'aucun pack de la chaîne ne règle : elles suivront leur
+    // parente (le dock, le lanceur ; LYRA, les Réglages — MLG-336).
+    let inherit: Vec<Place> = Place::ALL
+        .into_iter()
+        .filter(|p| p.parent().is_some() && !specs().any(|s| s.contains_key(p.as_str())))
+        .collect();
+    let specs = specs();
     for spec in specs {
         for (key, e) in spec {
             match Place::parse(key) {
@@ -693,6 +705,15 @@ pub fn resolve(
                     }
                 }
                 None => warnings.push(format!("surface d'effet inconnue ignorée : {key}")),
+            }
+        }
+    }
+    for p in inherit {
+        if let Some(parent) = p.parent() {
+            effects.insert(p, effects[&parent]);
+            glass.insert(p, glass[&parent].clone());
+            if let Some(o) = design.fallback.get(parent.as_str()).copied() {
+                design.fallback.insert(p.as_str().to_string(), o);
             }
         }
     }
@@ -767,6 +788,7 @@ pub fn resolve(
                             opacity: sp.opacity,
                             blur: sp.blur,
                             adaptive: sp.adaptive,
+                            material: effects[&place].material,
                         },
                         sp.glass,
                     ),

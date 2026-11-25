@@ -1654,12 +1654,17 @@ impl Settings {
                         Some(m) => format!(", adaptive = {}", num(m)),
                         None => ", adaptive = false".to_string(),
                     };
+                    let material = e
+                        .material
+                        .map(|m| format!(", material = {}", q(m.as_str())))
+                        .unwrap_or_default();
                     format!(
-                        "{} = {{ opacity = {}, blur = {}{} }}",
+                        "{} = {{ opacity = {}, blur = {}{}{} }}",
                         p.as_str(),
                         num(e.opacity),
                         e.blur,
-                        adaptive
+                        adaptive,
+                        material
                     )
                 })
                 .collect();
@@ -2598,6 +2603,7 @@ mod tests {
                 opacity: 0.58,
                 blur: true,
                 adaptive: Some(0.92),
+                material: None,
             },
         );
         let lua = s.to_lua();
@@ -2610,12 +2616,28 @@ mod tests {
                 opacity: 0.8,
                 blur: false,
                 adaptive: None,
+                material: None,
             },
         );
         let lua = s.to_lua();
         assert!(
             lua.contains("widgets = { opacity = 0.8, blur = false, adaptive = false }"),
             "{lua}"
+        );
+        // Matériau d'une surface (MLG-336) : écrit, puis relu tel quel.
+        s.effects.insert(
+            crate::config::Place::Dock,
+            crate::config::Material::GlassClear.effect(),
+        );
+        let lua = s.to_lua();
+        assert!(lua.contains(r#"material = "glass_clear""#), "{lua}");
+        let back = s.apply_to(&crate::config::Config::default());
+        assert_eq!(
+            back.general
+                .theme
+                .effect(crate::config::Place::Dock)
+                .material,
+            Some(crate::config::Material::GlassClear)
         );
         assert!(lua.contains("adaptive = 0.92"), "{lua}");
         assert!(lua.contains("accent = \"active\""), "{lua}");

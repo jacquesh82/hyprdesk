@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 187] = [
+const SCENES: [&str; 188] = [
     "desktop",
     "typography",
     "icons",
@@ -231,6 +231,9 @@ const SCENES: [&str; 187] = [
     // Réglages → Thème → Composants, onglet Fond d'écran : onglets internes
     // et sections (images, cadrage, retouche, fonds animés, verre).
     "reglages-composants",
+    // Réglages → Thème → Surfaces (MLG-336) : matériau et transparence de
+    // chaque surface, le dock en verre clair.
+    "reglages-surfaces",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -1072,7 +1075,10 @@ impl Preview {
             "a-propos" => Some("about"),
             "raccourcis" | "raccourcis-essentiels" => Some("keys"),
             "reglages-valeur-saisie" => Some("dock"),
-            "reglages-echelle" | "reglages-icones" | "reglages-composants" => Some("theme"),
+            "reglages-echelle"
+            | "reglages-icones"
+            | "reglages-composants"
+            | "reglages-surfaces" => Some("theme"),
             "reglages-notifications" => Some("notifications"),
             "bar-graphite-edit" => Some("bar"),
             _ => None,
@@ -1739,6 +1745,14 @@ impl Preview {
                 if let Some(p) = self.app.panel.as_mut() {
                     p.theme.components_tab = "controls";
                 }
+            }
+            if SCENES[self.scene] == "reglages-surfaces" {
+                self.app.subtabs.insert("theme", "transparence");
+                Arc::make_mut(&mut self.app.cfg)
+                    .general
+                    .theme
+                    .effects
+                    .insert(config::Place::Dock, config::Material::GlassClear.effect());
             }
             if SCENES[self.scene] == "reglages-composants" {
                 self.app.subtabs.insert("theme", "composants");

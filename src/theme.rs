@@ -41,10 +41,32 @@ impl Preset {
                         blur: self.blur && p.blurrable(),
                         // Même règle que `Place::default_effect` (HIG FON-01).
                         adaptive: matches!(p, Place::Bar | Place::Widgets).then_some(0.95),
+                        material: None,
                     },
                 )
             })
-            .collect()
+            .collect::<std::collections::BTreeMap<_, _>>()
+            .pipe_children()
+    }
+}
+
+/// Effets d'un préréglage : le dock et LYRA prennent celui de leur surface
+/// parente (`Place::parent`) quand la liste ne les donne pas (MLG-336).
+trait PipeChildren {
+    fn pipe_children(self) -> Self;
+}
+
+impl PipeChildren for std::collections::BTreeMap<Place, Effect> {
+    fn pipe_children(mut self) -> Self {
+        for p in Place::ALL {
+            if let Some(parent) = p.parent()
+                && !self.contains_key(&p)
+                && let Some(e) = self.get(&parent).copied()
+            {
+                self.insert(p, e);
+            }
+        }
+        self
     }
 }
 
@@ -795,10 +817,12 @@ pub fn from_scene(image: &Path, name: &str) -> Result<Settings, String> {
                     opacity,
                     blur: p.blurrable(),
                     adaptive: None,
+                    material: None,
                 },
             )
         })
-        .collect();
+        .collect::<std::collections::BTreeMap<_, _>>()
+        .pipe_children();
     t.wallpapers = vec![crate::config::WallpaperRule {
         origin: Origin::Settings,
         sel: Default::default(),
@@ -892,6 +916,7 @@ mod tests {
                 opacity: 0.5,
                 blur: false,
                 adaptive: None,
+                material: None,
             },
         );
         let t = Settings::theme_of(&cfg);

@@ -92,6 +92,7 @@ pub fn same_look(a: &Theme, b: &Theme) -> bool {
         && Place::ALL.iter().all(|p| {
             let (x, y) = (a.effect(*p), b.effect(*p));
             x.blur == y.blur
+                && x.material == y.material
                 && (x.opacity - y.opacity).abs() < 1e-3
                 && match (x.adaptive, y.adaptive) {
                     (None, None) => true,
@@ -316,13 +317,21 @@ pub fn write_custom(roots: &Roots, theme: &Theme) -> Result<PathBuf> {
             opacity,
             blur,
             adaptive,
+            material,
         } = theme.effect(p);
         let mut e = toml::Table::new();
         let round = |v: f32| (f64::from(v) * 10_000.0).round() / 10_000.0;
+        // Le matériau d'abord (son verre), puis les valeurs réglées, qui
+        // l'emportent sur les siennes (MLG-336).
+        if let Some(m) = material {
+            e.insert("material".into(), m.as_str().into());
+        }
         e.insert("opacity".into(), round(opacity).into());
         e.insert("blur".into(), blur.into());
+        // Toujours écrit : sans « false », le défaut de la surface ou le
+        // matériau rendait la densification coupée par l'utilisateur.
+        e.insert("adaptive".into(), adaptive.is_some().into());
         if let Some(max) = adaptive {
-            e.insert("adaptive".into(), true.into());
             e.insert("opacity_max".into(), round(max).into());
         }
         effects.insert(p.as_str().into(), e.into());
@@ -416,6 +425,34 @@ mod tests {
         assert_eq!(
             adopt(&roots, &ardoise(), "user").unwrap().active.pack,
             "ardoise"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// MLG-336 : le matériau d'une surface passe par le pack perso et
+    /// revient tel quel ; une densification coupée le reste.
+    #[test]
+    fn matériau_d_une_surface_par_le_pack_perso() {
+        use crate::config::Material;
+        let (root, roots) = roots("materiau");
+        let mut t = ardoise();
+        t.effects.insert(Place::Dock, Material::GlassClear.effect());
+        let mut bar = t.effect(Place::Bar);
+        bar.adaptive = None;
+        t.effects.insert(Place::Bar, bar);
+        let a = adopt(&roots, &t, "user").unwrap();
+        assert_eq!(a.active.pack, CUSTOM_ID);
+        let back = to_theme(&a.resolved);
+        assert!(same_theme(&back, &t));
+        assert_eq!(
+            back.effect(Place::Dock).material,
+            Some(Material::GlassClear)
+        );
+        assert_eq!(back.effect(Place::Bar).adaptive, None);
+        let g = a.resolved.design.glass(Place::Dock);
+        assert!(
+            (g.refraction - 0.35).abs() < 1e-6,
+            "verre du matériau : {g:?}"
         );
         let _ = std::fs::remove_dir_all(&root);
     }

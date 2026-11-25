@@ -5060,3 +5060,12 @@
 "Cadrage" = "Framing"
 "Retouche" = "Adjustments"
 "Fonds animés" = "Animated wallpapers"
+
+# Thème → Surfaces : matériau de chaque surface (MLG-336).
+"theme | transparent | glass_clear | glass_regular | content_surface — matériau (verre) : {place}" = "theme | transparent | glass_clear | glass_regular | content_surface — material (glass): {place}"
+"« {v} » : matériau inconnu (theme, transparent, glass_clear, glass_regular, content_surface)" = "“{v}”: unknown material (theme, transparent, glass_clear, glass_regular, content_surface)"
+"{ctx} : matériau inconnu « {m} » (transparent, glass_clear, glass_regular, content_surface)" = "{ctx}: unknown material “{m}” (transparent, glass_clear, glass_regular, content_surface)"
+"Surface opaque" = "Opaque surface"
+"Verre clair" = "Clear glass"
+"Matériau, opacité du fond et flou (fourni par Hyprland) de chaque surface. « Thème » garde le verre du thème choisi ; un autre matériau pose son opacité, réglable ensuite." = "Material, background opacity and blur (provided by Hyprland) of each surface. “Theme” keeps the chosen theme's glass; another material sets its own opacity, adjustable afterwards."
+"Surfaces" = "Surfaces"

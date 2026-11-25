@@ -1600,7 +1600,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                     continue;
                 };
                 let ctx = format!("{E}.{}", place.as_str());
-                check_keys(&e, &["opacity", "blur", "adaptive"], &ctx)?;
+                check_keys(&e, &["opacity", "blur", "adaptive", "material"], &ctx)?;
                 let mut cur = g.theme.effect(place);
                 if let Some(v) = opt_num(&e, "opacity", &ctx)? {
                     cur.opacity = v.clamp(0.0, 1.0) as f32;
@@ -1622,6 +1622,20 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                             p0 = other.type_name()
                         )));
                     }
+                }
+                // Matériau (MLG-336) : son verre ; l'opacité, le flou et la
+                // densification restent ceux écrits ici.
+                if let Some(m) = opt_string(&e, "material", &ctx)? {
+                    cur.material = match m.as_str() {
+                        "theme" => None,
+                        name => Some(crate::config::Material::parse(name).ok_or_else(|| {
+                            err(crate::tr!(
+                                "{ctx} : matériau inconnu « {m} » (transparent, glass_clear, glass_regular, content_surface)",
+                                ctx = ctx,
+                                m = name
+                            ))
+                        })?),
+                    };
                 }
                 g.theme.effects.insert(place, cur);
             }

@@ -921,7 +921,7 @@ impl App {
                 style.border = style.border.width(2).color(color(th.accent, t));
             }
             let tint = color(
-                crate::ui::tokens::tinted(th.bg, crate::config::Place::Launcher),
+                crate::ui::tokens::tinted(th.bg, crate::config::Place::Dock),
                 base * 0.86 * t,
             );
             // Coin de la surface du dock sur l'écran — pas celui de ses
@@ -933,7 +933,7 @@ impl App {
                 .flatten();
             crate::ui::glass::card(
                 container(inner).padding(10),
-                crate::config::Place::Launcher,
+                crate::config::Place::Dock,
                 design::RADIUS,
                 color(th.fg, t),
                 tint,

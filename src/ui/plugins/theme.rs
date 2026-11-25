@@ -38,8 +38,22 @@ pub const TABS: &[super::SubTab] = &[
     ("themes", "Thèmes"),
     ("couleurs", "Couleurs"),
     ("texte", "Texte"),
-    ("transparence", "Transparence"),
+    ("transparence", "Surfaces"),
     ("composants", "Composants"),
+];
+
+/// Surfaces de Thème → Surfaces, dans l'ordre de l'écran : la barre, le
+/// dock, le lanceur, les menus, les Réglages et LYRA, puis les widgets et la
+/// surface de lecture (MLG-336).
+const SURFACES: [Place; 8] = [
+    Place::Bar,
+    Place::Dock,
+    Place::Launcher,
+    Place::Menus,
+    Place::Settings,
+    Place::Assistant,
+    Place::Widgets,
+    Place::Content,
 ];
 
 /// Section de Thème → Composants : les options d'un composant, toutes
@@ -251,6 +265,8 @@ pub enum Msg {
     /// Option d'apparence d'un composant (MLG-279) : nom, valeur, à
     /// enregistrer.
     DesignOpt(String, String, bool),
+    /// Matériau d'une surface (MLG-336) ; `None` : celui du thème.
+    Material(Place, Option<crate::config::Material>),
     /// Onglet interne de Thème → Composants.
     ComponentsTab(&'static str),
     /// Transparence réduite (MLG-269).
@@ -679,7 +695,7 @@ impl App {
         let effects = || {
             let percent = |v: f64| format!("{} %", v.round() as i32);
             let mut effects = column![].spacing(12);
-            for place in Place::ALL {
+            for place in SURFACES {
                 let e = th.effect(place);
                 let spec = SliderSpec::new(
                     place.as_str(),
@@ -724,7 +740,23 @@ impl App {
                         ),
                     ));
                 }
-                let mut cell = column![line].spacing(4);
+                // Matériau (MLG-336) : le verre de la surface ; « Thème »
+                // garde celui du thème choisi.
+                let materials = row(std::iter::once(None)
+                    .chain(crate::config::Material::ALL.into_iter().map(Some))
+                    .map(|m| {
+                        let label = m.map_or(crate::i18n::tr("Thème"), |m| m.label());
+                        self.focusable(
+                            radio(label, m, Some(e.material), move |v| {
+                                wrap(Msg::Material(place, v))
+                            })
+                            .font(font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                        )
+                    }))
+                .spacing(12)
+                .wrap();
+                let mut cell = column![materials, line].spacing(8);
                 let note = match (place, e.adaptive) {
                     (Place::Launcher, _) => Some(
                         crate::i18n::tr("Densifié selon le fond d'écran pour rester lisible.")
@@ -768,7 +800,7 @@ impl App {
                         .color(self.ink().dim),
                     );
                 }
-                if place == Place::Settings && self.hypr_blur_off() {
+                if matches!(place, Place::Settings | Place::Assistant) && self.hypr_blur_off() {
                     cell = cell.push(
                         text("Opaque tant que le flou de Hyprland est coupé (Performance).")
                             .font(font)
@@ -997,10 +1029,11 @@ impl App {
             "composants" => return self.design_components(),
             "transparence" => {
                 return column![
-                    self.section("Transparence"),
+                    self.section("Surfaces"),
                     text(
-                        "Opacité du fond de chaque endroit et flou de ce qu'il y a derrière \
-                         (fourni par Hyprland)."
+                        "Matériau, opacité du fond et flou (fourni par Hyprland) de chaque \
+                         surface. « Thème » garde le verre du thème choisi ; un autre \
+                         matériau pose son opacité, réglable ensuite."
                     )
                     .font(font)
                     .size(crate::ui::tokens::ts(12.0))
@@ -1539,6 +1572,26 @@ impl App {
                 self.settings.effects.insert(place, e);
                 self.commit()
             }
+            Msg::Material(place, material) => {
+                // Un matériau pose son opacité, son flou et sa densification ;
+                // revenir au thème ne garde que l'opacité réglée.
+                let e = match material {
+                    Some(m) => {
+                        let mut e = m.effect();
+                        e.blur &= place.blurrable();
+                        if !matches!(place, Place::Bar | Place::Widgets) {
+                            e.adaptive = None;
+                        }
+                        e
+                    }
+                    None => Effect {
+                        material: None,
+                        ..self.theme_effect(place)
+                    },
+                };
+                self.settings.effects.insert(place, e);
+                self.commit()
+            }
             Msg::ComponentsTab(tab) => {
                 if let Some(panel) = self.panel.as_mut() {
                     panel.theme.components_tab = tab;
@@ -1621,6 +1674,18 @@ impl App {
 mod tests {
     use super::COMPONENT_TABS;
     use crate::design_options::OPTIONS;
+
+    /// Chaque surface du thème a sa ligne dans Thème → Surfaces (MLG-336).
+    #[test]
+    fn toutes_les_surfaces_dans_les_reglages() {
+        for p in crate::config::Place::ALL {
+            assert_eq!(
+                super::SURFACES.iter().filter(|s| **s == p).count(),
+                1,
+                "{p:?}"
+            );
+        }
+    }
 
     /// Chaque option du registre a sa place dans Thème → Composants, une
     /// seule fois, sauf celles réglées ailleurs (dock, icônes, écrans) : une

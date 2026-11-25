@@ -1682,12 +1682,12 @@ fn known_slot(slot: &str) -> bool {
     palette_slots().iter().any(|s| s == slot)
 }
 
-/// Effet d'une clé `theme.effects.<endroit>.<opacity|blur|adaptive>`.
+/// Effet d'une clé `theme.effects.<endroit>.<opacity|blur|adaptive|material>`.
 fn effect_key(key: &str) -> Option<(Place, &str)> {
     let rest = key.strip_prefix("theme.effects.")?;
     let (place, field) = rest.split_once('.')?;
     let place = Place::parse(place)?;
-    matches!(field, "opacity" | "blur" | "adaptive").then_some((place, field))
+    matches!(field, "opacity" | "blur" | "adaptive" | "material").then_some((place, field))
 }
 
 /// Couleur de la barre : `bar.color.<emplacement>` ou `bar.module_color.<module>`.
@@ -1743,6 +1743,9 @@ fn dynamic_get(key: &str, c: &Config) -> Option<String> {
                 || "off".to_string(),
                 |m| format!("{}", (m * 100.0).round() / 100.0),
             ),
+            "material" => e
+                .material
+                .map_or_else(|| "theme".to_string(), |m| m.as_str().to_string()),
             _ => format!("{}", (e.opacity * 100.0).round() / 100.0),
         });
     }
@@ -1930,6 +1933,11 @@ fn dynamic_help(key: &str, c: &Config) -> String {
                 "off | on | 0..1 (plafond) — verre densifié selon le fond d'écran : {place}",
                 place = tr(place.label())
             )
+        } else if field == "material" {
+            crate::tr!(
+                "theme | transparent | glass_clear | glass_regular | content_surface — matériau (verre) : {place}",
+                place = tr(place.label())
+            )
         } else {
             crate::tr!(
                 "0..1 — opacité du fond : {place}",
@@ -2092,6 +2100,26 @@ fn dynamic_set(
                 n => match number(n, 0.0f32, 1.0) {
                     Ok(m) => e.adaptive = Some(m),
                     Err(err) => return Some(Err(err)),
+                },
+            },
+            // Choisir un matériau pose son opacité, son flou et sa
+            // densification ; « theme » rend le verre du thème (MLG-336).
+            "material" => match v.trim() {
+                "theme" | "none" | "" => e.material = None,
+                m => match crate::config::Material::parse(m) {
+                    Some(m) => {
+                        let mut fresh = m.effect();
+                        if !place.blurrable() {
+                            fresh.blur = false;
+                        }
+                        e = fresh;
+                    }
+                    None => {
+                        return Some(Err(crate::tr!(
+                            "« {v} » : matériau inconnu (theme, transparent, glass_clear, glass_regular, content_surface)",
+                            v = m
+                        )));
+                    }
                 },
             },
             _ => match number(v, 0.0f32, 1.0) {
@@ -2659,10 +2687,11 @@ pub fn run(config_path: &Path, args: &[String]) -> Result<String, String> {
                             let o = format!("theme.effects.{p0}.opacity", p0 = p.as_str());
                             let b = format!("theme.effects.{p0}.blur", p0 = p.as_str());
                             let a = format!("theme.effects.{p0}.adaptive", p0 = p.as_str());
+                            let m = format!("theme.effects.{p0}.material", p0 = p.as_str());
                             if p.blurrable() {
-                                vec![o, b, a]
+                                vec![m, o, b, a]
                             } else {
-                                vec![o, a]
+                                vec![m, o, a]
                             }
                         })
                         .collect(),
@@ -3171,6 +3200,51 @@ mod tests {
         assert_eq!(run_s(&p, &["get", "bar.height"]).unwrap(), "42");
         assert_eq!(run_s(&p, &["get", "launcher_position"]).unwrap(), "left");
         assert_eq!(run_s(&p, &["get", "workspace_selector"]).unwrap(), "relief");
+    }
+
+    /// Matériau d'une surface (MLG-336) : posé, relu depuis hyprdesk.lua,
+    /// rendu au thème ; un nom inconnu est refusé.
+    #[test]
+    fn materiau_d_une_surface() {
+        let p = tmp();
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.dock.material"]).unwrap(),
+            "theme"
+        );
+        run_s(&p, &["set", "theme.effects.dock.material", "glass_clear"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.dock.material"]).unwrap(),
+            "glass_clear"
+        );
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.dock.opacity"]).unwrap(),
+            "0.35"
+        );
+        // L'opacité réglée ensuite garde le matériau.
+        run_s(&p, &["set", "theme.effects.dock.opacity", "0.5"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.dock.material"]).unwrap(),
+            "glass_clear"
+        );
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.assistant.material"]).unwrap(),
+            "theme"
+        );
+        run_s(
+            &p,
+            &["set", "theme.effects.assistant.material", "content_surface"],
+        )
+        .unwrap();
+        run_s(&p, &["set", "theme.effects.dock.material", "theme"]).unwrap();
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.dock.material"]).unwrap(),
+            "theme"
+        );
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.assistant.material"]).unwrap(),
+            "content_surface"
+        );
+        assert!(run_s(&p, &["set", "theme.effects.dock.material", "papier"]).is_err());
     }
 
     /// Transparence adaptative d'une surface (MLG-261).
