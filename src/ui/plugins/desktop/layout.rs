@@ -1,7 +1,8 @@
 //! Disposition des widgets du bureau : chacun à son ancrage (avec ses
-//! décalages), mesuré, puis écarté de ceux déjà placés s'il les recouvre.
-//! Un widget ancré en haut ou au centre glisse vers le bas, un widget ancré en
-//! bas glisse vers le haut ; s'il sort de l'écran, il glisse sur le côté.
+//! décalages), mesuré, puis — s'il recouvre un widget déjà placé — posé à la
+//! place libre la plus proche. Refaite à chaque mise en page, donc aussi quand
+//! l'écran change de taille : deux widgets ne se recouvrent jamais tant que
+//! l'écran a la place de les montrer tous.
 use iced::advanced::{
     Clipboard, Layout, Shell, Widget, layout, mouse, overlay, renderer,
     widget::{Operation, Tree},
@@ -16,6 +17,9 @@ pub struct Spot {
     pub x: Alignment,
     pub y: Alignment,
     pub pad: [f32; 4],
+    /// Marges de l'écran (haut, droite, bas, gauche) qu'un widget écarté
+    /// évite tant qu'il trouve sa place sans elles (dock, bords).
+    pub safe: [f32; 4],
 }
 
 /// Écart minimal entre deux widgets.
@@ -42,54 +46,123 @@ fn overlaps(a: Rectangle, b: Rectangle) -> bool {
         && b.y < a.y + a.height + GAP
 }
 
-/// Places des boîtes, dans l'ordre : chacune à son ancrage, écartée de celles
-/// déjà placées si elle les recouvre.
+/// Places des boîtes, dans l'ordre : chacune à son ancrage si la place est
+/// libre, sinon à la place libre la plus proche — contre une boîte déjà
+/// placée ou contre un bord. Une boîte ancrée en haut ou au centre préfère
+/// glisser vers le bas, une boîte ancrée en bas vers le haut. Quand l'écran
+/// change de taille, la disposition est refaite ainsi : les widgets restent
+/// écartés tant qu'il y a la place. Écran trop petit pour tous : la boîte
+/// va là où elle recouvre le moins les autres.
 pub fn arrange(items: &[(Spot, Size)], area: Size) -> Vec<Point> {
     let mut placed: Vec<Rectangle> = Vec::new();
     for (spot, size) in items {
-        let p = wanted(*spot, *size, area);
-        let mut r = Rectangle::new(p, *size);
-        let fits = |r: &Rectangle| {
-            r.x >= 0.0 && r.y >= 0.0 && r.x + r.width <= area.width && r.y + r.height <= area.height
-        };
-        let mut sideways = false;
-        // Chaque tour écarte d'une boîte : au plus une fois chacune, deux sens.
-        for _ in 0..(2 * placed.len() + 2) {
-            let Some(o) = placed.iter().find(|o| overlaps(r, **o)).copied() else {
-                break;
+        let p = clamp_into(wanted(*spot, *size, area), *size, area);
+        let free = |r: &Rectangle| !placed.iter().any(|o| overlaps(*r, *o));
+        let here = Rectangle::new(p, *size);
+        let r = if free(&here) {
+            here
+        } else {
+            // D'abord dans les marges de l'écran, puis contre ses bords.
+            let [top, right, bottom, left] = spot.safe;
+            let safe = Rectangle {
+                x: left,
+                y: top,
+                width: area.width - left - right,
+                height: area.height - top - bottom,
             };
-            let mut next = r;
-            if !sideways {
-                next.y = if spot.y == Alignment::End {
-                    o.y - r.height - GAP
-                } else {
-                    o.y + o.height + GAP
-                };
-                if !fits(&next) {
-                    // Plus de place en hauteur : on repart de l'ancrage, sur le côté.
-                    sideways = true;
-                    next = Rectangle::new(p, *size);
-                    next.x = if spot.x == Alignment::End {
-                        o.x - r.width - GAP
-                    } else {
-                        o.x + o.width + GAP
-                    };
-                }
-            } else {
-                next.x = if spot.x == Alignment::End {
-                    o.x - r.width - GAP
-                } else {
-                    o.x + o.width + GAP
-                };
-            }
-            r = next;
-        }
-        // Jamais hors de la zone (un widget trop grand reste au bord).
-        r.x = r.x.clamp(0.0, (area.width - r.width).max(0.0));
-        r.y = r.y.clamp(0.0, (area.height - r.height).max(0.0));
+            let whole = Rectangle::new(Point::ORIGIN, area);
+            [safe, whole]
+                .into_iter()
+                .find_map(|zone| nearest_free(p, *size, zone, spot.y, &placed))
+                .unwrap_or_else(|| least_covering(p, *size, whole, &placed))
+        };
         placed.push(r);
     }
     placed.iter().map(|r| Point::new(r.x, r.y)).collect()
+}
+
+/// Plus de place libre : la position de la zone où la boîte recouvre le
+/// moins les autres (à surface égale, la plus proche de `p`).
+fn least_covering(p: Point, size: Size, zone: Rectangle, placed: &[Rectangle]) -> Rectangle {
+    let (xs, ys) = candidates(p, size, zone, placed);
+    let covered = |r: &Rectangle| -> f32 {
+        placed
+            .iter()
+            .filter_map(|o| r.intersection(o))
+            .map(|i| i.width * i.height)
+            .sum()
+    };
+    let mut best = (f32::MAX, f32::MAX, Rectangle::new(p, size));
+    for &x in &xs {
+        for &y in &ys {
+            let r = Rectangle::new(clamp_into(Point::new(x, y), size, zone.size()), size);
+            let key = (covered(&r), (r.x - p.x).powi(2) + (r.y - p.y).powi(2));
+            if key.0 < best.0 || (key.0 == best.0 && key.1 < best.1) {
+                best = (key.0, key.1, r);
+            }
+        }
+    }
+    best.2
+}
+
+/// Positions à essayer : l'ancrage, les bords de la zone, et contre chaque
+/// boîte placée (à côté, au-dessus, en dessous, alignée).
+fn candidates(p: Point, size: Size, zone: Rectangle, placed: &[Rectangle]) -> (Vec<f32>, Vec<f32>) {
+    let (w, h) = (size.width, size.height);
+    let mut xs = vec![p.x, zone.x, zone.x + zone.width - w];
+    let mut ys = vec![p.y, zone.y, zone.y + zone.height - h];
+    for o in placed {
+        xs.extend([o.x, o.x + o.width + GAP, o.x - w - GAP, o.x + o.width - w]);
+        ys.extend([o.y, o.y + o.height + GAP, o.y - h - GAP, o.y + o.height - h]);
+    }
+    (xs, ys)
+}
+
+/// `p` ramené pour que la boîte tienne dans la zone (au bord si trop grande).
+fn clamp_into(p: Point, size: Size, area: Size) -> Point {
+    Point::new(
+        p.x.clamp(0.0, (area.width - size.width).max(0.0)),
+        p.y.clamp(0.0, (area.height - size.height).max(0.0)),
+    )
+}
+
+/// Place libre de `zone` la plus proche de `p` pour une boîte `size`, parmi
+/// les positions contre une boîte placée ou contre un bord de la zone.
+fn nearest_free(
+    p: Point,
+    size: Size,
+    zone: Rectangle,
+    anchor_y: Alignment,
+    placed: &[Rectangle],
+) -> Option<Rectangle> {
+    let (xs, ys) = candidates(p, size, zone, placed);
+    let inside = |r: &Rectangle| {
+        r.x >= zone.x - 0.5
+            && r.y >= zone.y - 0.5
+            && r.x + r.width <= zone.x + zone.width + 0.5
+            && r.y + r.height <= zone.y + zone.height + 0.5
+    };
+    // Les widgets s'empilent : glisser en hauteur, dans le sens de
+    // l'ancrage, coûte moins que sur le côté ou à rebours.
+    let cost = |r: &Rectangle| {
+        let (dx, dy) = (r.x - p.x, r.y - p.y);
+        let against = if anchor_y == Alignment::End { dy > 0.0 } else { dy < 0.0 };
+        4.0 * dx * dx + dy * dy * if against { 1.5 } else { 1.0 }
+    };
+    let mut best: Option<(f32, Rectangle)> = None;
+    for &x in &xs {
+        for &y in &ys {
+            let r = Rectangle::new(Point::new(x, y), size);
+            if !inside(&r) || placed.iter().any(|o| overlaps(r, *o)) {
+                continue;
+            }
+            let c = cost(&r);
+            if best.is_none_or(|(b, _)| c < b) {
+                best = Some((c, r));
+            }
+        }
+    }
+    best.map(|(_, r)| r)
 }
 
 /// Les widgets d'un bureau, disposés sans se recouvrir.
@@ -255,6 +328,7 @@ mod tests {
             x,
             y,
             pad: [32.0, 32.0, 32.0, 32.0],
+            safe: [32.0, 32.0, 32.0, 32.0],
         }
     }
 
@@ -297,5 +371,66 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn no_overlap(items: &[(Spot, Size)], p: &[Point], area: Size) {
+        let rects: Vec<Rectangle> = items
+            .iter()
+            .zip(p)
+            .map(|((_, s), p)| Rectangle::new(*p, *s))
+            .collect();
+        for (i, a) in rects.iter().enumerate() {
+            assert!(
+                a.x >= 0.0 && a.y >= 0.0 && a.x + a.width <= area.width + 0.5 && a.y + a.height <= area.height + 0.5,
+                "hors de l'écran {area:?} : {a:?}"
+            );
+            for b in &rects[i + 1..] {
+                assert!(!overlaps(*a, *b), "recouvrement dans {area:?} : {a:?} / {b:?}");
+            }
+        }
+    }
+
+    /// L'écran rétrécit (résolution, échelle, rotation) : tant que la place
+    /// suffit, aucun widget n'en recouvre un autre, quels que soient leurs
+    /// ancrages (MLG-340).
+    #[test]
+    fn geometrie_changee_sans_recouvrement() {
+        use Alignment::{Center, End, Start};
+        let items = [
+            (spot(End, Start), Size::new(320.0, 180.0)),
+            (spot(End, Start), Size::new(320.0, 240.0)),
+            (spot(Center, Center), Size::new(400.0, 300.0)),
+            (spot(Start, End), Size::new(280.0, 160.0)),
+            (spot(End, End), Size::new(360.0, 200.0)),
+            (spot(Start, Start), Size::new(300.0, 220.0)),
+            (spot(End, Center), Size::new(260.0, 260.0)),
+            (spot(Center, Start), Size::new(500.0, 120.0)),
+        ];
+        // Huit grands widgets sur les grands écrans, six sur les petits.
+        for (w, h, n) in [
+            (2560.0, 1400.0, 8),
+            (1920.0, 1040.0, 8),
+            (1707.0, 920.0, 8),
+            (1440.0, 860.0, 6),
+            (1280.0, 680.0, 6),
+            (1080.0, 1880.0, 8),
+        ] {
+            let area = Size::new(w, h);
+            no_overlap(&items[..n], &arrange(&items[..n], area), area);
+        }
+    }
+
+    /// Une place libre ailleurs : le widget écarté la prend, même quand
+    /// glisser dans le sens de l'ancrage le ferait sortir de l'écran.
+    #[test]
+    fn ecarte_vers_la_place_libre() {
+        use Alignment::{End, Start};
+        let area = Size::new(1000.0, 500.0);
+        let items = [
+            (spot(End, Start), Size::new(300.0, 300.0)),
+            (spot(End, Start), Size::new(300.0, 300.0)),
+            (spot(End, Start), Size::new(300.0, 300.0)),
+        ];
+        no_overlap(&items, &arrange(&items, area), area);
     }
 }

@@ -464,6 +464,7 @@ impl App {
                 x: ax,
                 y: ay,
                 pad: [top, right, bottom, left],
+                safe: [margin, margin, low, margin],
             },
             boxed,
         )
