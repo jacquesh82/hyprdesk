@@ -256,7 +256,8 @@ once by a Hyprland notification. With no window at all after five seconds, a
 quieter notification suggests launching the application again.
 
 You can also drag an application from a file manager (its `.desktop` file)
-onto the dock: once dropped, it is pinned at the end of the dock.
+onto the dock: the dock is outlined in the accent color, and the application
+is pinned at the end of the dock when you drop it.
 
 ## The desktop and its modes
 

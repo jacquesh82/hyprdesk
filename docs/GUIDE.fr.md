@@ -258,7 +258,8 @@ cinq secondes, une notification plus discrète propose de relancer
 l'application.
 
 Une application se glisse aussi depuis un gestionnaire de fichiers (son
-fichier `.desktop`) sur le dock : déposée, elle s'épingle en fin de dock.
+fichier `.desktop`) sur le dock : le dock s'entoure de la couleur d'accent, et
+l'application s'épingle en fin de dock au dépôt.
 
 ## Le bureau et ses modes
 

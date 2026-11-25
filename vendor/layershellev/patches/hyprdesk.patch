@@ -1,15 +1,18 @@
 --- a/src/dnd.rs
 +++ b/src/dnd.rs
-@@ -0,0 +1,219 @@
+@@ -0,0 +1,313 @@
 +//! Glisser-déposer de fichiers vers les surfaces (ajout de hyprdesk) :
 +//! `wl_data_device`, offres en `text/uri-list`. Entrée, mouvement, sortie et
-+//! dépôt deviennent des `DispatchMessage::Dnd*` ; au dépôt, la liste des
-+//! fichiers est lue auprès de l'application source (délai borné).
++//! dépôt deviennent des `DispatchMessage::Dnd*` ; dès l'entrée, la liste des
++//! fichiers est lue auprès de l'application source, dans un fil à part (délai
++//! borné), pour que la surface sache ce qu'elle survole sans figer le glisser,
++//! puis resservie au dépôt.
 +
 +use std::collections::HashMap;
 +use std::io::Read;
 +use std::os::fd::AsFd;
 +use std::path::PathBuf;
++use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 +use std::time::Duration;
 +
 +use wayland_client::backend::ObjectId;
@@ -24,6 +27,13 @@
 +
 +const URI_LIST: &str = "text/uri-list";
 +
++/// Attente de la liste des fichiers à l'entrée : une source prompte allume le
++/// survol aussitôt ; une source lente le fait au mouvement suivant.
++const ENTER_WAIT: Duration = Duration::from_millis(30);
++
++/// Attente de la liste au dépôt, la lecture n'étant pas encore finie.
++const DROP_WAIT: Duration = Duration::from_secs(3);
++
 +/// État du glisser-déposer en cours.
 +#[derive(Default, Debug)]
 +pub struct DndState {
@@ -33,6 +43,32 @@
 +    current: Option<WlDataOffer>,
 +    surface: Option<id::Id>,
 +    pos: (f64, f64),
++    /// Lecture en cours des fichiers de l'offre sur la surface. Wayland crée
++    /// une offre à chaque entrée : une lecture par surface survolée.
++    reading: Option<(ObjectId, Receiver<Vec<PathBuf>>)>,
++    /// Fichiers de l'offre sur la surface, une fois lus.
++    paths: Option<(ObjectId, Vec<PathBuf>)>,
++}
++
++impl DndState {
++    /// Fichiers de la lecture en cours, s'ils arrivent dans le délai (une
++    /// seule fois) ; ils restent ensuite dans `paths` pour le dépôt.
++    fn take_read(&mut self, wait: Duration) -> Option<Vec<PathBuf>> {
++        let (_, rx) = self.reading.as_ref()?;
++        let paths = match rx.recv_timeout(wait) {
++            Ok(paths) => paths,
++            Err(RecvTimeoutError::Timeout) => return None,
++            Err(RecvTimeoutError::Disconnected) => Vec::new(),
++        };
++        let (offer, _) = self.reading.take()?;
++        self.paths = Some((offer, paths.clone()));
++        Some(paths)
++    }
++
++    fn forget(&mut self) {
++        self.reading = None;
++        self.paths = None;
++    }
 +}
 +
 +delegate_noop!(@<T> WindowState<T>: ignore WlDataDeviceManager);
@@ -75,6 +111,8 @@
 +                let target = state.get_id_from_surface(&surface);
 +                state.dnd.surface = target;
 +                state.dnd.pos = (x, y);
++                state.dnd.forget();
++                let mut paths = Vec::new();
 +                if let Some(offer) = &id {
 +                    let files = state
 +                        .dnd
@@ -86,6 +124,8 @@
 +                            offer.set_actions(DndAction::Copy, DndAction::Copy);
 +                        }
 +                        offer.accept(serial, Some(URI_LIST.into()));
++                        state.dnd.reading = Some((offer.id(), receive(offer, conn)));
++                        paths = state.dnd.take_read(ENTER_WAIT).unwrap_or_default();
 +                    } else {
 +                        offer.accept(serial, None);
 +                    }
@@ -93,22 +133,36 @@
 +                state.dnd.current = id;
 +                state
 +                    .message
-+                    .push((target, DispatchMessageInner::DndEnter { x, y }));
++                    .push((target, DispatchMessageInner::DndEnter { x, y, paths }));
 +            }
 +            wl_data_device::Event::Motion { x, y, .. } => {
 +                state.dnd.pos = (x, y);
 +                state
 +                    .message
 +                    .push((state.dnd.surface, DispatchMessageInner::DndMotion { x, y }));
++                // Liste lue après l'entrée : l'entrée est redite avec ses
++                // fichiers, pour que la surface sache ce qu'elle survole.
++                if let Some(paths) = state.dnd.take_read(Duration::ZERO)
++                    && !paths.is_empty()
++                {
++                    state
++                        .message
++                        .push((state.dnd.surface, DispatchMessageInner::DndEnter { x, y, paths }));
++                }
 +            }
 +            wl_data_device::Event::Leave => {
 +                if let Some(offer) = state.dnd.current.take() {
 +                    state.dnd.offers.remove(&offer.id());
 +                    offer.destroy();
 +                }
-+                state
-+                    .message
-+                    .push((state.dnd.surface.take(), DispatchMessageInner::DndLeave));
++                state.dnd.forget();
++                // Après un dépôt, le compositeur envoie encore `leave` : la
++                // surface, déjà servie, n'a plus de sortie à recevoir.
++                if let Some(target) = state.dnd.surface.take() {
++                    state
++                        .message
++                        .push((Some(target), DispatchMessageInner::DndLeave));
++                }
 +            }
 +            wl_data_device::Event::Drop => {
 +                let Some(offer) = state.dnd.current.take() else {
@@ -119,7 +173,13 @@
 +                    .offers
 +                    .remove(&offer.id())
 +                    .is_some_and(|m| m.iter().any(|t| t == URI_LIST));
-+                let paths = if files { receive(&offer, conn) } else { Vec::new() };
++                // La lecture lancée à l'entrée, attendue si elle n'est pas finie.
++                let _ = state.dnd.take_read(DROP_WAIT);
++                let paths = match state.dnd.paths.take() {
++                    Some((o, p)) if files && o == offer.id() => p,
++                    _ => Vec::new(),
++                };
++                state.dnd.forget();
 +                if offer.version() >= 3 && files {
 +                    offer.finish();
 +                }
@@ -145,18 +205,26 @@
 +    ]);
 +}
 +
-+/// Lit la liste des fichiers auprès de l'application source (3 s au plus).
-+fn receive(offer: &WlDataOffer, conn: &Connection) -> Vec<PathBuf> {
++/// Demande la liste des fichiers à l'application source et la lit dans un
++/// fil à part (3 s au plus par lecture) : la boucle Wayland ne s'y bloque pas.
++fn receive(offer: &WlDataOffer, conn: &Connection) -> Receiver<Vec<PathBuf>> {
++    let (tx, rx) = mpsc::channel();
 +    let Ok((mut read, write)) = std::os::unix::net::UnixStream::pair() else {
-+        return Vec::new();
++        return rx;
 +    };
 +    offer.receive(URI_LIST.into(), write.as_fd());
 +    let _ = conn.flush();
 +    drop(write);
-+    let _ = read.set_read_timeout(Some(Duration::from_secs(3)));
-+    let mut buf = Vec::new();
-+    let _ = read.read_to_end(&mut buf);
-+    parse_uri_list(&String::from_utf8_lossy(&buf))
++    // Sans fil, l'émetteur tombe avec la fermeture : lecture vide.
++    let _ = std::thread::Builder::new()
++        .name("dnd-uri-list".into())
++        .spawn(move || {
++            let _ = read.set_read_timeout(Some(Duration::from_secs(3)));
++            let mut buf = Vec::new();
++            let _ = read.read_to_end(&mut buf);
++            let _ = tx.send(parse_uri_list(&String::from_utf8_lossy(&buf)));
++        });
++    rx
 +}
 +
 +/// `text/uri-list` → chemins locaux (`file://`, encodage `%XX` décodé).
@@ -219,6 +287,32 @@
 +        assert_eq!(percent_decode("100%é"), "100%é");
 +        assert_eq!(percent_decode("fin%"), "fin%");
 +    }
++
++    #[test]
++    fn lecture_servie_une_fois_puis_gardee_pour_le_depot() {
++        let id = wayland_client::backend::Backend::null_id();
++        let mut dnd = DndState::default();
++        let (tx, rx) = mpsc::channel();
++        dnd.reading = Some((id.clone(), rx));
++        // Pas encore lue : rien, la lecture reste en attente.
++        assert_eq!(dnd.take_read(Duration::ZERO), None);
++        assert!(dnd.reading.is_some());
++        tx.send(vec![PathBuf::from("/a.desktop")]).unwrap();
++        assert_eq!(
++            dnd.take_read(Duration::ZERO),
++            Some(vec![PathBuf::from("/a.desktop")])
++        );
++        // Servie une fois ; gardée pour le dépôt.
++        assert_eq!(dnd.take_read(Duration::ZERO), None);
++        assert_eq!(dnd.paths, Some((id.clone(), vec![PathBuf::from("/a.desktop")])));
++        // Fil tombé sans réponse : lecture vide, pas d'attente sans fin.
++        let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
++        drop(tx);
++        dnd.reading = Some((id, rx));
++        assert_eq!(dnd.take_read(DROP_WAIT), Some(Vec::new()));
++        dnd.forget();
++        assert!(dnd.reading.is_none() && dnd.paths.is_none());
++    }
 +}
 --- a/src/events.rs
 +++ b/src/events.rs
@@ -231,12 +325,14 @@
      /// The initial window size.
      pub size: Option<(u32, u32)>,
      /// Request client-side decorations instead of the default server-side mode.
-@@ -272,6 +274,18 @@
+@@ -272,6 +274,20 @@
          time: u32,
      },
      MouseLeave,
-+    /// Glisser-déposer (hyprdesk) : une offre entre sur la surface.
-+    DndEnter { x: f64, y: f64 },
++    /// Glisser-déposer (hyprdesk) : une offre entre sur la surface, avec
++    /// ses fichiers (vide si l'offre n'en porte pas ou s'ils ne sont pas
++    /// encore lus : l'entrée est alors redite avec eux, au mouvement).
++    DndEnter { x: f64, y: f64, paths: Vec<std::path::PathBuf> },
 +    /// Glisser-déposer : l'offre se déplace sur la surface.
 +    DndMotion { x: f64, y: f64 },
 +    /// Glisser-déposer : l'offre quitte la surface.
@@ -250,12 +346,14 @@
      MouseEnter {
          pointer: WlPointer,
          serial: u32,
-@@ -353,6 +367,18 @@
+@@ -353,6 +369,20 @@
      },
      /// Mouse leave the surface
      MouseLeave,
-+    /// Glisser-déposer (hyprdesk) : une offre entre sur la surface.
-+    DndEnter { x: f64, y: f64 },
++    /// Glisser-déposer (hyprdesk) : une offre entre sur la surface, avec
++    /// ses fichiers (vide si l'offre n'en porte pas ou s'ils ne sont pas
++    /// encore lus : l'entrée est alors redite avec eux, au mouvement).
++    DndEnter { x: f64, y: f64, paths: Vec<std::path::PathBuf> },
 +    /// Glisser-déposer : l'offre se déplace sur la surface.
 +    DndMotion { x: f64, y: f64 },
 +    /// Glisser-déposer : l'offre quitte la surface.
@@ -269,11 +367,13 @@
      /// forward the event of wayland-mouse
      MouseEnter {
          pointer: WlPointer,
-@@ -455,6 +481,12 @@
+@@ -455,6 +485,14 @@
                  time,
              },
              DispatchMessageInner::MouseLeave => DispatchMessage::MouseLeave,
-+            DispatchMessageInner::DndEnter { x, y } => DispatchMessage::DndEnter { x, y },
++            DispatchMessageInner::DndEnter { x, y, paths } => {
++                DispatchMessage::DndEnter { x, y, paths }
++            }
 +            DispatchMessageInner::DndMotion { x, y } => DispatchMessage::DndMotion { x, y },
 +            DispatchMessageInner::DndLeave => DispatchMessage::DndLeave,
 +            DispatchMessageInner::DndDrop { x, y, paths } => {

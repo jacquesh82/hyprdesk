@@ -1752,8 +1752,9 @@ impl App {
         use crate::ui::DropEvent;
         match ev {
             DropEvent::Hover(path) => {
-                // Le transport ne lit encore les chemins qu'au dépôt : un
-                // survol au chemin vide n'allume rien (DAT-04, étape 2).
+                // Un survol par fichier de l'offre : le premier qui convient
+                // fait la cible ; un chemin vide (offre sans fichier, ou pas
+                // encore lue), rien.
                 if self.dock_drop.as_ref().is_none_or(|(id, _)| *id != win)
                     && let Some(app) = dock_drop_app(&path, &self.apps, &self.pinned())
                 {

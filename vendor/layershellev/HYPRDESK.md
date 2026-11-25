@@ -4,7 +4,8 @@ Ajout : glisser-déposer de fichiers vers les surfaces (`src/dnd.rs`).
 
 - `wl_data_device_manager` lié après le siège (facultatif) ;
 - `DispatchMessage::{DndEnter, DndMotion, DndLeave, DndDrop}` (`src/events.rs`) ;
-- au dépôt, la liste `text/uri-list` est lue auprès de la source (3 s au plus).
+- dès l'entrée, la liste `text/uri-list` est lue auprès de la source dans un fil à part (3 s au plus par lecture), pour ne pas figer la boucle : attendue 30 ms à l'entrée et portée par `DndEnter { paths }`, sinon redite par un second `DndEnter` au premier mouvement qui la trouve lue ; resservie au dépôt, attendue alors 3 s au plus. Wayland crée une offre par surface survolée : une lecture par surface.
+- `leave` reçu après `drop` (wlroots l'envoie) n'émet pas de `DndLeave` : la surface est déjà servie.
 
 À reporter lors d'une mise à jour (ou à proposer en amont : waycrate/exwlshelleventloop).
 

@@ -199,18 +199,38 @@ where
                     ev.set_virtual_keyboard(virtual_keyboard_in);
                 }
             }
-            // Début d'un glisser-déposer : la position, puis « survol de fichiers »
-            // (les chemins ne sont connus qu'au dépôt).
-            LayerShellEvent::RequestMessages(layershellev::DispatchMessage::DndEnter { x, y }) => {
+            // Début d'un glisser-déposer : la position, puis un « survol de
+            // fichier » par fichier de l'offre (un seul, au chemin vide, si
+            // elle n'en porte pas ou s'ils ne sont pas encore lus ; l'entrée
+            // est alors redite avec eux).
+            LayerShellEvent::RequestMessages(layershellev::DispatchMessage::DndEnter {
+                x,
+                y,
+                paths,
+            }) => {
                 waiting_layer_shell_events.push_back((
                     layer_shell_id,
                     IcedLayerShellEvent::Window(LayerShellWindowEvent::CursorMoved { x: *x, y: *y }),
                 ));
+                let empty = [std::path::PathBuf::new()];
+                let hovered = if paths.is_empty() { &empty[..] } else { &paths[..] };
+                for p in hovered {
+                    waiting_layer_shell_events.push_back((
+                        layer_shell_id,
+                        IcedLayerShellEvent::Window(LayerShellWindowEvent::FileHovered(p.clone())),
+                    ));
+                }
+            }
+            // Fin d'un survol sans dépôt : le pointeur a quitté la surface
+            // aussi (un dock masqué se referme), puis « survol terminé ».
+            LayerShellEvent::RequestMessages(layershellev::DispatchMessage::DndLeave) => {
                 waiting_layer_shell_events.push_back((
                     layer_shell_id,
-                    IcedLayerShellEvent::Window(LayerShellWindowEvent::FileHovered(
-                        std::path::PathBuf::new(),
-                    )),
+                    IcedLayerShellEvent::Window(LayerShellWindowEvent::CursorLeft),
+                ));
+                waiting_layer_shell_events.push_back((
+                    layer_shell_id,
+                    IcedLayerShellEvent::Window(LayerShellWindowEvent::FilesHoveredLeft),
                 ));
             }
             // Dépôt de fichiers : la position du dépôt, puis un événement par fichier.
@@ -229,6 +249,12 @@ where
                         IcedLayerShellEvent::Window(LayerShellWindowEvent::FileDropped(p.clone())),
                     ));
                 }
+                // Le survol est fini, même si le dépôt est vide ou refusé :
+                // aucune cible ne reste allumée.
+                waiting_layer_shell_events.push_back((
+                    layer_shell_id,
+                    IcedLayerShellEvent::Window(LayerShellWindowEvent::FilesHoveredLeft),
+                ));
             }
             LayerShellEvent::RequestMessages(message) => {
                 waiting_layer_shell_events.push_back((
