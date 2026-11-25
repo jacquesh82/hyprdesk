@@ -3735,13 +3735,15 @@ impl App {
     }
 
     /// Icône d'application (HIG ICO-04) : un SVG est découpé au masque
-    /// unique dans sa source ; une image matricielle est marquée, et rendue
-    /// arrondie par `icon_named` et `img_element`.
+    /// unique dans sa source, à l'apparence voulue (HIG ICO-10) ; une image
+    /// matricielle est marquée, et rendue arrondie par `icon_named` et
+    /// `img_element`.
     fn app_handle_for(&mut self, p: Option<&std::path::Path>) -> IconImg {
+        let look = self.icon_appearance();
         let masked = p
             .filter(|p| p.extension().is_some_and(|e| e == "svg"))
             .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|src| icons::mask_svg(&src, icons::APP_ICON_MASK));
+            .and_then(|src| icons::app_svg(&src, icons::APP_ICON_MASK, look));
         if let Some(src) = masked {
             self.vectors
                 .push(svg::Handle::from_memory(src.into_bytes()));

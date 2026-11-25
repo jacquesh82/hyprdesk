@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 182] = [
+const SCENES: [&str; 184] = [
     "desktop",
     "typography",
     "icons",
@@ -221,6 +221,9 @@ const SCENES: [&str; 182] = [
     // calendrier grand, puis les deux en petit.
     "widgets-tailles",
     "widgets-petits",
+    // Apparence des icônes d'application (HIG ICO-10) : sombre, puis teintée.
+    "icones-sombres",
+    "icones-teintees",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -733,6 +736,37 @@ impl Preview {
         cfg.widgets
             .retain(|w| !w.id.starts_with("preview-module-") && w.id != "barlauncher");
         cfg.general.clipboard_history = SCENES[self.scene] == "bar-controls";
+        // Apparence des icônes d'application (HIG ICO-10) : imposée dans ses
+        // scènes ; ailleurs, l'icône telle quelle (le fond sombre de l'aperçu
+        // ferait suivre l'apparence sombre à « auto » partout) ; les icônes
+        // sont relues quand elle change.
+        let look = crate::tiling::OptValue::Str(
+            match SCENES[self.scene] {
+                "icones-sombres" => "dark",
+                "icones-teintees" => "tinted",
+                _ => "default",
+            }
+            .into(),
+        );
+        let icons_opts = cfg
+            .general
+            .plugin_options
+            .entry(crate::design_options::store("icons"))
+            .or_default();
+        if icons_opts.get("appearance") != Some(&look) {
+            icons_opts.insert("appearance".into(), look);
+            let paths: Vec<_> = self.app.icons.iter().map(|r| r.image.clone()).collect();
+            self.app.icon_imgs = paths
+                .iter()
+                .map(|p| self.app.app_handle_for(p.as_deref()))
+                .collect();
+            for (index, icon) in self.app.cfg.icons.clone().iter().enumerate() {
+                self.app
+                    .class_imgs
+                    .insert(icon.id.clone(), self.app.icon_imgs[index]);
+            }
+        }
+        let cfg = Arc::make_mut(&mut self.app.cfg);
         // Tailles des widgets (HIG SYS-15) : moyenne partout ailleurs.
         for w in cfg.widgets.iter_mut().filter(|w| !w.in_bar) {
             use crate::config::WidgetFamily as F;

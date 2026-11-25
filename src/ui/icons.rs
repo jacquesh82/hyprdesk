@@ -464,7 +464,56 @@ impl Appearance {
             _ => Self::Default,
         }
     }
+
+    /// Matrice de couleur de l'apparence, au format de `feColorMatrix`
+    /// (quatre lignes de cinq, décalages entre 0 et 1, en sRGB) ; `None`
+    /// pour l'icône telle quelle. La même sert aux SVG et aux images
+    /// matricielles, pour un même résultat.
+    pub fn matrix(self) -> Option<[f32; 20]> {
+        match self {
+            Self::Default => None,
+            // Toutes les couleurs à la même proportion : les traits, les
+            // teintes et leurs proportions restent ceux de l'icône claire.
+            Self::Dark => {
+                let k = DARK_ICON_LEVEL;
+                #[rustfmt::skip]
+                let m = [
+                    k, 0.0, 0.0, 0.0, 0.0,
+                    0.0, k, 0.0, 0.0, 0.0,
+                    0.0, 0.0, k, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 1.0, 0.0,
+                ];
+                Some(m)
+            }
+            // Niveaux de gris (luminance Rec. 709), puis l'accent : le blanc
+            // donne l'accent, le noir l'accent au plancher `TINT_FLOOR`.
+            Self::Tinted(a) => {
+                const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
+                let mut m = [0.0; 20];
+                for (row, c) in [a.0, a.1, a.2].into_iter().enumerate() {
+                    let c = f32::from(c) / 255.0;
+                    for (col, l) in LUMA.iter().enumerate() {
+                        m[row * 5 + col] = c * (1.0 - TINT_FLOOR) * l;
+                    }
+                    m[row * 5 + 4] = c * TINT_FLOOR;
+                }
+                m[18] = 1.0;
+                Some(m)
+            }
+        }
+    }
 }
+
+/// Clarté d'une icône d'application en apparence sombre (HIG ICO-10) : ses
+/// couleurs à 80 %, pour ne pas éblouir sur un bureau sombre.
+pub const DARK_ICON_LEVEL: f32 = 0.8;
+
+/// Plancher d'une icône teintée (HIG ICO-10) : ses noirs gardent ce quart de
+/// l'accent, ses traits restent lisibles.
+pub const TINT_FLOOR: f32 = 0.25;
+
+/// Identifiant du filtre d'apparence injecté dans un SVG d'application.
+const LOOK_ID: &str = "hyprdesk-apparence-icone";
 
 /// Masque unique des icônes d'application (HIG ICO-04, décision D4) : un
 /// rectangle arrondi dont le rayon vaut 22,37 % du côté, la courbure des
@@ -479,7 +528,19 @@ const MASK_ID: &str = "hyprdesk-masque-icone";
 /// `clipPath` en rectangle arrondi autour de tout son contenu. `None` quand
 /// la source ne s'y prête pas (racine introuvable ou auto-fermée, sans
 /// `viewBox` ni dimensions) : l'icône reste alors telle quelle.
+/// Sans apparence : celle des essais du masque.
+#[cfg(test)]
 pub fn mask_svg(src: &str, ratio: f32) -> Option<String> {
+    app_svg(src, ratio, Appearance::Default)
+}
+
+/// Icône d'application SVG au masque unique (HIG ICO-04) et à l'apparence
+/// voulue (HIG ICO-10) : un filtre `feColorMatrix`, en sRGB comme pour les
+/// images matricielles, s'applique à tout son contenu, dans sa source, sur la
+/// région du masque (un trait ou une ombre qui débordent ne sont pas rognés
+/// avant lui). `None`
+/// dans les mêmes cas que `mask_svg`.
+pub fn app_svg(src: &str, ratio: f32, look: Appearance) -> Option<String> {
     let start = src.find("<svg")?;
     // Fin de la balise racine : le premier `>` hors guillemets.
     let mut quote = None;
@@ -544,8 +605,21 @@ pub fn mask_svg(src: &str, ratio: f32) -> Option<String> {
         return None;
     }
     let r = w.min(h) * ratio;
+    let (filter, use_filter) = match look.matrix() {
+        Some(m) => {
+            let values: Vec<String> = m.iter().map(|v| format!("{v:.4}")).collect();
+            (
+                format!(
+                    "<filter id=\"{LOOK_ID}\" filterUnits=\"userSpaceOnUse\" x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" color-interpolation-filters=\"sRGB\"><feColorMatrix type=\"matrix\" values=\"{}\"/></filter>",
+                    values.join(" ")
+                ),
+                format!(" filter=\"url(#{LOOK_ID})\""),
+            )
+        }
+        None => (String::new(), String::new()),
+    };
     Some(format!(
-        "{head}<defs><clipPath id=\"{MASK_ID}\"><rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"{r}\" ry=\"{r}\"/></clipPath></defs><g clip-path=\"url(#{MASK_ID})\">{body}</g>{tail}",
+        "{head}<defs><clipPath id=\"{MASK_ID}\"><rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"{r}\" ry=\"{r}\"/></clipPath>{filter}</defs><g clip-path=\"url(#{MASK_ID})\"{use_filter}>{body}</g>{tail}",
         head = &src[..=end],
         body = &src[end + 1..close],
         tail = &src[close..],
@@ -613,6 +687,33 @@ mod tests {
         );
         assert!(m(r#"<svg><path/></svg>"#).is_none(), "sans dimensions");
         assert!(m("pas un svg").is_none());
+    }
+
+    /// L'apparence d'une icône d'application SVG se pose dans sa source, un
+    /// filtre en sRGB sur tout le contenu masqué ; l'apparence par défaut ne
+    /// change rien (HIG ICO-10).
+    #[test]
+    fn apparence_des_icones_svg() {
+        let src = r#"<svg viewBox="0 0 48 48"><rect width="48" height="48"/></svg>"#;
+        assert_eq!(
+            super::app_svg(src, 0.25, super::Appearance::Default),
+            super::mask_svg(src, 0.25)
+        );
+        assert!(!super::mask_svg(src, 0.25).unwrap().contains("filter"));
+        let dark = super::app_svg(src, 0.25, super::Appearance::Dark).unwrap();
+        assert!(dark.contains(r#"<filter id="hyprdesk-apparence-icone" filterUnits="userSpaceOnUse" x="0" y="0" width="48" height="48" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0.8000 0.0000 0.0000 0.0000 0.0000 0.0000 0.8000"#), "{dark}");
+        assert!(dark.contains(r#"<g clip-path="url(#hyprdesk-masque-icone)" filter="url(#hyprdesk-apparence-icone)"><rect width="48" height="48"/></g></svg>"#), "{dark}");
+        let red = crate::config::Rgba(255, 0, 0, 255);
+        let tinted = super::app_svg(src, 0.25, super::Appearance::Tinted(red)).unwrap();
+        assert!(tinted.contains("feColorMatrix"), "{tinted}");
+        // Teinte rouge : le blanc donne l'accent, le noir son plancher, le vert
+        // et le bleu restent nuls, l'opacité intacte.
+        let m = super::Appearance::Tinted(red).matrix().unwrap();
+        assert!((m[0] + m[1] + m[2] + m[4] - 1.0).abs() < 1e-4);
+        assert!((m[4] - super::TINT_FLOOR).abs() < 1e-6);
+        assert!(m[5..15].iter().all(|v| *v == 0.0));
+        assert_eq!(m[15..], [0.0, 0.0, 0.0, 1.0, 0.0]);
+        assert_eq!(super::Appearance::Default.matrix(), None);
     }
 
     use super::*;
