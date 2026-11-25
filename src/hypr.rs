@@ -1280,6 +1280,17 @@ pub fn build_rules_lua(
     lua
 }
 
+/// Place sur `primary` les workspaces permanents (1..=n) qu'aucun placement
+/// ne rattache à un écran ; ceux que l'utilisateur a placés gardent le leur.
+pub fn place_permanent(placement: &mut Vec<Placement>, n: u8, primary: &str) {
+    for i in 1..=n {
+        let ws = i.to_string();
+        if !placement.iter().any(|(w, _, _)| *w == ws) {
+            placement.push((ws, primary.to_string(), false));
+        }
+    }
+}
+
 /// Pose les règles de workspace ; une règle refusée par Hyprland (regex
 /// invalide…) est signalée sans empêcher les autres.
 pub fn install_rules(
@@ -1304,11 +1315,13 @@ pub fn install_rules(
     // Règles d'une autre source (hyprland.lua d'une époque à plusieurs
     // écrans…) vers un écran absent : Hyprland ne crée pas ces workspaces,
     // la barre ne les montre pas. Ils vont sur l'écran principal.
-    if let Some(target) = live
+    let target = live
         .iter()
         .find(|m| Some(m.as_str()) == primary)
         .or(live.first())
         .filter(|_| primary.is_some())
+        .cloned();
+    if let Some(target) = &target
         && let Ok(v) = ipc::query_json("workspacerules")
     {
         for ws in orphan_workspaces(&v, &live, &placement) {
@@ -1322,6 +1335,14 @@ pub fn install_rules(
             );
             placement.push((ws, target.clone(), false));
         }
+    }
+    // Workspaces permanents sans écran choisi : sur l'écran principal. Sans
+    // écran dans sa règle, un permanent va sur l'écran qui a le focus quand
+    // la règle est posée — et hyprdesk la repose à chaque relecture de la
+    // config : 1 à N partaient tous sur un écran secondaire, le principal
+    // n'en gardait aucun (un workspace neuf, 6, y était créé).
+    if let Some(target) = &target {
+        place_permanent(&mut placement, workspaces.unwrap_or(0), target);
     }
     let placement = &placement[..];
     let assigns: Vec<Assign> = rules
@@ -2762,6 +2783,33 @@ mod tests {
         let off = build_rules_lua(None, &[], &[]);
         assert!(!off.contains("hl.workspace_rule") && !off.contains("hl.window_rule"));
         assert!(off.contains("set_enabled(false)"));
+    }
+
+    /// Les permanents sans écran choisi vont sur le principal, dans leur
+    /// règle : poser les règles le focus sur un écran secondaire (relecture
+    /// de la config) ne les y déplace plus.
+    #[test]
+    fn permanents_sur_l_ecran_principal() {
+        let mut placement: Vec<Placement> = vec![("2".into(), "DP-2".into(), true)];
+        place_permanent(&mut placement, 3, "DP-1");
+        assert_eq!(
+            placement,
+            vec![
+                ("2".into(), "DP-2".into(), true),
+                ("1".into(), "DP-1".into(), false),
+                ("3".into(), "DP-1".into(), false),
+            ]
+        );
+        let lua = build_rules_lua(Some(3), &placement, &[]);
+        assert!(lua.contains(r#"workspace = "1", persistent = true, monitor = "DP-1" }"#));
+        assert!(
+            lua.contains(
+                r#"workspace = "2", persistent = true, monitor = "DP-2", default = true }"#
+            )
+        );
+        let mut none = Vec::new();
+        place_permanent(&mut none, 0, "DP-1");
+        assert!(none.is_empty());
     }
 
     #[test]
