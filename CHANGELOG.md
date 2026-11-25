@@ -149,6 +149,12 @@ and this project adheres to
 
 ### Changed
 
+- **Desktop is a plugin like the others** (MLG-324): Settings list it first
+  in the « Plugins » group, with Bar, Dock, Launcher and Panorama (it stays
+  in the core: it cannot be turned off). Wallpaper moves to « Appearance »
+  and desktop icons to « Plugins », next to widgets; the former « Desktop »
+  group is gone. In the code, the desktop surface and its widget layout live
+  in `src/ui/plugins/desktop/` (`surface.rs`, `layout.rs`).
 - **Bar laid out like the macOS menu bar** (MLG-313), Continuity style:
   - one even slab, edge to edge: no darker islands under its zones (they
     stay with « detached groups »), no accent fill on modules that are on

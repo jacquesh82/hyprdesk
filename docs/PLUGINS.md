@@ -12,12 +12,13 @@ widget, et la place du lanceur.
 | **Paquet de réglages** | `src/ui/plugins/<id>.rs` | une entrée de l'écran Réglages : manifeste, messages, état, vue, mise à jour, clés CLI |
 | **Widget** | `src/widgets/`, `src/ui/widget_view.rs` | un élément posé sur le bureau ou dans la barre, alimenté par une source de données |
 | **Plugin de widget** | `~/.config/hypr/hyprdesk/widgets/<nom>.lua` | un widget écrit en Lua, détecté sans recompiler |
+| **Bureau** | `src/ui/plugins/desktop.rs`, `desktop/` | le bureau de chaque écran (fond, icônes, widgets), du cœur |
 | **Dock** | `src/ui/plugins/dock.rs`, `dock/` | le dock du bureau : widget autonome, seul contrôle du mode `launcher-only` |
 | **Lanceur** | `src/ui/plugins/launcher.rs`, `launcher/` | le lanceur d'applications (grande feuille ou carte centrée), du cœur |
 
-### Plugins à surface : Barre, Dock, Lanceur, Panorama
+### Plugins à surface : Bureau, Barre, Dock, Lanceur, Panorama
 
-Quatre paquets posent une surface à l'écran en plus de leur page de Réglages.
+Cinq paquets posent une surface à l'écran en plus de leur page de Réglages.
 Chacun tient dans son dossier, rangé de la même façon :
 
 | Chemin | Rôle |
@@ -27,6 +28,12 @@ Chacun tient dans son dossier, rangé de la même façon :
 | `src/ui/plugins/<id>/…` | ses autres pièces : modules, styles, menus, mouvement |
 | `src/<id>/` | logique sans interface servant aussi hors de l'UI (CLI, LYRA, verrou) — aujourd'hui `src/panorama/` |
 
+- **Bureau** : `surface.rs` (le bureau d'un écran : fond, voile du mode
+  verre, icônes et widgets, à côté du tiroir des Réglages), `layout.rs`
+  (disposition des widgets sans chevauchement). Sa page : Affichage, Modes
+  imposés, Session, Dépendances. Il fait partie du cœur (`CORE_PLUGINS`) :
+  le shell n'existe pas sans lui. Les Réglages le rangent en tête du groupe
+  « Plugins », avec les autres plugins du shell.
 - **Barre** : `surface.rs` (zones, modules, actions), `layout.rs` (mesure,
   débordement), `motion.rs` (mouvement local), `style/` (Continuité,
   Graphite, Island, Convexe), `popover.rs` + `popover/` (menus déroulants),

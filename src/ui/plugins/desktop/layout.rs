@@ -8,7 +8,7 @@ use iced::advanced::{
 };
 use iced::{Alignment, Element, Event, Length, Point, Rectangle, Size, Vector};
 
-use super::Msg;
+use crate::ui::Msg;
 
 /// Où se place un widget : alignements et marges (haut, droite, bas, gauche).
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -13,11 +13,12 @@ a widget, and where the launcher fits.
 | **Settings package** | `src/ui/plugins/<id>.rs` | an entry of the Settings screen: manifest, messages, state, view, update, CLI keys |
 | **Widget** | `src/widgets/`, `src/ui/widget_view.rs` | an element placed on the desktop or in the bar, fed by a data source |
 | **Widget plugin** | `~/.config/hypr/hyprdesk/widgets/<name>.lua` | a widget written in Lua, detected without recompiling |
+| **Desktop** | `src/ui/plugins/desktop.rs`, `desktop/` | each screen's desktop (background, icons, widgets), part of the core |
 | **Dock** | `src/ui/plugins/dock.rs`, `dock/` | the desktop dock: a standalone widget, the only control in `launcher-only` mode |
 
-### Plugins with a surface: Bar, Dock, Launcher, Panorama
+### Plugins with a surface: Desktop, Bar, Dock, Launcher, Panorama
 
-Four packages put a surface on screen on top of their Settings page. Each
+Five packages put a surface on screen on top of their Settings page. Each
 lives in its own folder, laid out the same way:
 
 | Path | Role |
@@ -27,6 +28,12 @@ lives in its own folder, laid out the same way:
 | `src/ui/plugins/<id>/…` | its other parts: modules, styles, menus, motion |
 | `src/<id>/` | UI-free logic also used outside the UI (CLI, LYRA, lock) — today `src/panorama/` |
 
+- **Desktop**: `surface.rs` (a screen's desktop: background, glass-mode
+  veil, icons and widgets, beside the Settings drawer), `layout.rs` (widgets
+  laid out without overlapping). Its page: Display, Forced modes, Session,
+  Dependencies. It is part of the core (`CORE_PLUGINS`): the shell does not
+  exist without it. Settings list it first in the « Plugins » group, with
+  the other shell plugins.
 - **Bar**: `surface.rs` (zones, modules, actions), `layout.rs` (measuring,
   overflow), `motion.rs` (local motion), `style/` (Continuité, Graphite,
   Island, Convexe), `popover.rs` + `popover/` (drop-down menus),
