@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 use zbus::zvariant::{OwnedObjectPath, Type};
 
-use super::model::{Flat, Ids, NULL_PATH, Node, ROOT_PATH, Tree, diff, locale};
+use super::model::{Flat, Ids, NULL_PATH, Node, ROOT_PATH, State, StateSet, Tree, diff, locale};
 
 /// Nom du registre AT-SPI sur le bus d'accessibilité.
 pub const REGISTRY: &str = "org.a11y.atspi.Registry";
@@ -25,6 +25,9 @@ const ROOT_INTERFACES: [&str; 2] = ["org.a11y.atspi.Accessible", "org.a11y.atspi
 const NODE_INTERFACES: [&str; 1] = ["org.a11y.atspi.Accessible"];
 /// Événements d'objet (structure, propriétés, états).
 const EVENT_OBJECT: &str = "org.a11y.atspi.Event.Object";
+/// Événements de fenêtre : sous Wayland, Orca n'a que `Activate` pour savoir
+/// quelle surface tient le clavier.
+const EVENT_WINDOW: &str = "org.a11y.atspi.Event.Window";
 
 /// Référence à un objet accessible : nom sur le bus et chemin (`(so)`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -305,11 +308,17 @@ impl Handle {
             .copied()
             .filter(|&id| new.get(id).is_none())
             .collect();
-        let d = {
+        let (d, old_names) = {
             let mut cur = self.shared.tree();
             let d = diff(&cur, &new);
+            // Noms d'avant : une surface qui se ferme est annoncée sous le sien.
+            let names: HashMap<usize, String> = d
+                .states
+                .iter()
+                .filter_map(|&(id, ..)| cur.get(id).map(|n| (id, n.name.clone())))
+                .collect();
             *cur = new;
-            d
+            (d, names)
         };
         let mut first: zbus::Result<()> = Ok(());
         let mut keep = |r: zbus::Result<()>| {
@@ -332,6 +341,29 @@ impl Handle {
                 Err(e) => keep(Err(e)),
             }
         }
+        // Focus et surface active. Pertes d'abord, avant même les retraits
+        // annoncés (l'objet est encore là) : le focus, puis la fenêtre ;
+        // prises après les ajouts : la fenêtre, puis le focus.
+        let mut flips: Vec<(usize, State, bool)> = Vec::new();
+        let born = d.added.iter().filter_map(|&id| {
+            self.shared
+                .tree()
+                .get(id)
+                .map(|n| (id, StateSet::default(), n.states))
+        });
+        let changes: Vec<_> = d.states.iter().copied().chain(born).collect();
+        for (id, before, after) in changes {
+            for st in [State::Active, State::Focused] {
+                if before.contains(st) != after.contains(st) {
+                    flips.push((id, st, after.contains(st)));
+                }
+            }
+        }
+        flips.sort_by_key(|&(_, st, on)| (on, (st == State::Focused) == on));
+        let (losses, gains): (Vec<_>, Vec<_>) = flips.into_iter().partition(|f| !f.2);
+        for f in losses {
+            keep(self.flip(f, &old_names).await);
+        }
         for &(parent, add, index, child) in &d.children {
             let detail = if add { "add" } else { "remove" };
             let child = self.shared.at(child);
@@ -352,12 +384,43 @@ impl Handle {
                     .await,
             );
         }
+        for f in gains {
+            keep(self.flip(f, &old_names).await);
+        }
         for id in removed {
             // Absent du serveur ou retiré : plus servi dans les deux cas.
             let _ = server.remove::<Accessible, _>(Tree::path(id)).await;
             self.served.remove(&id);
         }
         first
+    }
+
+    /// Un état qui bascule : `StateChanged`, et pour la surface active
+    /// `Window:Activate` ou `Deactivate`, sous son nom (l'ancien si elle part).
+    async fn flip(
+        &self,
+        (id, st, on): (usize, State, bool),
+        old_names: &HashMap<usize, String>,
+    ) -> zbus::Result<()> {
+        if st == State::Active {
+            let name = self
+                .shared
+                .tree()
+                .get(id)
+                .map(|n| n.name.clone())
+                .or_else(|| old_names.get(&id).cloned())
+                .unwrap_or_default();
+            let member = if on { "Activate" } else { "Deactivate" };
+            self.emit_on(EVENT_WINDOW, id, member, "", 0, name.into())
+                .await?;
+        }
+        let detail = if st == State::Active {
+            "active"
+        } else {
+            "focused"
+        };
+        self.emit(id, "StateChanged", detail, i32::from(on), 0i32.into())
+            .await
     }
 
     /// Événement `org.a11y.atspi.Event.Object`, corps `(siiva{sv})`, émis
@@ -370,12 +433,25 @@ impl Handle {
         detail1: i32,
         value: zbus::zvariant::Value<'_>,
     ) -> zbus::Result<()> {
+        self.emit_on(EVENT_OBJECT, id, member, detail, detail1, value)
+            .await
+    }
+
+    async fn emit_on(
+        &self,
+        interface: &str,
+        id: usize,
+        member: &str,
+        detail: &str,
+        detail1: i32,
+        value: zbus::zvariant::Value<'_>,
+    ) -> zbus::Result<()> {
         let props: HashMap<&str, zbus::zvariant::Value<'_>> = HashMap::new();
         self.conn
             .emit_signal(
                 None::<zbus::names::BusName<'_>>,
                 Tree::path(id).as_str(),
-                EVENT_OBJECT,
+                interface,
                 member,
                 &(detail, detail1, 0i32, value, props),
             )
@@ -643,6 +719,70 @@ pub(super) mod tests {
             .unwrap();
         assert_eq!(n, "Firefox", "nœud rajouté");
         let firefox = kids[0].1.to_string();
+
+        // Le focus va à Firefox : `StateChanged:focused`, depuis son objet.
+        drop(events);
+        let rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .interface(EVENT_OBJECT)
+            .unwrap()
+            .member("StateChanged")
+            .unwrap()
+            .build();
+        let mut events = zbus::MessageStream::for_match_rule(rule, &at, Some(16))
+            .await
+            .unwrap();
+        let focused = Node::new(Role::Application, "hyprdesk")
+            .child(
+                Node::new(Role::Frame, "Dock").child(
+                    Node::new(Role::PushButton, "Firefox")
+                        .state(State::Focusable)
+                        .state(State::Focused),
+                ),
+            )
+            .child(Node::new(Role::Frame, "Barre des menus"));
+        h.replace(&focused).await.unwrap();
+        let m = tokio::time::timeout(std::time::Duration::from_secs(5), events.next())
+            .await
+            .expect("StateChanged")
+            .unwrap()
+            .unwrap();
+        let (detail, on, ..): (String, i32, i32, OwnedValue, HashMap<String, OwnedValue>) =
+            m.body().deserialize().unwrap();
+        assert_eq!((detail.as_str(), on), ("focused", 1));
+        assert_eq!(m.header().path().unwrap().as_str(), firefox);
+
+        // Le dock prend le clavier, puis le rend : `Window:Activate`, puis
+        // `Deactivate`, depuis sa Frame.
+        let rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .interface(EVENT_WINDOW)
+            .unwrap()
+            .build();
+        let mut windows = zbus::MessageStream::for_match_rule(rule, &at, Some(16))
+            .await
+            .unwrap();
+        let active = |on: bool| {
+            let frame = Node::new(Role::Frame, "Dock")
+                .child(Node::new(Role::PushButton, "Firefox").state(State::Focusable));
+            Node::new(Role::Application, "hyprdesk")
+                .child(if on {
+                    frame.state(State::Active)
+                } else {
+                    frame
+                })
+                .child(Node::new(Role::Frame, "Barre des menus"))
+        };
+        for (on, member) in [(true, "Activate"), (false, "Deactivate")] {
+            h.replace(&active(on)).await.unwrap();
+            let m = tokio::time::timeout(std::time::Duration::from_secs(5), windows.next())
+                .await
+                .expect("Window")
+                .unwrap()
+                .unwrap();
+            assert_eq!(m.header().member().unwrap().as_str(), member);
+            assert_eq!(m.header().path().unwrap().as_str(), dock);
+        }
 
         // Lecteur coupé : désinscription, puis plus aucun objet.
         h.unembed().await.unwrap();

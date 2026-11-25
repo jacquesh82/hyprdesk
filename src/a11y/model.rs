@@ -351,6 +351,9 @@ pub struct Diff {
     /// `ChildrenChanged` : (parent, ajout ?, rang, enfant), pour le plus haut
     /// nœud ajouté ou retiré de chaque branche.
     pub children: Vec<(usize, bool, i32, usize)>,
+    /// Nœuds gardés dont les états changent, et surfaces actives retirées :
+    /// (nœud, avant, après).
+    pub states: Vec<(usize, StateSet, StateSet)>,
 }
 
 /// Différence de `old` à `new` (numéros tirés des mêmes [`Ids`]). Un
@@ -367,6 +370,11 @@ pub fn diff(old: &Tree, new: &Tree) -> Diff {
                 d.removed.push(n.id);
                 if let Some(p) = n.parent.filter(|p| new.get(*p).is_some()) {
                     removes.push((p, false, n.index_in_parent, n.id));
+                }
+                // Une surface active qui se ferme rend le clavier : annoncé
+                // avant que son objet ne disparaisse.
+                if n.states.contains(State::Active) {
+                    d.states.push((n.id, n.states, StateSet::default()));
                 }
             }
             Some(m) if m.index_in_parent != n.index_in_parent && m.parent == n.parent => {
@@ -386,8 +394,14 @@ pub fn diff(old: &Tree, new: &Tree) -> Diff {
                     adds.push((p, true, n.index_in_parent, n.id));
                 }
             }
-            Some(o) if o.name != n.name => d.renamed.push(n.id),
-            Some(_) => {}
+            Some(o) => {
+                if o.name != n.name {
+                    d.renamed.push(n.id);
+                }
+                if o.states != n.states {
+                    d.states.push((n.id, o.states, n.states));
+                }
+            }
         }
     }
     removes.sort_by_key(|&(p, _, i, _)| (p, std::cmp::Reverse(i)));
@@ -523,6 +537,39 @@ mod tests {
         // Deux frères de même clé : deux objets distincts.
         let c = Tree::flatten_with(&row(&["x", "x"]), &mut ids);
         assert_ne!(c.nodes[1].id, c.nodes[2].id);
+    }
+
+    #[test]
+    fn etats_changes() {
+        let mut ids = Ids::default();
+        let dock = |focus: bool| {
+            let b = Node::new(Role::PushButton, "Firefox").key("pin:firefox");
+            Node::new(Role::Application, "hyprdesk").child(if focus {
+                b.state(State::Focused)
+            } else {
+                b
+            })
+        };
+        let a = Tree::flatten_with(&dock(false), &mut ids);
+        let b = Tree::flatten_with(&dock(true), &mut ids);
+        let d = diff(&a, &b);
+        assert_eq!(d.states.len(), 1);
+        let (id, before, after) = d.states[0];
+        assert_eq!(id, a.nodes[1].id);
+        assert!(!before.contains(State::Focused) && after.contains(State::Focused));
+        // La surface active se ferme : sa perte est annoncée.
+        let active = Tree::flatten_with(
+            &Node::new(Role::Application, "hyprdesk").child(
+                Node::new(Role::Frame, "Lanceur")
+                    .key("launcher")
+                    .state(State::Active),
+            ),
+            &mut ids,
+        );
+        let gone = Tree::flatten_with(&Node::new(Role::Application, "hyprdesk"), &mut ids);
+        let d = diff(&active, &gone);
+        assert_eq!(d.states.len(), 1);
+        assert!(d.states[0].1.contains(State::Active) && !d.states[0].2.contains(State::Active));
     }
 
     #[test]

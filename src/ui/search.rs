@@ -209,7 +209,7 @@ impl Search {
 
     /// Vue de la carte (applications, presse-papiers, fichiers, mots de
     /// passe, réglages) : en changer remplace le champ de saisie.
-    fn view_kind(&self) -> u8 {
+    pub(super) fn view_kind(&self) -> u8 {
         if crate::mymfa::query(&self.query).is_some() {
             2
         } else if self.clip_query().is_some() {
