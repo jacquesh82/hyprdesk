@@ -709,6 +709,29 @@ impl App {
             o.selected = i;
         }
     }
+
+    /// Les cartes ont changé (`before` : celles d'avant) : la sélection suit
+    /// sa carte ; partie, elle va à la voisine la plus proche (HIG ENT-14).
+    pub(super) fn overview_follow(&mut self, before: &[WsCard]) {
+        let after = self.overview_cards();
+        if let Some(o) = self.overview.as_mut() {
+            o.selected = follow(before, &after, o.selected);
+        }
+    }
+}
+
+/// Rang de la carte choisie après un changement des cartes : la même
+/// (par son identifiant, un renommage ne la perd pas) ; disparue, la
+/// suivante qui reste, sinon la précédente (HIG ENT-14).
+fn follow(before: &[WsCard], after: &[WsCard], selected: usize) -> usize {
+    let at = |c: &WsCard| after.iter().position(|a| a.id == c.id);
+    if let Some(i) = before.get(selected).and_then(at) {
+        return i;
+    }
+    let next = before.iter().skip(selected + 1).find_map(at);
+    let prev = || before.iter().take(selected).rev().find_map(at);
+    next.or_else(prev)
+        .unwrap_or_else(|| selected.min(after.len().saturating_sub(1)))
 }
 
 /// Carte d'un rang en dessous (ou au-dessus) parmi `n` cartes en grille
@@ -1566,5 +1589,63 @@ mod tests {
         let _ = app.overview_update(OMsg::TipClose);
         assert!(app.overview.as_ref().unwrap().tip.is_none());
         assert!((bas(&app) - libre).abs() < 0.01);
+    }
+
+    /// La carte choisie disparaît : la sélection va à la voisine qui reste ;
+    /// une carte disparue avant elle ne la déplace pas (HIG ENT-14).
+    #[test]
+    fn la_selection_suit_sa_carte() {
+        let cards = |ids: &[i64]| -> Vec<WsCard> {
+            ids.iter()
+                .map(|&id| WsCard {
+                    name: id.to_string(),
+                    monitor: "A".into(),
+                    active: false,
+                    id,
+                })
+                .collect()
+        };
+        let avant = cards(&[1, 2, 3]);
+        // La carte 2 part : la 3, qui la suivait, est choisie.
+        assert_eq!(follow(&avant, &cards(&[1, 3]), 1), 1);
+        // La dernière part : la précédente.
+        assert_eq!(follow(&avant, &cards(&[1, 2]), 2), 1);
+        // La 1 part, la 3 était choisie : elle le reste, à son nouveau rang.
+        assert_eq!(follow(&avant, &cards(&[2, 3]), 2), 1);
+        // Une carte arrive devant : la choisie aussi.
+        assert_eq!(follow(&avant, &cards(&[0, 1, 2, 3]), 1), 2);
+        // Plus aucune carte.
+        assert_eq!(follow(&avant, &cards(&[]), 1), 0);
+
+        // Par l'application : les espaces relus après la fermeture du 3.
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-apercu-tests/config.lua"),
+            true,
+        )
+        .0;
+        app.overview = Some(Overview::new(
+            Id::unique(),
+            "A".into(),
+            Fade {
+                from: 1.0,
+                to: 1.0,
+                start: Instant::now(),
+                dur: std::time::Duration::ZERO,
+            },
+        ));
+        let ws = |id: i64| crate::hypr::Workspace {
+            id,
+            name: format!("Projet {id}"),
+            monitor: "A".into(),
+            windows: 1,
+            fullscreen: false,
+        };
+        app.workspaces = (1..=4).map(ws).collect();
+        app.overview.as_mut().unwrap().selected = 2;
+        let _ = app.update(Msg::Hypr(crate::hypr::Update::Workspaces(
+            [1, 2, 4].map(ws).to_vec(),
+        )));
+        assert_eq!(app.overview.as_ref().unwrap().selected, 2);
+        assert_eq!(app.overview_cards()[2].id, 4);
     }
 }

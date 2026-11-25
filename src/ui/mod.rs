@@ -4448,7 +4448,12 @@ impl App {
             },
             Msg::Hypr(hypr::Update::Monitors(list)) => self.set_monitors(list),
             Msg::Hypr(hypr::Update::Workspaces(list)) => {
+                // La vue d'ensemble garde sa carte choisie (HIG ENT-14).
+                let before = self.overview.is_some().then(|| self.overview_cards());
                 self.workspaces = list;
+                if let Some(before) = before {
+                    self.overview_follow(&before);
+                }
                 // Plein écran sur l'écran d'un tiroir : ramené hors du tiroir ;
                 // fenêtres retenues : relâchées dès qu'elles en sortent.
                 let drawer_fs = self
