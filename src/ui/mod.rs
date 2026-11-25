@@ -7025,6 +7025,10 @@ impl App {
             None
         };
         let cell = g.grid.cell as f32;
+        let label = two_line_label(&label, cell - 12.0 - 14.0, g.font_size);
+        // Deux lignes au plus ; la cellule s'allonge pour les contenir, la
+        // sélection couvre donc tout le nom (une hauteur fixe le rognait).
+        let line = g.font_size * 1.3;
         let body = container(
             column![
                 iced::widget::float(img).scale(1.0 + hover * 0.07),
@@ -7032,11 +7036,13 @@ impl App {
                     text(label)
                         .font(self.font)
                         .size(g.font_size)
+                        .line_height(iced::widget::text::LineHeight::Absolute(line.into()))
                         .color(fg)
-                        .font(self.font)
                         .align_x(Alignment::Center)
                         .width(Length::Fill)
                 )
+                .max_height(2.0 * line + 6.0)
+                .clip(true)
                 .padding([3, 7])
                 .style(move |_| container::Style {
                     background: Some(Color::from_rgba(0.02, 0.03, 0.06, 0.40 * alpha).into()),
@@ -7048,9 +7054,13 @@ impl App {
             .align_x(Alignment::Center),
         )
         .width(cell)
-        .height(cell)
-        .padding(6)
-        .align_y(Alignment::Center)
+        // Centré dans la cellule pour une ligne, comme avant ; la seconde
+        // ligne allonge la cellule vers le bas.
+        .padding({
+            let one_line = 6.0 + size + 9.0 + line + 6.0 + 6.0;
+            let v = 6.0 + ((cell - one_line) / 2.0).max(0.0);
+            Padding { top: v, bottom: v, left: 6.0, right: 6.0 }
+        })
         .style(move |_| container::Style {
             background: hl.map(Background::Color),
             border: Border::default()
@@ -7221,6 +7231,19 @@ impl App {
     }
 }
 
+/// Nom d'une icône du bureau borné à deux lignes de `width` pixels : au-delà,
+/// coupé d'une ellipse (iced n'en pose pas). Estimation par largeur moyenne
+/// de caractère ; le conteneur du nom rogne de toute façon à deux lignes.
+fn two_line_label(label: &str, width: f32, font_size: f32) -> String {
+    let per_line = (width / (font_size * 0.55)).floor().max(1.0) as usize;
+    let max = 2 * per_line;
+    if label.chars().count() <= max {
+        return label.to_string();
+    }
+    let cut: String = label.chars().take(max - 1).collect();
+    format!("{}…", cut.trim_end())
+}
+
 /// Thème iced des contrôles (panneau Réglages) tiré des couleurs de la config.
 fn make_theme(cfg: &Config) -> iced::Theme {
     let th = &cfg.general.theme;
@@ -7265,6 +7288,15 @@ mod regression_tests {
         assert_eq!(App::motion_millis(150, true), 90);
         assert_eq!(App::motion_millis(400, false), 220);
         assert_eq!(App::motion_millis(50, true), 50, "déjà court : inchangé");
+    }
+
+    /// Nom d'icône du bureau : intact sur deux lignes, coupé d'une ellipse au-delà.
+    #[test]
+    fn nom_d_icone_sur_deux_lignes() {
+        assert_eq!(two_line_label("Home folder", 70.0, 14.0), "Home folder");
+        let long = two_line_label("Un nom de fichier vraiment très long.pdf", 70.0, 14.0);
+        assert!(long.ends_with('…'), "{long}");
+        assert!(long.chars().count() <= 18, "{long}");
     }
 
     fn app() -> App {
