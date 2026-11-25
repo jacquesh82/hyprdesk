@@ -5081,7 +5081,11 @@ impl App {
                 self.bar_hidden.clear();
                 self.bar_full_width.clear();
                 self.bar_zone_extents.clear();
-                self.bar_anchors.clear();
+                // Les ancres des modules restent : un module ne republie la
+                // sienne que si elle bouge (`motion::anchor`). Vidées ici, un
+                // titre resté en place n'en avait plus, et sa carte s'ouvrait
+                // au centre de l'écran (MLG-335). Un module déplacé la
+                // republie ; une barre recréée aussi.
                 self.control_actions.clear();
                 self.control_since.clear();
                 self.values.clear();
@@ -7937,6 +7941,23 @@ mod regression_tests {
         // Sans barre, le calendrier n'a nulle part où s'ouvrir.
         let _ = app.update_inner(Msg::WidgetOpen("calendar".into()));
         let _ = app.update_inner(Msg::WidgetOpen("inconnu".into()));
+    }
+
+    /// MLG-335 : une config relue garde les ancres des modules de barre ; un
+    /// titre de menu resté en place ne republie pas la sienne, sa carte
+    /// s'ouvrait au centre de l'écran.
+    #[test]
+    fn config_relue_garde_les_ancres_de_la_barre() {
+        let mut app = app();
+        let bar = Id::unique();
+        let rect = iced::Rectangle::new(iced::Point::new(56.0, 0.0), Size::new(70.0, 36.0));
+        app.bar_anchors.insert((bar, "menus:windows".into()), rect);
+        let cfg = app.cfg.clone();
+        let _ = app.update_inner(Msg::ConfigLoaded(Ok(cfg)));
+        assert_eq!(
+            app.bar_anchors.get(&(bar, "menus:windows".into())),
+            Some(&rect)
+        );
     }
 
     #[test]
