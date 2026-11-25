@@ -20,11 +20,19 @@ Le trait d'un glyphe dérive de la graisse du texte voisin, sur une table unique
 - `icons::get` et son enveloppe ; le cache d'icônes vectorielles de `App`.
 - Exemple : `tokens::glyph` (ICO-13) pour la taille, même principe pour la graisse.
 
+## Relecture indépendante (prise en compte)
+
+- La clé `nom@graisse` aurait cassé `want_icon` (suffixe `-symbolic` perdu, recherche partie dans le thème) et les captures (variantes non préchargées) : abandonnée. Le `svg::Handle` est identifié par le hachage de ses octets ; la variante se construit au rendu, comme `icons::glyph`, et iced ne la rastérise qu'une fois. La condition d'arrêt est donc tenue sans cache propre.
+- `icons::glyph` reçoit aussi sa variante, `glyph_weighted`.
+- Le rôle `label` de la barre est une taille ; la graisse des libellés est `Medium`, désormais la constante `LABEL_WEIGHT` de `bar/surface.rs`.
+
 ## Étapes
 
+Toutes faites (itération D suivante) :
+
 1. `icons.rs` : `pub fn stroke(weight: Weight) -> f32` (table ci-dessus) ; `get_weighted(name, weight)` écrit `stroke-width` d'après elle ; `get(name)` = `get_weighted(name, Normal)`. Test : `get` inchangé octet pour octet ; Semibold écrit `2`.
-2. `mod.rs` : `want_icon` et `icon_named_weighted(name, size, tint, weight)` résolvent et mettent en cache la variante sous la clé `nom@graisse` (Normal garde la clé nue, rien ne change pour les appels existants). Test : deux graisses, deux entrées ; Normal partage l'entrée existante.
-3. Appels : glyphes voisins d'un texte non régulier — en-têtes de section à icône des Réglages (`title_font`), lignes de confirmation des cartes de la barre (`Medium`), libellés de la barre (rôle `label` du thème), titres du tiroir. Relever les appels par `grep` de `title_font()`/`ui_font(` à côté d'un `icon_named` dans la même rangée. Captures `reglages`, `bar-menu-*`, `bar-controls` à 640 et 1440.
+2. `mod.rs` : `icon_named_weighted(name, size, tint, weight)` ; un glyphe du jeu résolu par `want_icon` (test commun `builtin_glyph`) prend `glyph_weighted`, une icône du thème reste telle quelle. Aucune entrée de cache ajoutée. Test : la variante n'ajoute ni entrée ni poignée ; un nom non résolu reste absent.
+3. Appels : glyphes voisins d'un texte non régulier — en-têtes de section à icône des Réglages (`title_font`), lignes de confirmation des cartes de la barre (`Medium`), libellés de la barre (rôle `label` du thème), titres du tiroir. Réalisé : volume et luminosité de la barre (Medium), chevron du titre de fenêtre (Semibold), réglage à curseur des cartes de la barre (Medium), orbes des contrôles (Medium), Retirer des cartes de `hyprlists` et `curves` (`title_font`), entrées de la barre latérale du tiroir des Réglages (libellés en Medium, `panel.rs`), module média et modules Lua à icône et texte de la barre (`LABEL_WEIGHT`). Captures `reglages`, `bar-menu-*`, `bar-controls` à 640 et 1440.
 4. `DESIGN.md` (icônes) : la table graisse → trait.
 
 ## Portée
