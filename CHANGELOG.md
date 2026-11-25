@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-25
+
+Menus after Apple's guidelines, a bar laid out like the macOS menu bar,
+focus control on the full desktop, per-surface materials in the theme, and
+fixes for glass surfaces, desktop widgets and GTK themes (MLG-258 to
+MLG-342).
+
 ### Added
 
 - **Focus on the full desktop** (MLG-327): Settings → Desktop → « Focus on
@@ -162,6 +169,15 @@ and this project adheres to
   `all`, `--seconds`, `--rounds`) sets each value live with its name in a
   Hyprland notification, then puts yours back (Ctrl-C too). Settings →
   Animations → Effects has a **Compare on screen** button.
+- **Settings → Theme → Surfaces** (MLG-336, MLG-337): material
+  (Transparent, Clear glass, Glass, Opaque surface, or the theme's) and
+  opacity for each surface — bar, dock, launcher, Settings and LYRA —, also
+  as `theme.effects.<surface>.material`. The Surfaces slider now wins over the
+  bar's own opacity, the dock's readability floor follows « Adaptive », and
+  the launcher's search and grid carry its opacity.
+- **Settings → Theme → Components in tabs** (MLG-332), one per part of the
+  desktop (bar and widgets, quick settings, notifications, wallpaper, lock);
+  a search shows every section.
 
 ### Changed
 
@@ -237,6 +253,12 @@ and this project adheres to
   holds the application launcher (Applications, Shape, Shortcut) and is
   part of the core. An old `disabled_plugins = { "launcher" }` turns the
   dock off, as before.
+- **Default bar** (MLG-341), Continuity style: menus on the left, the
+  active window and workspaces in the center, then tray, media, network,
+  Bluetooth, battery, volume, desktop, notifications, control center and
+  clock. Modules that hide themselves when idle (keyboard, night light,
+  brightness, removable media, captures, updates) are no longer placed by
+  default: Settings → Bar adds them.
 
 ### Fixed
 
@@ -269,6 +291,22 @@ and this project adheres to
   fail; it now names them after their XDG root and lists settings in
   `gsettings.txt`. `generate` and `apply` resolve the active theme's variant
   instead of the system colour scheme.
+- **Unreadable menus in GTK and Electron apps** (MLG-342, e.g. MarkText):
+  the theme engine recoloured Adwaita from `/usr/share/themes/Adwaita`, an
+  empty stub, so the installed `hyprdesk-<pack>` theme had no styles and
+  menus no background. Adwaita is now extracted from GTK (`gresource`) and
+  recoloured like any base theme.
+- **Desktop widgets no longer overlap** (MLG-340) when the screen changes
+  size or the Settings drawer opens: each one takes the free spot nearest its
+  anchor.
+- **Two-line desktop icon names** (MLG-339) fit inside their background and
+  the selection; longer names end with an ellipsis.
+- **Glass and clear glass show the windows behind** the bar, dock, launcher
+  and Settings (MLG-338) instead of a slice of wallpaper.
+- **Bar menus no longer open in the middle of the screen** after a config
+  reload (MLG-335).
+- **Permanent workspaces stay on the primary screen** (MLG-333): workspaces
+  1 to N no longer move to the focused secondary screen on a config reload.
 
 ## [0.2.0] - 2026-11-22
 
