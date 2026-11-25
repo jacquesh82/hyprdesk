@@ -5,6 +5,7 @@
 //! Chaque binaire ne lie que le code qu'il atteint : l'écran de verrouillage
 //! n'embarque ni le démon, ni Lua, ni l'index de fichiers.
 
+pub mod a11y;
 pub mod adopt;
 pub mod ai_services;
 pub mod apps;
