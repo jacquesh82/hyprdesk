@@ -779,7 +779,16 @@ impl App {
             m.width as f32 - m.reserved.2 - self.panel_width(),
             m.reserved.1,
         );
-        self.wall_backdrop(name, origin)
+        self.bare_backdrop(
+            name,
+            iced::Rectangle::new(
+                origin,
+                iced::Size::new(
+                    self.panel_width(),
+                    m.height as f32 - m.reserved.1 - m.reserved.3,
+                ),
+            ),
+        )
     }
 
     /// Crée la surface du tiroir sur `monitor`.

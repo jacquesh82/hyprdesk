@@ -1043,7 +1043,7 @@ impl App {
         let under = crate::ui::lens::available()
             .then(|| {
                 let roi = self.bar_roi(s);
-                self.wall_backdrop(&s.monitor, iced::Point::new(roi.x, roi.y))
+                self.bare_backdrop(&s.monitor, roi)
             })
             .flatten();
         let el = crate::ui::glass::card(
@@ -1648,7 +1648,7 @@ impl App {
             let under = crate::ui::lens::available()
                 .then(|| {
                     let roi = self.bar_roi(s);
-                    self.wall_backdrop(&s.monitor, iced::Point::new(roi.x, roi.y))
+                    self.bare_backdrop(&s.monitor, roi)
                 })
                 .flatten();
             crate::ui::glass::card(

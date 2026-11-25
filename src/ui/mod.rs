@@ -257,6 +257,9 @@ pub enum Msg {
     ClosePopover,
     PopoverMeasured(Id, f32),
     DashboardSample(Id, Box<popover::continuity::Sample>),
+    /// Géométrie des fenêtres relue (MLG-338) : le glissé d'une fenêtre
+    /// flottante n'émet aucun événement de Hyprland.
+    WindowGeos(Vec<hypr::WindowGeo>),
     DashboardCommand(control::Command),
     Popover(popover::PMsg),
     /// Appelle une fonction Lua d'un widget (on_click, on_scroll) puis le relève.
@@ -648,6 +651,10 @@ pub struct App {
     ws_geos: Vec<hypr::WindowGeo>,
     /// Workspaces où une fenêtre est en vrai plein écran (HIG PAT-01).
     fullscreen_spaces: HashSet<String>,
+    /// Géométrie des fenêtres, à chaque relecture des fenêtres : une surface
+    /// de verre ne peint le fond d'écran sous elle que si aucune fenêtre n'y
+    /// passe (MLG-338).
+    window_geos: Vec<hypr::WindowGeo>,
     /// Dernière relecture de ces géométries (rappel périodique).
     ws_geos_at: Option<Instant>,
     /// Fenêtres marquées urgentes par Hyprland (adresses) ; une fenêtre
@@ -1194,6 +1201,7 @@ impl App {
             force_quit: None,
             overview: None,
             ws_geos: Vec::new(),
+            window_geos: Vec::new(),
             fullscreen_spaces: Default::default(),
             ws_geos_at: None,
             cal_months: 0,
@@ -3576,7 +3584,19 @@ impl App {
         } else {
             Task::none()
         };
-        Task::batch([refresh, fresh, self.poll_widgets()])
+        // Verre qui réfracte sur la barre ou le dock : le fond d'écran n'est
+        // peint dessous que sans fenêtre derrière (MLG-338). Une fenêtre
+        // flottante glissée n'émet rien : relue ici, une fois par relevé.
+        let geos = if crate::ui::lens::available()
+            && [crate::config::Place::Bar, crate::config::Place::Dock]
+                .into_iter()
+                .any(|p| crate::ui::tokens::glass(p).refraction > 0.0)
+        {
+            Task::perform(crate::hypr::window_geometries_async(), Msg::WindowGeos)
+        } else {
+            Task::none()
+        };
+        Task::batch([refresh, fresh, geos, self.poll_widgets()])
     }
 
     fn poll_widgets(&mut self) -> Task<Msg> {
@@ -4347,6 +4367,8 @@ impl App {
             Msg::LightValue(l) if *l == self.light => Damage::None,
             Msg::TrayItems(items) if *items == self.tray => Damage::None,
             Msg::IndexStatus(st) if *st == self.index_status => Damage::None,
+            // Fenêtres immobiles : le verre n'a rien à redessiner (MLG-338).
+            Msg::WindowGeos(l) if *l == self.window_geos => Damage::None,
             // État de Hyprland inchangé (titre de fenêtre, rafale déjà vue).
             Msg::Hypr(hypr::Update::ActiveWindow(w)) if *w == self.active_window => Damage::None,
             Msg::Hypr(hypr::Update::Workspaces(l)) if *l == self.workspaces => Damage::None,
@@ -4911,6 +4933,7 @@ impl App {
                     .filter(|g| g.fullscreen)
                     .map(|g| g.workspace.clone())
                     .collect();
+                self.window_geos = geos.clone();
                 if self.dock_cover_changed() {
                     tasks.push(self.sync_launchers());
                 }
@@ -5725,6 +5748,13 @@ impl App {
                 self.close_popover()
             }
             Msg::PopoverMeasured(win, height) => self.fit_popover(win, height),
+            Msg::WindowGeos(l) => {
+                if self.window_geos == l {
+                    return Task::none();
+                }
+                self.window_geos = l;
+                Task::none()
+            }
             Msg::DashboardSample(id, sample) => {
                 if let Some(dashboard) = self.popover.as_mut().and_then(|p| p.dashboard.as_mut())
                     && dashboard.id == id
@@ -7946,6 +7976,39 @@ mod regression_tests {
     /// MLG-335 : une config relue garde les ancres des modules de barre ; un
     /// titre de menu resté en place ne republie pas la sienne, sa carte
     /// s'ouvrait au centre de l'écran.
+    /// MLG-338 : le fond d'écran n'est peint sous une surface de verre que si
+    /// aucune fenêtre de l'espace affiché n'y passe ; sinon il la cachait.
+    #[test]
+    fn fenetre_derriere_une_surface() {
+        let mut app = app();
+        let mut m = monitor("DP-1", true);
+        m.x = 1000.0;
+        app.monitors = vec![m];
+        let geo = |ws: &str, rect| hypr::WindowGeo {
+            address: "0x1".into(),
+            class: "kitty".into(),
+            title: String::new(),
+            workspace: ws.into(),
+            floating: false,
+            rect,
+            fullscreen: false,
+        };
+        let drawer = iced::Rectangle::new(iced::Point::new(900.0, 40.0), Size::new(500.0, 800.0));
+        assert!(!app.window_behind("DP-1", drawer), "aucune fenêtre");
+        // Fenêtre à gauche de l'écran (coordonnées globales : écran en x = 1000).
+        app.window_geos = vec![geo("1", (1000, 40, 800, 800))];
+        assert!(!app.window_behind("DP-1", drawer), "à côté, pas derrière");
+        app.window_geos = vec![geo("1", (1000, 40, 1000, 800))];
+        assert!(app.window_behind("DP-1", drawer), "elle passe derrière");
+        // Sur un autre espace : invisible, donc pas derrière.
+        app.window_geos = vec![geo("2", (1000, 40, 1440, 900))];
+        assert!(!app.window_behind("DP-1", drawer));
+        assert!(
+            app.window_behind("HDMI-A-1", drawer),
+            "écran inconnu : occupé"
+        );
+    }
+
     #[test]
     fn config_relue_garde_les_ancres_de_la_barre() {
         let mut app = app();

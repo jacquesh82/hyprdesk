@@ -613,7 +613,13 @@ impl super::App {
             return None;
         }
         let m = self.monitors.iter().find(|m| m.focused)?;
-        self.wall_backdrop(&m.name, iced::Point::ORIGIN)
+        self.bare_backdrop(
+            &m.name,
+            iced::Rectangle::new(
+                iced::Point::ORIGIN,
+                iced::Size::new(m.width as f32, m.height as f32),
+            ),
+        )
     }
 
     /// Teinte de la lentille du lanceur : son fond à l'opacité du thème.
@@ -625,6 +631,48 @@ impl super::App {
             .shown(crate::config::Place::Launcher)
             .opacity;
         iced::Color { a: o, ..bg }
+    }
+
+    /// Une fenêtre de l'espace affiché sur `monitor` passe derrière `local`
+    /// (rectangle de la surface, pixels logiques de l'écran). Un espace
+    /// spécial ouvert ou un écran inconnu comptent comme occupés.
+    pub(super) fn window_behind(&self, monitor: &str, local: iced::Rectangle) -> bool {
+        let Some(m) = self.monitors.iter().find(|m| m.name == monitor) else {
+            return true;
+        };
+        if m.workspace.starts_with("special:") {
+            return true;
+        }
+        let (x0, y0) = (m.x + local.x, m.y + local.y);
+        let (x1, y1) = (x0 + local.width, y0 + local.height);
+        self.window_geos
+            .iter()
+            .filter(|g| g.workspace == m.workspace || (!m.base.is_empty() && g.workspace == m.base))
+            .any(|g| {
+                let (gx, gy, gw, gh) = (
+                    g.rect.0 as f32,
+                    g.rect.1 as f32,
+                    g.rect.2 as f32,
+                    g.rect.3 as f32,
+                );
+                gx < x1 && gx + gw > x0 && gy < y1 && gy + gh > y0
+            })
+    }
+
+    /// Fond d'écran à peindre sous la surface `local` de `monitor`, pour la
+    /// lentille, seulement si aucune fenêtre n'y passe (MLG-338) : peint par-
+    /// dessus elles, il les cachait, et le verre ne laissait rien voir.
+    /// Sans lui, la lentille se réduit à la teinte et le flou de Hyprland
+    /// montre les fenêtres.
+    pub(super) fn bare_backdrop(
+        &self,
+        monitor: &str,
+        local: iced::Rectangle,
+    ) -> Option<iced::Element<'_, super::Msg>> {
+        if self.window_behind(monitor, local) {
+            return None;
+        }
+        self.wall_backdrop(monitor, local.position())
     }
 
     /// Fond d'écran de `monitor`, à peindre sous une surface posée sur

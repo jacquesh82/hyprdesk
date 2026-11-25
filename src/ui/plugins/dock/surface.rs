@@ -925,10 +925,12 @@ impl App {
                 base * 0.86 * t,
             );
             // Coin de la surface du dock sur l'écran — pas celui de ses
-            // icônes (`roi`) : la tranche de fond serait décalée d'autant.
+            // icônes (`roi`) : la tranche de fond serait décalée d'autant. Le
+            // fond n'est peint que si aucune fenêtre ne passe derrière ses
+            // icônes (`roi`, MLG-338).
             let corner =
                 lifecycle::screen_anchor(m, l.position, l.size, Rectangle::default()).position();
-            let under = crate::ui::lens::available()
+            let under = (crate::ui::lens::available() && !self.window_behind(&m.name, roi))
                 .then(|| self.wall_backdrop(&m.name, corner))
                 .flatten();
             crate::ui::glass::card(
