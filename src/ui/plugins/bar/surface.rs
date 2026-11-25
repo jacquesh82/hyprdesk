@@ -2175,6 +2175,53 @@ impl App {
             .collect()
     }
 
+    /// Clic gauche d'un module qui ouvre une carte, partagé par la vue et par
+    /// l'arbre d'accessibilité (`DoAction`, HIG ACC-01) : fenêtre, volume,
+    /// luminosité, centre de contrôle, horloge (vue étendue de la bulle en
+    /// style Island), calendrier ; aucun quand la vue n'affiche rien à
+    /// cliquer (fenêtre absente, luminosité inconnue). Les autres modules — espaces, bureau, zone
+    /// de notification, média, système, commandes, Lua — : aucun.
+    pub(in crate::ui) fn bar_item_press(&self, bar_id: Id, item: &BarItem) -> Option<Msg> {
+        let open = |key: &str, request| Some(Msg::OpenPopover(bar_id, key.into(), request));
+        let monitor = self.bar_surfaces.get(&bar_id).map(|b| b.monitor.as_str());
+        match item {
+            // Comme la vue : rien à cliquer sur un écran étroit ni sans
+            // fenêtre active.
+            BarItem::Window => {
+                let narrow = self
+                    .monitors
+                    .iter()
+                    .find(|m| Some(m.name.as_str()) == monitor)
+                    .is_some_and(|m| m.width < 1000);
+                let shown = self
+                    .active_window
+                    .as_ref()
+                    .is_some_and(|(c, t)| !c.is_empty() || !t.is_empty());
+                (shown && !narrow).then_some(())?;
+                open("window", Request::Window)
+            }
+            BarItem::Volume => open("volume", Request::Volume),
+            // Sans niveau sur cet écran, le module n'est pas affiché.
+            BarItem::Brightness => {
+                self.light.level_for(monitor?)?;
+                open("brightness", Request::Brightness)
+            }
+            BarItem::Widget(id) => match &self.cfg.widgets.iter().find(|w| &w.id == id)?.kind {
+                WidgetKind::Controls => open(id, Request::Widget(id.clone())),
+                WidgetKind::Calendar => open(id, Request::Calendar),
+                WidgetKind::Clock { .. } => {
+                    let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
+                    let toast = (style == crate::config::BarStyle::Island)
+                        .then(|| self.toasts.list.first())
+                        .flatten();
+                    Some(clock_press(bar_id, id, style, toast))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// Titre de menu du shell actif. Sans fenêtre active, « Fenêtre » n'a
     /// rien à montrer : le titre reste, inactif (désactiver plutôt que
     /// retirer).
@@ -2262,7 +2309,7 @@ impl App {
                     bar,
                     alpha,
                     content,
-                    Some(Msg::OpenPopover(bar_id, "window".into(), Request::Window)),
+                    self.bar_item_press(bar_id, item),
                     // Clic droit : le menu du clic gauche, même carte (HIG ENT-07).
                     Some(Msg::OpenPopover(bar_id, "window".into(), Request::Window)),
                     None,
@@ -2400,7 +2447,7 @@ impl App {
                     bar,
                     alpha,
                     content.into(),
-                    Some(Msg::OpenPopover(bar_id, "volume".into(), Request::Volume)),
+                    self.bar_item_press(bar_id, item),
                     Some(module_menu(bar_id, "volume")),
                     Some(Msg::VolumeMute),
                     Some(Box::new(|d| Msg::VolumeStep(d as i32 * 5))),
@@ -2426,11 +2473,7 @@ impl App {
                     bar,
                     alpha,
                     content.into(),
-                    Some(Msg::OpenPopover(
-                        bar_id,
-                        "brightness".into(),
-                        Request::Brightness,
-                    )),
+                    self.bar_item_press(bar_id, item),
                     Some(module_menu(bar_id, "brightness")),
                     None,
                     target.map(|t| {
@@ -2532,11 +2575,7 @@ impl App {
                         alpha,
                         self.icon_named("preferences-system-controls-symbolic", isz, fg)
                             .unwrap_or_else(|| self.label(crate::i18n::tr("Réglages"), size, fg)),
-                        Some(Msg::OpenPopover(
-                            bar_id,
-                            id.clone(),
-                            Request::Widget(id.clone()),
-                        )),
+                        self.bar_item_press(bar_id, item),
                         None,
                         None,
                         None,
@@ -2584,12 +2623,11 @@ impl App {
                         // info-bulle, dit le compte.
                         let unread = self.toasts.unread();
                         let tip = (unread > 0).then(|| crate::tr!("Non lues : {n}", n = unread));
-                        let press = clock_press(bar_id, id, style, toast);
                         let frame = self.module(
                             bar,
                             alpha,
                             shown,
-                            Some(press),
+                            self.bar_item_press(bar_id, item),
                             Some(module_menu(bar_id, id)),
                             None,
                             None,
@@ -2628,7 +2666,7 @@ impl App {
                         bar,
                         alpha,
                         self.label(format_now("%a %-d %b"), size, fg),
-                        Some(Msg::OpenPopover(bar_id, id.clone(), Request::Calendar)),
+                        self.bar_item_press(bar_id, item),
                         Some(module_menu(bar_id, id)),
                         None,
                         None,

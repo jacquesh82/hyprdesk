@@ -16,13 +16,13 @@ impl App {
     pub(super) fn a11y_surfaces(&self) -> Vec<Node> {
         let mut out = Vec::new();
         if let Some(def) = self.cfg.bar.as_ref() {
-            let mut bars: Vec<&str> = self
+            let mut bars: Vec<(&str, iced::window::Id)> = self
                 .bar_surfaces
-                .values()
-                .map(|b| b.monitor.as_str())
+                .iter()
+                .map(|(id, b)| (b.monitor.as_str(), *id))
                 .collect();
-            bars.sort_unstable();
-            for monitor in bars {
+            bars.sort_unstable_by_key(|&(monitor, _)| monitor);
+            for (monitor, bar_id) in bars {
                 let frame = format!("bar:{monitor}");
                 // Écran vertical : la composition portrait, comme à l'écran.
                 let zones = if self.bar_vertical(monitor) {
@@ -66,10 +66,19 @@ impl App {
                         .children(zones.iter().flatten().map(|item| {
                             match embedded.filter(|_| self.bar_item_is_launcher(item)) {
                                 Some(m) => self.dock_a11y(m, false),
-                                None => button(self.bar_item_label(item)).key(
-                                    crate::ui::plugins::bar::surface::bar_item_key(item)
-                                        .to_string(),
-                                ),
+                                None => {
+                                    let b = button(self.bar_item_label(item)).key(
+                                        crate::ui::plugins::bar::surface::bar_item_key(item)
+                                            .to_string(),
+                                    );
+                                    // Un module qui ouvre une carte s'active
+                                    // comme son clic.
+                                    if self.bar_item_press(bar_id, item).is_some() {
+                                        b.action()
+                                    } else {
+                                        b
+                                    }
+                                }
                             }
                         })),
                 );
@@ -320,15 +329,34 @@ impl App {
                 .iter()
                 .find(|(_, s)| s.monitor == monitor)
                 .map(|(id, _)| *id);
+            let Some(bar) = bar else {
+                return Task::none();
+            };
             let title = crate::ui::plugins::bar::menus::titles()
                 .into_iter()
                 .find(|(key, ..)| *key == rest);
-            return match (bar, title) {
-                (Some(bar), Some((key, _, request))) if self.bar_title_live(&request) => {
+            if let Some((key, _, request)) = title {
+                return if self.bar_title_live(&request) {
                     Task::done(Msg::OpenPopover(bar, key.into(), request))
-                }
-                _ => Task::none(),
-            };
+                } else {
+                    Task::none()
+                };
+            }
+            // Un module de la composition de cet écran : le clic que sa vue
+            // lui donne.
+            let press = self.cfg.bar.as_ref().and_then(|def| {
+                let zones = if self.bar_vertical(monitor) {
+                    def.portrait.as_ref().unwrap_or(&def.zones)
+                } else {
+                    &def.zones
+                };
+                zones
+                    .iter()
+                    .flatten()
+                    .find(|item| crate::ui::plugins::bar::surface::bar_item_key(item) == rest)
+                    .and_then(|item| self.bar_item_press(bar, item))
+            });
+            return press.map_or_else(Task::none, Task::done);
         }
         match (head, rest) {
             ("switcher", win) => {
@@ -559,6 +587,29 @@ mod tests {
                 .contains(crate::a11y::model::State::Enabled)
         );
         assert!(tree.children[1].children.iter().all(|b| b.action));
+        // Un module qui ouvre une carte s'active ; les espaces, non (leurs
+        // touches sont à part).
+        let module = |name: &str| bar.children.iter().find(|n| n.name == name).unwrap();
+        assert!(module("Volume").action);
+        assert!(!module("Workspaces").action);
+        // `DoAction` : le clic du module, celui du titre actif ; rien pour
+        // un titre inactif ou une clé inconnue.
+        assert_eq!(app.a11y_action("/bar:A/volume").units(), 1);
+        assert_eq!(app.a11y_action("/bar:A/menus:hyprdesk").units(), 1);
+        assert_eq!(app.a11y_action("/bar:A/menus:window").units(), 0);
+        assert_eq!(app.a11y_action("/bar:A/workspaces").units(), 0);
+        assert_eq!(app.a11y_action("/bar:B/volume").units(), 0);
+        // Comme la vue : la fenêtre sans fenêtre active, la luminosité sans
+        // niveau n'ont rien à cliquer.
+        use crate::config::BarItem;
+        let bar_id = *app.bar_surfaces.keys().next().unwrap();
+        assert!(app.bar_item_press(bar_id, &BarItem::Window).is_none());
+        app.active_window = Some(("foot".into(), String::new()));
+        assert!(app.bar_item_press(bar_id, &BarItem::Window).is_some());
+        app.active_window = None;
+        if app.light.level_for("A").is_none() {
+            assert!(app.bar_item_press(bar_id, &BarItem::Brightness).is_none());
+        }
         // Dock au clavier sur Firefox : surface active, bouton au focus.
         app.launcher_runtime.focus = Some(("A".into(), 0));
         let focused = app.a11y_surfaces();
