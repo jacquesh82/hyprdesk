@@ -318,7 +318,14 @@ fenêtres, qui restent en place), `CTRL + F8` donne le clavier aux bulles à l'�
 notifications,
 `CTRL + F6` ouvre le volet des Réglages et pose le focus sur son premier champ.
 Pressé deux fois, la barre et le dock rendent le clavier aux fenêtres ; le
-centre et le volet, qui restent ouverts, le gardent. Dans le volet, Tab et
+centre et le volet, qui restent ouverts, le gardent. Un menu de la barre
+ouvert au clavier choisit sa première entrée : flèches haut et bas, Tab et
+Maj + Tab, Début et Fin passent d'une entrée à l'autre, flèche droite ouvre un
+sous-menu et y descend, flèche gauche en remonte, Entrée ou Espace activent
+l'entrée, Échap referme le menu ; un lecteur d'écran annonce l'entrée choisie.
+Dans le menu Aide, le champ de recherche garde le clavier : flèches haut et
+bas passent à ses entrées, Tab ramène au champ.
+Dans le volet, Tab et
 Maj + Tab ne sortent pas du tiroir : ils passent par ses champs et par les
 commandes de son en-tête (Fermer, Visite guidée, Assistant, effacer la
 recherche), que l'anneau de focus désigne et qu'Entrée ou Espace activent ; un

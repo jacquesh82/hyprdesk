@@ -565,6 +565,181 @@ mod tests {
         app
     }
 
+    /// HIG ACC-01 : un menu de la barre se parcourt au clavier, l'`App` tient
+    /// l'entrée choisie (traits sautés, en boucle), flèche droite descend dans
+    /// la colonne d'un sous-menu, flèche gauche en remonte, et le lecteur
+    /// d'écran voit l'entrée choisie au focus.
+    #[test]
+    fn menu_de_la_barre_au_clavier() {
+        use crate::a11y::model::State;
+        use iced::keyboard::{Key, key::Named};
+        let mut app = open_submenu_menu(12.0);
+        let win = app.popover.as_ref().unwrap().win;
+        let press = |app: &mut App, k: Named| {
+            app.popover_menu_key(win, &Key::Named(k), false)
+                .expect("le menu garde ses flèches")
+        };
+        let p = |app: &App| {
+            let p = app.popover.as_ref().unwrap();
+            (p.keyed, p.keyed_sub, p.sub)
+        };
+        assert_eq!(
+            p(&app),
+            (None, None, None),
+            "ouvert à la souris : rien de choisi"
+        );
+        let _ = press(&mut app, Named::ArrowDown);
+        assert_eq!(p(&app), (Some(0), None, None));
+        let _ = press(&mut app, Named::ArrowDown);
+        assert_eq!(p(&app), (Some(2), None, None), "le trait est sauté");
+        let _ = press(&mut app, Named::ArrowDown);
+        assert_eq!(p(&app), (Some(0), None, None), "en boucle");
+        let _ = press(&mut app, Named::End);
+        assert_eq!(p(&app), (Some(2), None, None));
+        // Flèche droite : la colonne s'ouvre, sa première entrée choisie.
+        let _ = press(&mut app, Named::ArrowRight);
+        assert_eq!(p(&app), (Some(2), Some((2, 0)), Some(2)));
+        let _ = press(&mut app, Named::ArrowUp);
+        assert_eq!(p(&app), (Some(2), Some((2, 3)), Some(2)));
+        let menu = app.menu_a11y().expect("menu décrit");
+        assert!(!menu.children[1].states.contains(State::Focused));
+        assert!(menu.children[1].children[3].states.contains(State::Focused));
+        // Flèche gauche : la colonne se referme, sa ligne reprend le focus.
+        let _ = press(&mut app, Named::ArrowLeft);
+        assert_eq!(p(&app), (Some(2), None, None));
+        let menu = app.menu_a11y().expect("menu décrit");
+        assert!(menu.children[1].states.contains(State::Focused));
+        let _ = press(&mut app, Named::Enter);
+        assert_eq!(
+            p(&app),
+            (Some(2), Some((2, 0)), Some(2)),
+            "Entrée ouvre le sous-menu"
+        );
+        let _ = press(&mut app, Named::ArrowLeft);
+        // Ouvert au survol, sans y descendre : flèche gauche le referme aussi.
+        let _ = app.popover_update(PMsg::Activate(2));
+        assert_eq!(p(&app), (Some(2), None, Some(2)));
+        let _ = press(&mut app, Named::ArrowLeft);
+        assert_eq!(p(&app), (Some(2), None, None));
+        // Une autre ligne de la liste : la colonne ouverte se referme.
+        let _ = app.popover_update(PMsg::Activate(2));
+        let _ = press(&mut app, Named::Home);
+        assert_eq!(p(&app), (Some(0), None, None));
+        // Échap et les lettres gardent leur chemin.
+        assert!(
+            app.popover_menu_key(win, &Key::Named(Named::Escape), false)
+                .is_none()
+        );
+        assert!(
+            app.popover_menu_key(win, &Key::Character("a".into()), false)
+                .is_none()
+        );
+        // Une autre surface : rien.
+        assert!(
+            app.popover_menu_key(Id::unique(), &Key::Named(Named::ArrowDown), false)
+                .is_none()
+        );
+        // Entrée sur une commande : son action, la carte se referme.
+        let _ = press(&mut app, Named::Enter);
+        assert!(app.popover.as_ref().is_none_or(|p| p.closing()));
+    }
+
+    /// Menu à champ de saisie (Aide) : le champ garde ses touches ; flèches
+    /// haut et bas passent aux entrées, Tab ramène au champ, que le lecteur
+    /// d'écran voit alors au focus.
+    #[test]
+    fn menu_a_champ_de_saisie_au_clavier() {
+        use crate::a11y::model::State;
+        use iced::keyboard::{Key, key::Named};
+        let (mut app, bar) = app();
+        let item = |label: &str, action: i64| MenuEntry::Item {
+            label: label.into(),
+            detail: None,
+            icon: None,
+            checked: None,
+            enabled: true,
+            action: Some(action),
+            confirm: None,
+        };
+        let kind = Kind::Menu {
+            entries: vec![
+                MenuEntry::Input {
+                    label: None,
+                    placeholder: "Rechercher".into(),
+                    secret: false,
+                    action: Some(1),
+                },
+                MenuEntry::Separator,
+                item("Visite guidée", 2),
+                item("À propos", 3),
+            ],
+            source: MenuSource::Shell,
+        };
+        app.bar_keyboard = Some(bar);
+        let _ = app.open_popover(bar, "menus:help".into(), kind);
+        let win = app.popover.as_ref().unwrap().win;
+        let key = |app: &mut App, k: Key| app.popover_menu_key(win, &k, false);
+        assert_eq!(
+            app.popover.as_ref().unwrap().keyed,
+            None,
+            "le champ d'abord"
+        );
+        assert!(
+            app.menu_a11y().unwrap().children[0]
+                .states
+                .contains(State::Focused)
+        );
+        for k in [
+            Named::Enter,
+            Named::Space,
+            Named::Home,
+            Named::ArrowLeft,
+            Named::Tab,
+        ] {
+            assert!(
+                key(&mut app, Key::Named(k)).is_none(),
+                "{k:?} reste au champ"
+            );
+        }
+        assert!(key(&mut app, Key::Character("a".into())).is_none());
+        assert!(key(&mut app, Key::Named(Named::ArrowUp)).is_some());
+        assert_eq!(app.popover.as_ref().unwrap().keyed, Some(3));
+        let _ = key(&mut app, Key::Named(Named::ArrowDown));
+        assert_eq!(
+            app.popover.as_ref().unwrap().keyed,
+            Some(2),
+            "en boucle, le trait sauté"
+        );
+        let menu = app.menu_a11y().unwrap();
+        assert!(!menu.children[0].states.contains(State::Focused));
+        assert!(menu.children[1].states.contains(State::Focused));
+        let _ = key(&mut app, Key::Named(Named::Tab));
+        assert_eq!(
+            app.popover.as_ref().unwrap().keyed,
+            None,
+            "Tab ramène au champ"
+        );
+    }
+
+    /// La barre d'un autre écran tient le clavier : un menu ouvert à la
+    /// souris ne choisit rien.
+    #[test]
+    fn menu_ouvert_a_la_souris_ailleurs_ne_choisit_rien() {
+        let (mut app, bar) = app();
+        app.bar_keyboard = Some(Id::unique());
+        let _ = app.open_popover(bar, "menus:window".into(), submenu_menu());
+        assert_eq!(app.popover.as_ref().unwrap().keyed, None);
+    }
+
+    /// Ouvert depuis la barre au clavier : la première entrée est choisie.
+    #[test]
+    fn menu_ouvert_au_clavier_choisit_sa_premiere_entree() {
+        let (mut app, bar) = app();
+        app.bar_keyboard = Some(bar);
+        let _ = app.open_popover(bar, "menus:window".into(), submenu_menu());
+        assert_eq!(app.popover.as_ref().unwrap().keyed, Some(0));
+    }
+
     #[test]
     fn sous_menu_la_colonne_passe_a_gauche_pres_du_bord_droit() {
         let surface = WIDTH + 2.0 * SHADOW;
@@ -773,6 +948,43 @@ fn leads_with_input(kind: &Kind) -> bool {
     )
 }
 
+/// Entrée qu'on choisit au clavier : commande active, sous-menu non vide ;
+/// dans la colonne d'un sous-menu (`column`), une commande sans
+/// confirmation, la seule que son clic lance.
+pub(in crate::ui) fn keyable(e: &MenuEntry, column: bool) -> bool {
+    match e {
+        MenuEntry::Item {
+            enabled,
+            action,
+            confirm,
+            ..
+        } => *enabled && action.is_some() && (!column || confirm.is_none()),
+        MenuEntry::Submenu {
+            enabled, children, ..
+        } => !column && *enabled && !children.is_empty(),
+        _ => false,
+    }
+}
+
+/// Menu qu'on parcourt au clavier : sans champ de saisie, qui garde ses
+/// flèches.
+fn keyboard_menu(entries: &[MenuEntry]) -> bool {
+    !entries.iter().any(|e| matches!(e, MenuEntry::Input { .. }))
+}
+
+/// Entrée choisie à l'ouverture : la première, quand le menu s'ouvre depuis
+/// la barre au clavier ; sinon aucune.
+fn keyed_first(kind: &Kind, by_keyboard: bool) -> Option<usize> {
+    let Kind::Menu { entries, .. } = kind else {
+        return None;
+    };
+    (by_keyboard && keyboard_menu(entries))
+        .then(|| {
+            crate::ui::menu::step_where(entries.len(), None, true, |i| keyable(&entries[i], false))
+        })
+        .flatten()
+}
+
 fn focus_first_input(kind: &Kind) -> Task<Msg> {
     if leads_with_input(kind) {
         iced::widget::operation::focus(FIRST_INPUT)
@@ -928,6 +1140,12 @@ pub struct Popover {
     sub_width: f32,
     pub(in crate::ui) sub_timer: Option<(u64, Option<usize>)>,
     sub_gen: u64,
+    /// Entrée choisie au clavier dans la liste (HIG ACC-01), et dans la
+    /// colonne du sous-menu : (ligne parente, rang dans la colonne), valable
+    /// tant que ce sous-menu est l'ouvert. L'`App` la tient, la ligne se
+    /// surligne et le lecteur d'écran l'annonce au focus.
+    pub(in crate::ui) keyed: Option<usize>,
+    pub(in crate::ui) keyed_sub: Option<(usize, usize)>,
 }
 
 impl Popover {
@@ -1338,6 +1556,8 @@ impl App {
     /// Ouvre un menu sous le module cliqué de la barre `bar` (ou le referme).
     pub(in crate::ui) fn open_popover(&mut self, bar: Id, key: String, kind: Kind) -> Task<Msg> {
         let now = std::time::Instant::now();
+        // Ouvert depuis la barre au clavier : sa première entrée est choisie.
+        let by_keyboard = self.bar_keyboard == Some(bar);
         let Some(b) = self.bar_surfaces.get(&bar).cloned() else {
             return Task::none();
         };
@@ -1514,6 +1734,8 @@ impl App {
             p.sub_timer = None;
             p.sub_left = false;
             p.sub_width = 0.0;
+            p.keyed = keyed_first(&p.kind, by_keyboard);
+            p.keyed_sub = None;
             for input in p.inputs.values_mut() {
                 crate::lock::pam::wipe(input);
             }
@@ -1607,6 +1829,7 @@ impl App {
             tasks.extend(menu_icons(entries).iter().map(|i| self.want_icon(i)));
         }
         tasks.push(self.want_icon("object-select-symbolic"));
+        let keyed = keyed_first(&kind, by_keyboard);
         self.popover = Some(Popover {
             win,
             catcher,
@@ -1644,6 +1867,8 @@ impl App {
             sub_width: 0.0,
             sub_timer: None,
             sub_gen: 0,
+            keyed,
+            keyed_sub: None,
         });
         Task::batch(tasks)
     }
@@ -1984,6 +2209,154 @@ impl App {
                 self.menu_action(source, action)
             }
         }
+    }
+
+    /// Touche reçue par un menu de la barre (HIG ACC-01, ENT-01) : flèches
+    /// haut et bas, Tab et Maj + Tab, Début et Fin choisissent une entrée ;
+    /// flèche droite ouvre un sous-menu et descend dans sa colonne, flèche
+    /// gauche en remonte (ou referme le sous-menu ouvert) ; Entrée ou Espace
+    /// l'activent, comme un clic. Menu à champ de saisie (Aide) : le champ
+    /// garde ses touches ; flèches haut et bas passent aux entrées, le champ
+    /// rend son focus, Tab y revient. Rien (`None`) pour une autre surface ou
+    /// une autre touche : Échap garde son chemin.
+    pub(in crate::ui) fn popover_menu_key(
+        &mut self,
+        id: Id,
+        key: &iced::keyboard::Key,
+        shift: bool,
+    ) -> Option<Task<Msg>> {
+        use iced::keyboard::{Key, key::Named};
+        let p = self
+            .popover
+            .as_ref()
+            .filter(|p| p.win == id && !p.closing())?;
+        let Kind::Menu { entries, .. } = &p.kind else {
+            return None;
+        };
+        let field = !keyboard_menu(entries);
+        let Key::Named(name) = key else {
+            return None;
+        };
+        // Le champ tient le clavier : seules les flèches haut et bas en
+        // sortent, vers les entrées.
+        if field && p.keyed.is_none() {
+            let forward = match name {
+                Named::ArrowDown => true,
+                Named::ArrowUp => false,
+                _ => return None,
+            };
+            let next = crate::ui::menu::step_where(entries.len(), None, forward, |i| {
+                keyable(&entries[i], false)
+            })?;
+            self.popover.as_mut()?.keyed = Some(next);
+            return Some(iced::advanced::widget::operate(
+                iced::advanced::widget::operation::focusable::unfocus(),
+            ));
+        }
+        // Tab ramène au champ.
+        if field && *name == Named::Tab {
+            let p = self.popover.as_mut()?;
+            p.keyed = None;
+            p.keyed_sub = None;
+            let close = p.sub.take().is_some();
+            p.sub_timer = None;
+            let back = focus_first_input(&p.kind);
+            return Some(if close {
+                Task::batch([back, self.refresh_popover_anchor()])
+            } else {
+                back
+            });
+        }
+        // La colonne du sous-menu ouvert, si le clavier y est descendu.
+        let column = p
+            .keyed_sub
+            .filter(|(parent, _)| p.sub == Some(*parent))
+            .and_then(|(parent, j)| match entries.get(parent) {
+                Some(MenuEntry::Submenu { children, .. }) => Some((parent, j, children)),
+                _ => None,
+            });
+        let (list, from): (&[MenuEntry], Option<usize>) = match column {
+            Some((_, j, children)) => (children, Some(j)),
+            None => (entries, p.keyed),
+        };
+        let in_column = column.is_some();
+        let step = |from, forward| {
+            crate::ui::menu::step_where(list.len(), from, forward, |i| keyable(&list[i], in_column))
+        };
+        let submenu_at = |i: usize| matches!(list.get(i), Some(e @ MenuEntry::Submenu { .. }) if keyable(e, false));
+        let next = match name {
+            Named::Tab => step(from, !shift),
+            Named::ArrowDown => step(from, true),
+            Named::ArrowUp => step(from, false),
+            Named::Home | Named::PageUp => step(None, true),
+            Named::End | Named::PageDown => step(None, false),
+            // Dans la colonne, ou sous-menu ouvert au survol : il se referme,
+            // sa ligne reprend le choix.
+            Named::ArrowLeft if in_column || p.sub.is_some() => {
+                let parent = column.map(|(parent, ..)| parent).or(p.sub);
+                let p = self.popover.as_mut()?;
+                p.keyed_sub = None;
+                p.keyed = parent;
+                p.sub = None;
+                p.sub_timer = None;
+                return Some(self.refresh_popover_anchor());
+            }
+            Named::ArrowRight if !in_column => {
+                return Some(match from.filter(|&i| submenu_at(i)) {
+                    Some(i) => self.popover_open_column(i),
+                    None => Task::none(),
+                });
+            }
+            Named::Enter | Named::Space => {
+                return Some(match (column, from) {
+                    (Some((_, j, _)), _) => self.popover_update(PMsg::SubActivate(j)),
+                    (None, Some(i)) if submenu_at(i) => self.popover_open_column(i),
+                    (None, Some(i)) => self.popover_update(PMsg::Activate(i)),
+                    (None, None) => Task::none(),
+                });
+            }
+            _ => return None,
+        };
+        let parent = column.map(|(parent, ..)| parent);
+        let p = self.popover.as_mut()?;
+        if let Some(parent) = parent {
+            p.keyed_sub = next.map(|j| (parent, j));
+            return Some(Task::none());
+        }
+        p.keyed = next;
+        // Une autre ligne de la liste : le sous-menu ouvert se referme.
+        if p.sub.is_some() && p.sub != next {
+            p.sub = None;
+            p.sub_timer = None;
+            p.keyed_sub = None;
+            return Some(self.refresh_popover_anchor());
+        }
+        Some(Task::none())
+    }
+
+    /// Le sous-menu de la ligne `i` s'ouvre, et le clavier descend à la
+    /// première entrée de sa colonne.
+    fn popover_open_column(&mut self, i: usize) -> Task<Msg> {
+        let Some(p) = self.popover.as_mut() else {
+            return Task::none();
+        };
+        let Kind::Menu { entries, .. } = &p.kind else {
+            return Task::none();
+        };
+        let Some(MenuEntry::Submenu { children, .. }) = entries.get(i) else {
+            return Task::none();
+        };
+        let first = crate::ui::menu::step_where(children.len(), None, true, |j| {
+            keyable(&children[j], true)
+        });
+        p.keyed = Some(i);
+        p.keyed_sub = first.map(|j| (i, j));
+        p.sub_timer = None;
+        if p.sub == Some(i) {
+            return Task::none();
+        }
+        p.sub = Some(i);
+        self.refresh_popover_anchor()
     }
 
     /// Action de l'entrée n de la colonne ouverte. Rien si la ligne est
@@ -2428,7 +2801,17 @@ impl App {
             )
         });
         let sub = sub.filter(|_| open);
-        let list = self.pop_menu(alpha, entries, confirm, sub, false);
+        // Entrées choisies au clavier : dans la liste, et dans la colonne du
+        // sous-menu ouvert.
+        let (keyed, keyed_sub) = self.popover.as_ref().map_or((None, None), |p| {
+            (
+                p.keyed,
+                p.keyed_sub
+                    .filter(|(parent, _)| sub == Some(*parent))
+                    .map(|(_, j)| j),
+            )
+        });
+        let list = self.pop_menu(alpha, entries, confirm, sub, keyed, false);
         if !entries
             .iter()
             .any(|e| matches!(e, MenuEntry::Submenu { .. }))
@@ -2447,7 +2830,7 @@ impl App {
             } else {
                 24.0 + 2.0 * SHADOW
             };
-        let column = container(self.pop_menu(alpha, children, None, None, true))
+        let column = container(self.pop_menu(alpha, children, None, None, keyed_sub, true))
             .width(p.sub_width)
             .padding(Padding {
                 top: entry_top(entries, i, confirm),
@@ -2477,13 +2860,16 @@ impl App {
     /// Liste d'entrées d'un menu. `sub` : ligne de sous-menu ouverte (surlignée
     /// tant que sa colonne l'est) ; les lignes signalent leur survol. `column`
     /// : cette liste est la colonne d'un sous-menu (ses entrées s'activent
-    /// par `PMsg::SubActivate`).
+    /// par `PMsg::SubActivate`). `keyed` : l'entrée choisie au clavier,
+    /// surlignée comme au survol.
+    #[allow(clippy::too_many_arguments)]
     fn pop_menu<'a>(
         &'a self,
         alpha: f32,
         entries: &'a [MenuEntry],
         confirm: Option<usize>,
         sub: Option<usize>,
+        keyed: Option<usize>,
         column: bool,
     ) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
@@ -2540,8 +2926,9 @@ impl App {
                         enabled: *enabled,
                         clickable: live,
                         submenu: true,
-                        // Surlignée tant que sa colonne est ouverte.
-                        selected: sub == Some(i),
+                        // Surlignée tant que sa colonne est ouverte, ou
+                        // choisie au clavier.
+                        selected: sub == Some(i) || keyed == Some(i),
                         ..Default::default()
                     };
                     self.menu_row(
@@ -2587,13 +2974,18 @@ impl App {
                             .unwrap_or_else(|| Space::new().into()),
                         _ => Space::new().into(),
                     };
-                    let row_el = self.pop_row(
-                        alpha,
+                    let st = crate::ui::menu::RowState {
+                        enabled: *enabled,
+                        clickable: action.is_some() && (!column || ask.is_none()),
+                        selected: keyed == Some(i),
+                        ..Default::default()
+                    };
+                    let row_el = self.menu_row(
+                        self.pop_ink(alpha),
                         lead,
                         label.clone(),
                         detail.clone(),
-                        *enabled,
-                        action.is_some() && (!column || ask.is_none()),
+                        st,
                         Some(Msg::Popover(if column {
                             PMsg::SubActivate(i)
                         } else {

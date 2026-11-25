@@ -144,9 +144,9 @@ impl App {
     }
 
     /// Menu ouvert depuis la barre : surface active, ses entrées en
-    /// `MenuItem`, sous-menus compris. Le focus clavier dans le menu est celui
-    /// des widgets iced, que l'`App` ne tient pas : pas encore de `Focused`.
-    fn menu_a11y(&self) -> Option<Node> {
+    /// `MenuItem`, sous-menus compris ; l'entrée choisie au clavier, que
+    /// l'`App` tient (`Popover::keyed`), au focus.
+    pub(in crate::ui) fn menu_a11y(&self) -> Option<Node> {
         let p = self.popover.as_ref().filter(|p| !p.closing())?;
         let crate::ui::plugins::bar::popover::Kind::Menu { entries, .. } = &p.kind else {
             return None;
@@ -169,7 +169,7 @@ impl App {
             Node::new(Role::Menu, name)
                 .key(p.key.clone())
                 .state(State::Active)
-                .children(menu_items(entries, p.sub)),
+                .children(menu_items(entries, p.sub, p.keyed, p.keyed_sub)),
         )
     }
 
@@ -235,13 +235,29 @@ impl App {
 
 /// Entrées d'un menu : commandes en `MenuItem`, sous-menus en `Menu`
 /// (déplié si `open` est son rang), titres en `Label`, champs en `Entry`.
-fn menu_items(entries: &[crate::config::MenuEntry], open: Option<usize>) -> Vec<Node> {
+/// `keyed` : l'entrée choisie au clavier, au focus ; `keyed_sub` : celle de
+/// la colonne d'un sous-menu (ligne parente, rang), tant qu'il est déplié.
+fn menu_items(
+    entries: &[crate::config::MenuEntry],
+    open: Option<usize>,
+    keyed: Option<usize>,
+    keyed_sub: Option<(usize, usize)>,
+) -> Vec<Node> {
     use crate::config::MenuEntry;
     let off = |mut n: Node, enabled: bool| {
         if !enabled {
             n.states = n.states.without(State::Enabled).without(State::Sensitive);
         }
         n
+    };
+    // Descendu dans une colonne : le focus est à elle, plus à sa ligne.
+    let column = keyed_sub.filter(|(parent, _)| open == Some(*parent));
+    let focus = |n: Node, i: usize| {
+        if column.is_none() && keyed == Some(i) {
+            n.state(State::Focused)
+        } else {
+            n
+        }
     };
     entries
         .iter()
@@ -260,7 +276,7 @@ fn menu_items(entries: &[crate::config::MenuEntry], open: Option<usize>) -> Vec<
                         n = n.state(State::Checked);
                     }
                 }
-                Some(off(n, *enabled))
+                Some(focus(off(n, *enabled), i))
             }
             MenuEntry::Submenu {
                 label,
@@ -273,23 +289,36 @@ fn menu_items(entries: &[crate::config::MenuEntry], open: Option<usize>) -> Vec<
                     .state(State::Expandable)
                     .state(State::HasPopup);
                 if open == Some(i) {
-                    n = n
-                        .state(State::Expanded)
-                        .children(menu_items(children, None));
+                    n = n.state(State::Expanded).children(menu_items(
+                        children,
+                        None,
+                        column.map(|(_, j)| j),
+                        None,
+                    ));
                 }
-                Some(off(n, *enabled))
+                Some(focus(off(n, *enabled), i))
             }
             MenuEntry::Header(t) => Some(Node::new(Role::Label, t.clone())),
             MenuEntry::Input {
                 label, placeholder, ..
-            } => Some(
-                Node::new(
+            } => {
+                let n = Node::new(
                     Role::Entry,
                     label.clone().unwrap_or_else(|| placeholder.clone()),
                 )
                 .state(State::Editable)
-                .state(State::Focusable),
-            ),
+                .state(State::Focusable);
+                // Le premier champ tient le clavier tant qu'aucune entrée
+                // n'est choisie (il le prend à l'ouverture).
+                let first = entries
+                    .iter()
+                    .position(|e| matches!(e, MenuEntry::Input { .. }));
+                Some(if keyed.is_none() && column.is_none() && first == Some(i) {
+                    n.state(State::Focused)
+                } else {
+                    n
+                })
+            }
             MenuEntry::Separator | MenuEntry::Image(_) => None,
         })
         .collect()
@@ -475,7 +504,12 @@ mod tests {
                 children: vec![item("Casque", true, None)],
             },
         ];
-        let menu = Node::new(Role::Menu, "Volume").children(super::menu_items(&entries, Some(4)));
+        let menu = Node::new(Role::Menu, "Volume").children(super::menu_items(
+            &entries,
+            Some(4),
+            None,
+            None,
+        ));
         assert_eq!(
             menu.dump(),
             "menu « Volume »\n  label « Son »\n  menu item « Muet »\n  menu item « Sortie »\n  menu « Périphérique »\n    menu item « Casque »\n"
@@ -483,5 +517,20 @@ mod tests {
         assert!(menu.children[1].states.contains(State::Checked));
         assert!(!menu.children[2].states.contains(State::Enabled), "grisée");
         assert!(menu.children[3].states.contains(State::Expanded));
+        assert!(
+            !menu.children[1].states.contains(State::Focused),
+            "rien de choisi au clavier"
+        );
+        // Choisie au clavier : au focus.
+        let keyed = super::menu_items(&entries, Some(4), Some(1), None);
+        assert!(keyed[1].states.contains(State::Focused));
+        // Descendu dans la colonne : le focus passe de la ligne à l'entrée.
+        let column = super::menu_items(&entries, Some(4), Some(4), Some((4, 0)));
+        assert!(!column[3].states.contains(State::Focused));
+        assert!(column[3].children[0].states.contains(State::Focused));
+        // Colonne d'un autre sous-menu, refermé : la ligne garde le focus.
+        let closed = super::menu_items(&entries, None, Some(4), Some((4, 0)));
+        assert!(closed[3].states.contains(State::Focused));
+        assert!(closed[3].children.is_empty());
     }
 }

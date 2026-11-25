@@ -5210,6 +5210,19 @@ impl App {
                     && *entries != new
                 {
                     *entries = new;
+                    // Choix au clavier (HIG ACC-01) : oublié s'il ne désigne
+                    // plus une entrée qu'on choisit.
+                    if p.keyed.is_some_and(|i| {
+                        !entries.get(i).is_some_and(|e| popover::keyable(e, false))
+                    }) {
+                        p.keyed = None;
+                    }
+                    if p.keyed_sub.is_some_and(|(i, j)| {
+                        !matches!(entries.get(i), Some(config::MenuEntry::Submenu { children, .. })
+                            if children.get(j).is_some_and(|e| popover::keyable(e, true)))
+                    }) {
+                        p.keyed_sub = None;
+                    }
                     // Colonne ouverte (HIG MENU-03) : refermée si sa ligne a disparu.
                     if p.sub.is_some_and(|i| {
                         !matches!(entries.get(i), Some(config::MenuEntry::Submenu { .. }))
@@ -6033,6 +6046,11 @@ impl App {
                 }
                 // Menu ouvert : flèches, Tab, Entrée et Échap sont à lui (MLG-306).
                 if let Some(t) = self.icon_menu_key(&key, self.mods.shift()) {
+                    return t;
+                }
+                // Menu de la barre : flèches, Tab, Entrée et Espace le
+                // parcourent (HIG ACC-01) ; Échap garde son chemin.
+                if let Some(t) = self.popover_menu_key(id, &key, self.mods.shift()) {
                     return t;
                 }
                 if self.bar_drag.is_some()

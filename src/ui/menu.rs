@@ -207,7 +207,17 @@ pub(in crate::ui) fn step<M>(
     from: Option<usize>,
     forward: bool,
 ) -> Option<usize> {
-    let n = lines.len();
+    step_where(lines.len(), from, forward, |i| choosable(&lines[i]))
+}
+
+/// Le même parcours sur `n` entrées dont `ok` dit lesquelles se choisissent
+/// (les menus de la barre, dont les entrées ne sont pas des `Line`).
+pub(in crate::ui) fn step_where(
+    n: usize,
+    from: Option<usize>,
+    forward: bool,
+    ok: impl Fn(usize) -> bool,
+) -> Option<usize> {
     if n == 0 {
         return None;
     }
@@ -225,7 +235,7 @@ pub(in crate::ui) fn step<M>(
                 (start + n - k) % n
             }
         })
-        .find(|&i| choosable(&lines[i]))
+        .find(|&i| ok(i))
 }
 
 /// Première (ou dernière) entrée choisissable.

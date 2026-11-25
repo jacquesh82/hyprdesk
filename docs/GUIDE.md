@@ -314,7 +314,14 @@ the bar of the active screen, `CTRL + F3` to the dock (hidden desktop: it
 appears under the windows, which stay in place), `CTRL + F8` gives the
 keyboard to the banners on screen, otherwise opens the notification center, `CTRL + F6` opens the Settings drawer and focuses its
 first field. Pressed twice, the bar and the dock return the keyboard to the
-windows; the center and the drawer, which stay open, keep it. In the drawer,
+windows; the center and the drawer, which stay open, keep it. A bar menu
+opened from the keyboard selects its first entry: Up and Down, Tab and
+Shift + Tab, Home and End move from one entry to the next, Right opens a
+submenu and moves into it, Left moves back out, Enter or Space activate the
+entry, Escape closes the menu; a screen reader announces the selected entry.
+In the Help menu, the search field keeps the keyboard: Up and Down move to
+its entries, Tab returns to the field.
+In the drawer,
 Tab and Shift + Tab never leave it: they go through its fields and the
 commands of its header (Close, Guided tour, Assistant, clear the search),
 which the focus ring points out and Enter or Space activate; a mouse click
