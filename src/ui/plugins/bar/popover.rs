@@ -731,6 +731,32 @@ mod tests {
         assert_eq!(app.popover.as_ref().unwrap().keyed, None);
     }
 
+    /// HIG ACC-01 : `DoAction` d'un lecteur d'écran sur une entrée du menu,
+    /// désignée par la clé que l'arbre lui donne : comme un clic.
+    #[test]
+    fn menu_de_la_barre_par_le_lecteur_d_ecran() {
+        let mut app = open_submenu_menu(12.0);
+        // Ouvert, la ligne du sous-menu déplie sa colonne.
+        let _ = app.a11y_action("/menus:window/e2");
+        assert_eq!(app.popover.as_ref().unwrap().sub, Some(2));
+        let tree = crate::a11y::model::Tree::flatten(&crate::a11y::root(app.a11y_surfaces()));
+        let key = |name: &str| {
+            tree.nodes
+                .iter()
+                .find(|n| n.name == name)
+                .map(|n| (n.key.clone(), n.action))
+        };
+        assert_eq!(key("Espace 3"), Some(("/menus:window/e2/e1".into(), true)));
+        // Une colonne qui n'est pas l'ouverte : rien.
+        let _ = app.a11y_action("/menus:window/e0/e1");
+        assert!(!app.popover.as_ref().unwrap().closing());
+        let _ = app.a11y_action("/menus:window/e2/e1");
+        assert!(
+            app.popover.as_ref().is_none_or(|p| p.closing()),
+            "action lancée, carte refermée"
+        );
+    }
+
     /// Ouvert depuis la barre au clavier : la première entrée est choisie.
     #[test]
     fn menu_ouvert_au_clavier_choisit_sa_premiere_entree() {

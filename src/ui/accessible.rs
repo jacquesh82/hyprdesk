@@ -5,8 +5,10 @@
 
 use crate::a11y::model::{Node, Role, State};
 use crate::i18n::tr;
-use crate::ui::App;
+use crate::ui::plugins::bar::popover::PMsg;
 use crate::ui::plugins::dock::{PopupContent, Slot};
+use crate::ui::{App, Msg};
+use iced::Task;
 
 impl App {
     /// Une `Frame` par barre et par dock, dans l'ordre des écrans ; en
@@ -42,13 +44,35 @@ impl App {
                 if embedded.is_some() && self.dock_focus(monitor).is_some() {
                     bar = bar.state(State::Active);
                 }
-                out.push(bar.children(zones.iter().flatten().map(|item| {
-                    match embedded.filter(|_| self.bar_item_is_launcher(item)) {
-                        Some(m) => self.dock_a11y(m, false),
-                        None => button(self.bar_item_label(item))
-                            .key(crate::ui::plugins::bar::surface::bar_item_key(item).to_string()),
-                    }
-                })));
+                // Titres des menus du shell, en tête (HIG MENU-01) ;
+                // « Fenêtre » inactif sans fenêtre active, comme à l'écran.
+                let titles = crate::ui::plugins::bar::menus::titles().into_iter().map(
+                    |(key, label, request)| {
+                        let n = Node::new(Role::PushButton, tr(label))
+                            .key(key)
+                            .state(State::Focusable)
+                            .state(State::HasPopup);
+                        if self.bar_title_live(&request) {
+                            n.action()
+                        } else {
+                            let mut n = n;
+                            n.states = n.states.without(State::Enabled).without(State::Sensitive);
+                            n
+                        }
+                    },
+                );
+                out.push(
+                    bar.children(titles)
+                        .children(zones.iter().flatten().map(|item| {
+                            match embedded.filter(|_| self.bar_item_is_launcher(item)) {
+                                Some(m) => self.dock_a11y(m, false),
+                                None => button(self.bar_item_label(item)).key(
+                                    crate::ui::plugins::bar::surface::bar_item_key(item)
+                                        .to_string(),
+                                ),
+                            }
+                        })),
+                );
             }
         }
         let mut docks: Vec<&str> = self
@@ -89,7 +113,9 @@ impl App {
         frame.children(self.dock_slots(m).into_iter().enumerate().filter_map(
             |(k, slot)| match slot {
                 Slot::Item(i) => {
-                    let b = button(self.dock_item_name(&i.popup)).key(i.key.clone());
+                    let b = button(self.dock_item_name(&i.popup))
+                        .key(i.key.clone())
+                        .action();
                     Some(if focus == Some(k) {
                         b.state(State::Focused)
                     } else {
@@ -131,6 +157,7 @@ impl App {
                 };
                 let item = Node::new(Role::ListItem, app.name.clone())
                     .key(format!("app:{}", app.id))
+                    .action()
                     .state(State::Selectable)
                     .state(State::Focusable);
                 items.push(if k == s.selected {
@@ -190,7 +217,7 @@ impl App {
             Node::new(Role::Menu, name)
                 .key(p.key.clone())
                 .state(State::Active)
-                .children(menu_items(entries, p.sub, p.keyed, p.keyed_sub)),
+                .children(menu_items(entries, p.sub, p.keyed, p.keyed_sub, false)),
         )
     }
 
@@ -222,6 +249,7 @@ impl App {
                     };
                     let item = Node::new(Role::ListItem, name.clone())
                         .key(format!("win:{}", w.address))
+                        .action()
                         .state(State::Selectable)
                         .state(State::Focusable);
                     if k == sw.selected {
@@ -246,6 +274,112 @@ impl App {
         }
     }
 
+    /// `DoAction` du lecteur d'écran sur le nœud de clé `path` (chemin des
+    /// clés depuis la racine, `/dock:A/dock-pin:firefox`) : le clic que la
+    /// surface exécuterait. Un nœud disparu entre-temps : rien.
+    pub(super) fn a11y_action(&mut self, path: &str) -> Task<Msg> {
+        let Some((head, rest)) = path.trim_start_matches('/').split_once('/') else {
+            return Task::none();
+        };
+        // Menu ouvert depuis la barre : `e<rang>`, puis le rang dans la
+        // colonne de son sous-menu.
+        if self
+            .popover
+            .as_ref()
+            .is_some_and(|p| p.key == head && !p.closing())
+        {
+            let rank = |s: &str| s.strip_prefix('e').and_then(|n| n.parse::<usize>().ok());
+            return match rest.split_once('/') {
+                None => match rank(rest) {
+                    Some(i) => self.popover_update(PMsg::Activate(i)),
+                    None => Task::none(),
+                },
+                Some((sub, item)) => match (rank(sub), rank(item)) {
+                    // La colonne doit être celle qu'on a lue.
+                    (Some(i), Some(j))
+                        if self.popover.as_ref().is_some_and(|p| p.sub == Some(i)) =>
+                    {
+                        self.popover_update(PMsg::SubActivate(j))
+                    }
+                    _ => Task::none(),
+                },
+            };
+        }
+        if let Some(monitor) = head.strip_prefix("dock:") {
+            return self.a11y_dock_action(monitor, rest);
+        }
+        if let Some(monitor) = head.strip_prefix("bar:") {
+            // Graphite : le dock logé dans la barre.
+            if let Some((dock, item)) = rest.split_once('/')
+                && dock.strip_prefix("dock:") == Some(monitor)
+            {
+                return self.a11y_dock_action(monitor, item);
+            }
+            let bar = self
+                .bar_surfaces
+                .iter()
+                .find(|(_, s)| s.monitor == monitor)
+                .map(|(id, _)| *id);
+            let title = crate::ui::plugins::bar::menus::titles()
+                .into_iter()
+                .find(|(key, ..)| *key == rest);
+            return match (bar, title) {
+                (Some(bar), Some((key, _, request))) if self.bar_title_live(&request) => {
+                    Task::done(Msg::OpenPopover(bar, key.into(), request))
+                }
+                _ => Task::none(),
+            };
+        }
+        match (head, rest) {
+            ("switcher", win) => {
+                let address = win.strip_prefix("win:").unwrap_or_default();
+                let Some(sw) = self.switcher.as_mut() else {
+                    return Task::none();
+                };
+                let Some(k) = sw.wins.iter().position(|w| w.address == address) else {
+                    return Task::none();
+                };
+                sw.selected = k;
+                self.switcher_commit()
+            }
+            ("launcher", item) => {
+                let id = item.strip_prefix("results/app:").unwrap_or_default();
+                // Seulement un résultat encore affiché : un `DoAction` lu
+                // avant une nouvelle saisie ne lance pas ce qui n'y est plus.
+                let shown = self
+                    .search
+                    .as_ref()
+                    .filter(|s| s.shown && s.view_kind() == 0)
+                    .and_then(|s| {
+                        s.results
+                            .iter()
+                            .copied()
+                            .find(|&i| self.apps.get(i).is_some_and(|a| a.id == id))
+                    });
+                match shown {
+                    Some(i) => self.search_update(super::search::SMsg::LaunchApp(i)),
+                    None => Task::none(),
+                }
+            }
+            _ => Task::none(),
+        }
+    }
+
+    /// Case `key` du dock de l'écran `monitor` : son clic.
+    fn a11y_dock_action(&mut self, monitor: &str, key: &str) -> Task<Msg> {
+        let Some(m) = self.monitors.iter().find(|m| m.name == monitor).cloned() else {
+            return Task::none();
+        };
+        let msg = self.dock_slots(&m).into_iter().find_map(|slot| match slot {
+            Slot::Item(i) if i.key == key => Some(i.msg),
+            _ => None,
+        });
+        match msg {
+            Some(msg) => self.launcher_activate(msg),
+            None => Task::none(),
+        }
+    }
+
     /// Après chaque mise à jour : l'arbre va au pont s'il est lu.
     pub(super) fn a11y_publish(&self) {
         if crate::a11y::wanted() {
@@ -258,13 +392,17 @@ impl App {
 /// (déplié si `open` est son rang), titres en `Label`, champs en `Entry`.
 /// `keyed` : l'entrée choisie au clavier, au focus ; `keyed_sub` : celle de
 /// la colonne d'un sous-menu (ligne parente, rang), tant qu'il est déplié.
+/// `nested` : la colonne d'un sous-menu, où seules les commandes sans
+/// confirmation s'activent.
 fn menu_items(
     entries: &[crate::config::MenuEntry],
     open: Option<usize>,
     keyed: Option<usize>,
     keyed_sub: Option<(usize, usize)>,
+    nested: bool,
 ) -> Vec<Node> {
     use crate::config::MenuEntry;
+    use crate::ui::plugins::bar::popover::keyable;
     let off = |mut n: Node, enabled: bool| {
         if !enabled {
             n.states = n.states.without(State::Enabled).without(State::Sensitive);
@@ -290,7 +428,13 @@ fn menu_items(
                 enabled,
                 ..
             } => {
-                let mut n = Node::new(Role::MenuItem, label.clone()).state(State::Focusable);
+                // Clé : le rang de l'entrée, que `DoAction` active.
+                let mut n = Node::new(Role::MenuItem, label.clone())
+                    .key(format!("e{i}"))
+                    .state(State::Focusable);
+                if keyable(e, nested) {
+                    n = n.action();
+                }
                 if let Some(c) = checked {
                     n = n.state(State::Checkable);
                     if *c {
@@ -306,15 +450,21 @@ fn menu_items(
                 ..
             } => {
                 let mut n = Node::new(Role::Menu, label.clone())
+                    .key(format!("e{i}"))
                     .state(State::Focusable)
                     .state(State::Expandable)
                     .state(State::HasPopup);
+                // Activé, il ouvre sa colonne.
+                if !nested && keyable(e, false) {
+                    n = n.action();
+                }
                 if open == Some(i) {
                     n = n.state(State::Expanded).children(menu_items(
                         children,
                         None,
                         column.map(|(_, j)| j),
                         None,
+                        true,
                     ));
                 }
                 Some(focus(off(n, *enabled), i))
@@ -398,6 +548,17 @@ mod tests {
             },
         );
         let tree = crate::a11y::root(app.a11y_surfaces());
+        // Actions : les titres de menu et les cases du dock s'activent ;
+        // « Fenêtre », sans fenêtre active, est inactif, sans action.
+        let bar = &tree.children[0];
+        assert!(bar.children[0].action, "hyprdesk");
+        assert!(!bar.children[1].action, "Fenêtre");
+        assert!(
+            !bar.children[1]
+                .states
+                .contains(crate::a11y::model::State::Enabled)
+        );
+        assert!(tree.children[1].children.iter().all(|b| b.action));
         // Dock au clavier sur Firefox : surface active, bouton au focus.
         app.launcher_runtime.focus = Some(("A".into(), 0));
         let focused = app.a11y_surfaces();
@@ -482,12 +643,16 @@ mod tests {
         let surfaces = app.a11y_surfaces();
         assert_eq!(
             crate::a11y::model::Node::dump(&surfaces[1]),
-            "frame « Barre des menus »\n  push button « Volume »\n"
+            "frame « Barre des menus »\n  push button « hyprdesk »\n  push button « Fenêtre »\n  push button « Espaces »\n  push button « Aide »\n  push button « Volume »\n"
         );
         assert_eq!(
             tree.dump(),
             "application « hyprdesk »
   frame « Barre des menus »
+    push button « hyprdesk »
+    push button « Fenêtre »
+    push button « Espaces »
+    push button « Aide »
     push button « Workspaces »
     push button « Volume »
     push button « Zone de notification »
@@ -552,9 +717,10 @@ mod tests {
         assert!(d.children.iter().any(|n| n.name == "firefox"));
         assert!(!surfaces[0].states.contains(State::Active));
         // Le module du dock y prend la place de son bouton : un nœud par
-        // module, une seule `Frame`.
+        // titre de menu du shell et par module, une seule `Frame`.
         let items = app.cfg.bar.as_ref().unwrap().zones.iter().flatten().count();
-        assert_eq!(surfaces[0].children.len(), items);
+        let titles = crate::ui::plugins::bar::menus::titles().len();
+        assert_eq!(surfaces[0].children.len(), titles + items);
         assert_eq!(
             surfaces[0]
                 .children
@@ -610,6 +776,7 @@ mod tests {
             Some(4),
             None,
             None,
+            false,
         ));
         assert_eq!(
             menu.dump(),
@@ -623,14 +790,14 @@ mod tests {
             "rien de choisi au clavier"
         );
         // Choisie au clavier : au focus.
-        let keyed = super::menu_items(&entries, Some(4), Some(1), None);
+        let keyed = super::menu_items(&entries, Some(4), Some(1), None, false);
         assert!(keyed[1].states.contains(State::Focused));
         // Descendu dans la colonne : le focus passe de la ligne à l'entrée.
-        let column = super::menu_items(&entries, Some(4), Some(4), Some((4, 0)));
+        let column = super::menu_items(&entries, Some(4), Some(4), Some((4, 0)), false);
         assert!(!column[3].states.contains(State::Focused));
         assert!(column[3].children[0].states.contains(State::Focused));
         // Colonne d'un autre sous-menu, refermé : la ligne garde le focus.
-        let closed = super::menu_items(&entries, None, Some(4), Some((4, 0)));
+        let closed = super::menu_items(&entries, None, Some(4), Some((4, 0)), false);
         assert!(closed[3].states.contains(State::Focused));
         assert!(closed[3].children.is_empty());
     }

@@ -2143,13 +2143,7 @@ impl App {
                 } else {
                     color(pal.fg, 0.92)
                 };
-                // Sans fenêtre active, « Fenêtre » n'a rien à montrer : le
-                // titre reste, inactif (désactiver plutôt que retirer).
-                let actionable = !matches!(request, Request::Window)
-                    || self
-                        .active_window
-                        .as_ref()
-                        .is_some_and(|(_, t)| !t.is_empty());
+                let actionable = self.bar_title_live(&request);
                 let title = text(truncate(label, 16))
                     .wrapping(iced::widget::text::Wrapping::None)
                     .font(self.font)
@@ -2179,6 +2173,17 @@ impl App {
                 )
             })
             .collect()
+    }
+
+    /// Titre de menu du shell actif. Sans fenêtre active, « Fenêtre » n'a
+    /// rien à montrer : le titre reste, inactif (désactiver plutôt que
+    /// retirer).
+    pub(in crate::ui) fn bar_title_live(&self, request: &Request) -> bool {
+        !matches!(request, Request::Window)
+            || self
+                .active_window
+                .as_ref()
+                .is_some_and(|(_, t)| !t.is_empty())
     }
 
     pub(in crate::ui) fn bar_item_alpha<'a>(

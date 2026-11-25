@@ -147,6 +147,9 @@ pub struct Node {
     pub description: String,
     pub states: StateSet,
     pub children: Vec<Node>,
+    /// Le nœud a une action par défaut (« click », `org.a11y.atspi.Action`) :
+    /// `DoAction` renvoie sa clé à l'interface, qui l'exécute comme un clic.
+    pub action: bool,
 }
 
 impl Node {
@@ -158,7 +161,14 @@ impl Node {
             description: String::new(),
             states: StateSet::shown(),
             children: Vec::new(),
+            action: false,
         }
+    }
+
+    /// Le nœud s'active comme un clic (`DoAction`).
+    pub fn action(mut self) -> Node {
+        self.action = true;
+        self
     }
 
     pub fn describe(mut self, d: impl Into<String>) -> Node {
@@ -224,6 +234,8 @@ pub struct Flat {
     pub children: Vec<usize>,
     /// Rang dans le parent (`GetIndexInParent`), -1 pour la racine.
     pub index_in_parent: i32,
+    /// Une action par défaut (`Node::action`).
+    pub action: bool,
 }
 
 /// Numéros des objets, stables d'un arbre à l'autre pour une même clé ; la
@@ -321,6 +333,7 @@ fn push(
         parent,
         children: Vec::new(),
         index_in_parent: index,
+        action: n.action,
     });
     let mut seen = std::collections::HashSet::new();
     for (k, c) in n.children.iter().enumerate() {

@@ -58,6 +58,33 @@ pub(crate) fn subscribe() -> tokio::sync::watch::Receiver<Node> {
     latest().subscribe()
 }
 
+/// Demandes d'action (`DoAction`) du pont vers l'interface : la clé du nœud
+/// (chemin depuis la racine). Diffusées : l'abonnement de l'interface s'y
+/// réinscrit s'il redémarre.
+fn actions() -> &'static tokio::sync::broadcast::Sender<String> {
+    static TX: OnceLock<tokio::sync::broadcast::Sender<String>> = OnceLock::new();
+    TX.get_or_init(|| tokio::sync::broadcast::channel(16).0)
+}
+
+/// Le lecteur d'écran active le nœud de clé `key` ; faux si l'interface
+/// n'écoute pas.
+pub(crate) fn request(key: String) -> bool {
+    actions().send(key).is_ok()
+}
+
+/// Les actions demandées, pour l'abonnement de l'interface.
+pub fn requests() -> impl iced::futures::Stream<Item = String> {
+    iced::futures::stream::unfold(actions().subscribe(), |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(key) => return Some((key, rx)),
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+            }
+        }
+    })
+}
+
 /// L'arbre publié, en texte (`hyprdesk a11y dump`).
 pub fn dump() -> String {
     latest().borrow().dump()

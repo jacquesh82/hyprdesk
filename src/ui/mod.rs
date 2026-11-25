@@ -353,6 +353,8 @@ pub enum Msg {
     /// Fenêtres flottantes retenues hors des tiroirs (`hypr::fit_drawer_floats`).
     DrawerFloats(hypr::FloatHeld),
     Noop,
+    /// Le lecteur d'écran active un nœud (`DoAction`, HIG ACC-01) : sa clé.
+    A11yAction(String),
 }
 
 /// Pulsation d'une action en cours, `secs` après son début : de 1 à 0,35 et
@@ -6336,6 +6338,7 @@ impl App {
                 Task::none()
             }
             Msg::Noop => Task::none(),
+            Msg::A11yAction(key) => self.a11y_action(&key),
             // Messages layer-shell : traités par iced_layershell.
             _ => Task::none(),
         }
@@ -6353,6 +6356,8 @@ impl App {
             // Pont d'accessibilité (AT-SPI) : servi seulement si un lecteur
             // d'écran le demande (HIG ACC-01).
             Subscription::run(crate::a11y::daemon::stream).map(|()| Msg::Noop),
+            // `DoAction` du pont : le clic du nœud désigné.
+            Subscription::run(crate::a11y::requests).map(Msg::A11yAction),
             Subscription::run(control::signal_stream).map(Msg::Control),
             Subscription::run(hypr::stream).map(Msg::Hypr),
             Subscription::run_with(self.config_path.clone(), |path: &PathBuf| {

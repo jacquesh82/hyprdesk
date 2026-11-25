@@ -22,7 +22,12 @@ pub const REGISTRY: &str = "org.a11y.atspi.Registry";
 pub const SOCKET: &str = "org.a11y.atspi.Socket";
 /// Interfaces servies par la racine, puis par les autres nœuds.
 const ROOT_INTERFACES: [&str; 2] = ["org.a11y.atspi.Accessible", "org.a11y.atspi.Application"];
-const NODE_INTERFACES: [&str; 1] = ["org.a11y.atspi.Accessible"];
+/// Tout nœud hors racine sert `Action`, sans action `NActions` à 0 : un nœud
+/// gardé dont l'action vient ou part (« Fenêtre », une entrée grisée) ne
+/// change pas d'interfaces, que libatspi garde en cache.
+const NODE_INTERFACES: [&str; 2] = ["org.a11y.atspi.Accessible", "org.a11y.atspi.Action"];
+/// Nom de l'action par défaut, celui que GTK et Qt donnent au clic.
+const CLICK: &str = "click";
 /// Événements d'objet (structure, propriétés, états).
 const EVENT_OBJECT: &str = "org.a11y.atspi.Event.Object";
 /// Événements de fenêtre : sous Wayland, Orca n'a que `Activate` pour savoir
@@ -191,6 +196,71 @@ impl Accessible {
     }
 }
 
+/// L'action d'un nœud : `org.a11y.atspi.Action`. Servie et annoncée sur
+/// chaque nœud hors racine ; sans action, `NActions` vaut 0.
+struct Actions {
+    idx: usize,
+    shared: Arc<Shared>,
+}
+
+impl Actions {
+    /// L'action numéro `index` existe : la seule, le clic.
+    fn has(&self, index: i32) -> bool {
+        index == 0 && self.shared.tree().get(self.idx).is_some_and(|n| n.action)
+    }
+
+    fn text(&self, index: i32, f: impl FnOnce() -> String) -> String {
+        if self.has(index) { f() } else { String::new() }
+    }
+}
+
+#[zbus::interface(name = "org.a11y.atspi.Action")]
+impl Actions {
+    #[zbus(property, name = "NActions")]
+    fn n_actions(&self) -> i32 {
+        i32::from(self.has(0))
+    }
+
+    fn get_name(&self, index: i32) -> String {
+        self.text(index, || CLICK.to_string())
+    }
+
+    fn get_localized_name(&self, index: i32) -> String {
+        self.text(index, || crate::i18n::tr("Cliquer").to_string())
+    }
+
+    fn get_description(&self, _index: i32) -> String {
+        String::new()
+    }
+
+    fn get_key_binding(&self, _index: i32) -> String {
+        String::new()
+    }
+
+    /// `a(sss)` : nom localisé, description, raccourci.
+    fn get_actions(&self) -> Vec<(String, String, String)> {
+        if self.has(0) {
+            vec![(
+                crate::i18n::tr("Cliquer").to_string(),
+                String::new(),
+                String::new(),
+            )]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Renvoie la clé du nœud à l'interface, qui l'exécute comme un clic ;
+    /// répond sans attendre. Faux sans action ou sans interface qui écoute.
+    fn do_action(&self, index: i32) -> bool {
+        if !self.has(index) {
+            return false;
+        }
+        let key = self.shared.tree().get(self.idx).map(|n| n.key.clone());
+        key.is_some_and(super::request)
+    }
+}
+
 /// La racine : `org.a11y.atspi.Application`.
 struct Application {
     /// Posé par le registre (`Properties.Set`).
@@ -330,12 +400,8 @@ impl Handle {
         };
         let server = self.conn.object_server();
         for id in added {
-            let node = Accessible {
-                idx: id,
-                shared: self.shared.clone(),
-            };
-            match server.at(Tree::path(id), node).await {
-                Ok(_) => {
+            match serve_node(server, id, &self.shared).await {
+                Ok(()) => {
                     self.served.insert(id);
                 }
                 Err(e) => keep(Err(e)),
@@ -389,6 +455,7 @@ impl Handle {
         }
         for id in removed {
             // Absent du serveur ou retiré : plus servi dans les deux cas.
+            let _ = server.remove::<Actions, _>(Tree::path(id)).await;
             let _ = server.remove::<Accessible, _>(Tree::path(id)).await;
             self.served.remove(&id);
         }
@@ -463,6 +530,7 @@ impl Handle {
         let server = self.conn.object_server();
         let _ = server.remove::<Application, _>(ROOT_PATH).await;
         for &id in &self.served {
+            let _ = server.remove::<Actions, _>(Tree::path(id)).await;
             let _ = server.remove::<Accessible, _>(Tree::path(id)).await;
         }
     }
@@ -487,11 +555,7 @@ pub async fn serve(conn: zbus::Connection, root: &Node) -> zbus::Result<Handle> 
     server.at(ROOT_PATH, Application { id: 0 }).await?;
     let mut served = std::collections::BTreeSet::new();
     for id in all {
-        let node = Accessible {
-            idx: id,
-            shared: shared.clone(),
-        };
-        server.at(Tree::path(id), node).await?;
+        serve_node(server, id, &shared).await?;
         served.insert(id);
     }
     Ok(Handle {
@@ -501,6 +565,40 @@ pub async fn serve(conn: zbus::Connection, root: &Node) -> zbus::Result<Handle> 
         ids,
         served,
     })
+}
+
+/// Sert le nœud `id` : `Accessible`, et `Action` hors de la racine.
+async fn serve_node(
+    server: &zbus::ObjectServer,
+    id: usize,
+    shared: &Arc<Shared>,
+) -> zbus::Result<()> {
+    let path = Tree::path(id);
+    server
+        .at(
+            path.as_str(),
+            Accessible {
+                idx: id,
+                shared: shared.clone(),
+            },
+        )
+        .await?;
+    if id != 0
+        && let Err(e) = server
+            .at(
+                path.as_str(),
+                Actions {
+                    idx: id,
+                    shared: shared.clone(),
+                },
+            )
+            .await
+    {
+        // Pas de nœud à moitié servi : il ne serait jamais retiré.
+        let _ = server.remove::<Accessible, _>(path.as_str()).await;
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// Sert l'arbre, puis l'inscrit : la racine est servie avant l'inscription,
@@ -588,8 +686,11 @@ pub(super) mod tests {
         let me = app.unique_name().unwrap().to_string();
         let root = Node::new(Role::Application, "hyprdesk")
             .child(
-                Node::new(Role::Frame, "Dock")
-                    .child(Node::new(Role::PushButton, "Firefox").state(State::Focusable)),
+                Node::new(Role::Frame, "Dock").child(
+                    Node::new(Role::PushButton, "Firefox")
+                        .state(State::Focusable)
+                        .action(),
+                ),
             )
             .child(Node::new(Role::Frame, "Barre des menus"));
         let mut h = start(app, &root).await.unwrap();
@@ -664,6 +765,103 @@ pub(super) mod tests {
         assert_ne!(state[0] & 1 << State::Focusable as u32, 0);
         let app_ref: Ref = call(&at, &me, &firefox, "GetApplication").await;
         assert_eq!(app_ref, Ref::new(&me, ROOT_PATH));
+
+        // Action : annoncée seulement là où il y en a une ; `DoAction` renvoie
+        // la clé du nœud à l'interface.
+        const ACTION: &str = "org.a11y.atspi.Action";
+        let ifaces: Vec<String> = call(&at, &me, &firefox, "GetInterfaces").await;
+        assert_eq!(ifaces, NODE_INTERFACES);
+        let n: i32 = get(&at, &me, &firefox, ACTION, "NActions")
+            .await
+            .try_into()
+            .unwrap();
+        assert_eq!(n, 1);
+        let n: i32 = get(&at, &me, &dock, ACTION, "NActions")
+            .await
+            .try_into()
+            .unwrap();
+        assert_eq!(n, 0, "sans action");
+        let act = |path: String, m: &'static str| {
+            let at = at.clone();
+            let me = me.clone();
+            async move {
+                at.call_method(Some(me.as_str()), path.as_str(), Some(ACTION), m, &(0i32,))
+                    .await
+                    .unwrap()
+            }
+        };
+        let name: String = act(firefox.clone(), "GetName")
+            .await
+            .body()
+            .deserialize()
+            .unwrap();
+        assert_eq!(name, CLICK);
+        let loc: String = act(firefox.clone(), "GetLocalizedName")
+            .await
+            .body()
+            .deserialize()
+            .unwrap();
+        assert!(!loc.is_empty());
+        let all: Vec<(String, String, String)> = at
+            .call_method(
+                Some(me.as_str()),
+                firefox.as_str(),
+                Some(ACTION),
+                "GetActions",
+                &(),
+            )
+            .await
+            .unwrap()
+            .body()
+            .deserialize()
+            .unwrap();
+        assert_eq!(all.len(), 1);
+        let none: Vec<(String, String, String)> = at
+            .call_method(
+                Some(me.as_str()),
+                dock.as_str(),
+                Some(ACTION),
+                "GetActions",
+                &(),
+            )
+            .await
+            .unwrap()
+            .body()
+            .deserialize()
+            .unwrap();
+        assert!(none.is_empty());
+        let second: bool = at
+            .call_method(
+                Some(me.as_str()),
+                firefox.as_str(),
+                Some(ACTION),
+                "DoAction",
+                &(1i32,),
+            )
+            .await
+            .unwrap()
+            .body()
+            .deserialize()
+            .unwrap();
+        assert!(!second, "une seule action");
+        let mut requests = Box::pin(crate::a11y::requests());
+        let done: bool = act(dock.clone(), "DoAction")
+            .await
+            .body()
+            .deserialize()
+            .unwrap();
+        assert!(!done, "sans action, rien");
+        let done: bool = act(firefox.clone(), "DoAction")
+            .await
+            .body()
+            .deserialize()
+            .unwrap();
+        assert!(done);
+        let key = tokio::time::timeout(std::time::Duration::from_secs(5), requests.next())
+            .await
+            .expect("demande d'action")
+            .unwrap();
+        assert_eq!(key, "/#0/#0", "la clé du nœud, pour l'interface");
 
         // L'arbre change : un nœud de moins, l'objet de trop est retiré et
         // annoncé ; le nom changé aussi.
