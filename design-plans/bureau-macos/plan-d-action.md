@@ -200,7 +200,7 @@ Chaque écart cité dans ce plan devient un plan d'implémentation autonome, ré
 
 ## 7. Bilan d'exécution
 
-Clôture de la boucle HIG, 25 novembre 2026. Cinq couloirs (A à E) ont traité le registre `boucle/avancement.md` en 147 itérations ; chaque lot de code a passé la porte complète `scripts/verify.sh` avant sa publication. Branche d'intégration `hig/plan-d-action` : `dde91af` à l'ouverture de la clôture ; dernier commit de code `35c66f8` (`ACC-01`, étapes 8b et 9) ; le commit de clôture ne touche que des documents. La branche n'est pas publiée sur le distant et `main` n'en porte encore rien : c'est au propriétaire de la publier.
+Clôture de la boucle HIG, 25 novembre 2026. Cinq couloirs (A à E) ont traité le registre `boucle/avancement.md` en 147 itérations ; chaque lot de code a passé la porte complète `scripts/verify.sh` avant sa publication. Branche d'intégration `hig/plan-d-action` : `dde91af` à l'ouverture de la clôture ; dernier commit de code `35c66f8` (`ACC-01`, étapes 8b et 9) ; le commit de clôture ne touche que des documents. Le propriétaire a tranché `TYP-09` le même jour ; la branche est fusionnée dans `main` et publiée.
 
 ### Par statut
 
@@ -208,9 +208,9 @@ Clôture de la boucle HIG, 25 novembre 2026. Cinq couloirs (A à E) ont traité 
 | --- | --- | --- |
 | Traités (`fait`) | 151 | Toutes les phases ; plus l'audit accessibilité lui-même (`AUDIT-A11Y`) |
 | Sans objet | 1 | `SEL-04` : revérifié, chaque pastille du centre de contrôle dit déjà son état sans la couleur |
-| Bloqués | 1 | `TYP-09` : décision du propriétaire attendue (ci-dessous) |
+| Bloqués | 0 | `TYP-09`, tranché par le propriétaire (ci-dessous), est passé « identité » |
 | Hors plan | 54 | Recommandations de la HIG non retenues (section 5) |
-| Identité | 16 | Choix assumés, signalés, jamais corrigés |
+| Identité | 17 | Choix assumés, signalés, jamais corrigés ; `TYP-09` compris |
 | **Total** | **223** | Les 213 de l'audit initial et les 10 de l'audit accessibilité |
 
 Les phases ont compté plus d'écarts que la section 3 n'en annonçait (153 contre 140) : les dix de l'accessibilité ont rejoint la phase 1, et quelques recouvrements ont reçu leur propre ligne, passée `fait` avec le même commit que l'écart qu'ils recouvrent.
@@ -224,7 +224,7 @@ Les phases ont compté plus d'écarts que la section 3 n'en annonçait (153 cont
 | 1 — Notifications, puis `ACC-01` à `ACC-10` | 25 | — | — |
 | 2 — Menus du shell et clavier | 21 | — | — |
 | 3 — Réglages | 20 | — | — |
-| 4 — Repères cohérents | 27 | 1 (`SEL-04`) | 1 (`TYP-09`) |
+| 4 — Repères cohérents | 27 | 1 (`SEL-04`) | — |
 | 5 — Bureau, interactions et accompagnement | 32 | — | — |
 
 ### Par couloir
@@ -235,14 +235,14 @@ Les phases ont compté plus d'écarts que la section 3 n'en annonçait (153 cont
 | A | Notifications, shell, matière, accessibilité, icônes d'application | 44, plus la clôture | 56 et l'audit | — | — | 11 | 8 |
 | B | Réglages, saisie, glisser-déposer, annulation, accompagnement | 37 | 38 | 1 | — | 24 | 4 |
 | C | Menus, entrées, clavier | 31 | 27 | — | — | 12 | 3 |
-| D | Typographie, écriture, présentation, glyphes | 16 | 29 | — | 1 | 7 | 1 |
+| D | Typographie, écriture, présentation, glyphes | 16 | 29 | — | — | 7 | 2 |
 | E | `ACC-01` seul : pont AT-SPI, plan en neuf étapes | 16 | 1 | — | — | — | — |
 
 Les couloirs « hors plan » et « identité » ne sont qu'une attribution nominale : ces écarts n'ont pas été traités.
 
-### Ce qui reste au propriétaire
+### Décision et questions du propriétaire
 
-- **`TYP-09`, texte de la barre et échelle du texte** (bloqué). La HIG ne veut pas que les titres d'une fenêtre grossissent avec le texte (« they don't expect the tab titles to increase in size ») ; l'accessibilité veut que tout texte suive l'échelle choisie (« Make sure people can adjust the size of your text »). Aujourd'hui l'horloge et les libellés de la barre suivent l'échelle, la hauteur de la barre non. **Recommandation de la boucle : garder l'échelle du texte dans la barre**, et ne rien changer au code.
+- **`TYP-09`, texte de la barre et échelle du texte** (tranché le 25 novembre 2026 : l'échelle est gardée, l'écart passe « identité »). La HIG ne veut pas que les titres d'une fenêtre grossissent avec le texte (« they don't expect the tab titles to increase in size ») ; l'accessibilité veut que tout texte suive l'échelle choisie (« Make sure people can adjust the size of your text »). Aujourd'hui l'horloge et les libellés de la barre suivent l'échelle, la hauteur de la barre non. **Décision du propriétaire, sur la recommandation de la boucle : la barre garde l'échelle du texte**, et le code ne change pas.
 - Questions relevées en marge des écarts, sans bloquer leur traitement :
   - l'entrée « Documentation » du menu Aide reste inactive : le paquet n'installe que README et PLUGINS dans `/usr/share/doc/hyprdesk/`, pas le guide ; elle s'active d'elle-même si `GUIDE.fr.md` ou `GUIDE.md` y est installé (`MENU-05`) ;
   - à 640 px, le titre « Aide » passe sous l'horloge centrée : collision antérieure de la zone amont avec l'horloge, à traiter à part (`MENU-05`) ;

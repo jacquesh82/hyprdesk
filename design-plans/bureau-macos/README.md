@@ -1,6 +1,6 @@
 # Bureau macOS d'après la HIG — spécifications, audit de hyprdesk et plan d'action
 
-> Proposition de design du 23 novembre 2026, exécutée du 23 au 25 novembre 2026 par la boucle HIG (cinq couloirs, registre `boucle/avancement.md`). Le code est sur la branche d'intégration `hig/plan-d-action`, que seul le propriétaire publie ; `main` n'en porte encore rien. Les documents de famille décrivent le code audité, pas le code actuel : l'état de chaque écart est au registre.
+> Proposition de design du 23 novembre 2026, exécutée du 23 au 25 novembre 2026 par la boucle HIG (cinq couloirs, registre `boucle/avancement.md`). Le code est sur la branche d'intégration `hig/plan-d-action`, fusionnée dans `main` et publiée le 25 novembre 2026. Les documents de famille décrivent le code audité, pas le code actuel : l'état de chaque écart est au registre.
 > Référentiel : Human Interface Guidelines (HIG) d'Apple, export Markdown officiel relevé le 23 novembre 2026, 95 pages.
 > Code audité : commit `00f6d69`, arbre de travail avec huit fichiers modifiés non commités.
 
@@ -12,9 +12,9 @@ Clôture du 25 novembre 2026. Intégration `hig/plan-d-action` à `dde91af` à l
 | --- | --- |
 | Traités (`fait`) | 151, plus l'audit accessibilité lui-même |
 | Sans objet | 1 : `SEL-04`, déjà conforme à la revérification |
-| Bloqués | 1 : `TYP-09`, décision du propriétaire attendue |
+| Bloqués | 0 : `TYP-09`, tranché par le propriétaire, est passé « identité » |
 | Hors plan | 54 : recommandations non retenues, non traitées |
-| Identité | 16 : choix assumés, signalés, jamais corrigés |
+| Identité | 17 : choix assumés, signalés, jamais corrigés ; `TYP-09` compris |
 | Total | 223 : les 213 de l'audit initial et les 10 de l'audit accessibilité |
 
 | Phase | Traités | Sans objet | Bloqués |
@@ -24,7 +24,7 @@ Clôture du 25 novembre 2026. Intégration `hig/plan-d-action` à `dde91af` à l
 | 1 — Notifications, puis `ACC-01` à `ACC-10` | 25 | — | — |
 | 2 — Menus du shell et clavier | 21 | — | — |
 | 3 — Réglages | 20 | — | — |
-| 4 — Repères cohérents | 27 | 1 | 1 |
+| 4 — Repères cohérents | 27 | 1 | — |
 | 5 — Bureau, interactions et accompagnement | 32 | — | — |
 
 | Couloir | Sujets | Traités | Sans objet | Bloqués | Hors plan | Identité |
@@ -32,13 +32,13 @@ Clôture du 25 novembre 2026. Intégration `hig/plan-d-action` à `dde91af` à l
 | A | Notifications, shell, matière, accessibilité, icônes d'application | 56 et l'audit | — | — | 11 | 8 |
 | B | Réglages, saisie, glisser-déposer, annulation, accompagnement | 38 | 1 | — | 24 | 4 |
 | C | Menus, entrées, clavier | 27 | — | — | 12 | 3 |
-| D | Typographie, écriture, présentation, glyphes | 29 | — | 1 | 7 | 1 |
+| D | Typographie, écriture, présentation, glyphes | 29 | — | — | 7 | 2 |
 | E | `ACC-01` seul : pont AT-SPI, en neuf étapes | 1 | — | — | — | — |
 
 **Décisions D1 à D7** : approuvées le 23 novembre 2026 et toutes en place (`plan-d-action.md`, section 4).
 
-**Reste au propriétaire** :
-- `TYP-09`, texte de la barre et échelle du texte : la HIG veut que les titres de la barre ne suivent pas la taille du texte, l'accessibilité veut qu'ils la suivent. Recommandation de la boucle : garder l'échelle du texte dans la barre (aujourd'hui le cas).
+**Décision et questions du propriétaire** :
+- `TYP-09`, texte de la barre et échelle du texte : la HIG veut que les titres de la barre ne suivent pas la taille du texte, l'accessibilité veut qu'ils la suivent. Tranché le 25 novembre 2026 : la barre garde l'échelle du texte (aujourd'hui le cas), l'écart passe « identité ».
 - Questions relevées en marge des écarts, sans bloquer leur traitement : l'entrée « Documentation » du menu Aide reste inactive tant que le paquet n'installe pas le guide dans `/usr/share/doc/hyprdesk/` (`MENU-05`) ; montrer les réglages aussi dans les résultats généraux du lanceur, sans préfixe (`PAT-13`) ; à 640 px, le titre « Aide » passe sous l'horloge centrée, collision antérieure de la zone amont (`MENU-05`).
 
 **À vérifier en session réelle** (la boucle n'a ni lancé le démon ni touché la session) : gestes à fonction exécutés par Hyprland (`ENT-03`) ; remise du clavier à la barre et aux surfaces (`ENT-01`, `ENT-02`) ; visite guidée, sans clavier propre et absente de l'aperçu (`DAT-11`) ; bulle d'annulation, absente sans le service de notifications de hyprdesk (`PAT-12`) ; SUPER+Espace pris à une configuration existante (`ENT-09`) ; lecteur d'écran Orca et limites d'`ACC-01` ; dock et barre révélés en plein écran (`PAT-01`, `PAT-03`) ; contraste du verrouillage sur le vrai fond (`ACC-02`, `ACC-03`). Liste complète : `plan-d-action.md`, section 7.
