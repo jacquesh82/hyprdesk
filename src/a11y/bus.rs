@@ -284,6 +284,31 @@ impl Handle {
         Ok(())
     }
 
+    /// Remplace l'arbre servi : les objets des rangs communs restent (ils
+    /// lisent l'arbre partagé), ceux qui manquent sont ajoutés, ceux de trop
+    /// retirés.
+    pub async fn replace(&mut self, root: &Node) -> zbus::Result<()> {
+        let tree = Tree::flatten(root);
+        let count = tree.nodes.len();
+        *self.shared.tree() = tree;
+        let server = self.conn.object_server();
+        for i in self.count..count {
+            let node = Accessible {
+                idx: i,
+                shared: self.shared.clone(),
+            };
+            server.at(Tree::path(i), node).await?;
+            // Compté dès qu'il est servi : un échec en cours de route ne
+            // laisse pas d'objet que le prochain remplacement oublierait.
+            self.count = i + 1;
+        }
+        for i in count..self.count {
+            let _ = server.remove::<Accessible, _>(Tree::path(i)).await;
+        }
+        self.count = count;
+        Ok(())
+    }
+
     /// Retire les objets servis ; la connexion se ferme avec le pont.
     pub async fn stop(self) {
         let server = self.conn.object_server();
@@ -485,6 +510,29 @@ pub(super) mod tests {
         assert_ne!(state[0] & 1 << State::Focusable as u32, 0);
         let app_ref: Ref = call(&at, &me, &firefox, "GetApplication").await;
         assert_eq!(app_ref, Ref::new(&me, ROOT_PATH));
+
+        // L'arbre change : un nœud de moins, l'objet de trop est retiré.
+        let smaller = Node::new(Role::Application, "hyprdesk")
+            .child(Node::new(Role::Frame, "Barre des menus"));
+        h.replace(&smaller).await.unwrap();
+        let n: String = get(&at, &me, &dock, ACC, "Name").await.try_into().unwrap();
+        assert_eq!(n, "Barre des menus");
+        let r = at
+            .call_method(
+                Some(me.as_str()),
+                firefox.as_str(),
+                Some(ACC),
+                "GetRole",
+                &(),
+            )
+            .await;
+        assert!(r.is_err(), "nœud retiré");
+        h.replace(&root).await.unwrap();
+        let n: String = get(&at, &me, &firefox, ACC, "Name")
+            .await
+            .try_into()
+            .unwrap();
+        assert_eq!(n, "Firefox", "nœud rajouté");
 
         // Lecteur coupé : désinscription, puis plus aucun objet.
         h.unembed().await.unwrap();

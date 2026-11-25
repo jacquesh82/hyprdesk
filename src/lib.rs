@@ -117,6 +117,7 @@ Commandes :
                     referme : une ligne par application, confirmation en deux temps
   keyboard-access   bascule l'accès clavier complet : Tab atteint chaque commande des Réglages
                     (raccourci keys.keyboard_access)
+  a11y dump         imprime l'arbre d'accessibilité des surfaces, tel qu'un lecteur d'écran le lit
   assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
   search            ouvre ou referme le lanceur avec recherche (toutes les applications)
   files             ouvre ou referme la recherche de fichiers (loupe du dock, :f)

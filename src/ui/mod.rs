@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use iced::futures::{SinkExt, Stream};
 use plugins::launcher::grid as apps_grid;
+mod accessible;
 mod behind;
 mod chat;
 pub(crate) mod color_picker;
@@ -4219,6 +4220,7 @@ impl App {
         }
         let t = self.update_inner(msg);
         self.publish_status();
+        self.a11y_publish();
         self.voice_publish();
         let t = Task::batch([t, self.sync_hyprbars()]);
         tracing::trace!(
@@ -4376,6 +4378,13 @@ impl App {
                         .chain(iced::exit())
                 }
                 control::Command::Status => Task::none(),
+                // `hyprdesk a11y dump` : l'arbre est calculé même sans
+                // lecteur d'écran, puis la commande est réveillée.
+                control::Command::A11yDump => {
+                    crate::a11y::publish(self.a11y_surfaces());
+                    crate::a11y::dumped().notify_waiters();
+                    Task::none()
+                }
                 control::Command::ScreensOff => self.screens_off(),
                 control::Command::ColorTest => {
                     self.colors_update(if self.color_test.wins.is_empty() {

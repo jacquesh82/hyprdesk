@@ -36,6 +36,8 @@ pub enum Command {
     /// volume les rallume (`idle_wake_volume`).
     ScreensOff,
     Quit,
+    /// Arbre d'accessibilité des surfaces, en texte (`a11y dump`, HIG ACC-01).
+    A11yDump,
     /// Ouvre l'écran Réglages sur un paquet (`desktop`, `screens`, `fond`…),
     /// sans changer le mode du bureau.
     Settings(String),
@@ -104,6 +106,7 @@ impl Command {
             "toggle-launcher" => Command::ToggleLauncher,
             "reload" => Command::Reload,
             "status" => Command::Status,
+            "a11y dump" | "a11y-dump" => Command::A11yDump,
             "forget-window-places" => Command::ForgetWindowPlaces,
             "color-test" => Command::ColorTest,
             "screens-off" => Command::ScreensOff,
@@ -184,6 +187,7 @@ impl Command {
             Command::ToggleLauncher => "toggle-launcher",
             Command::Reload => "reload",
             Command::Status => "status",
+            Command::A11yDump => "a11y dump",
             Command::ForgetWindowPlaces => "forget-window-places",
             Command::Defaults(_) => "defaults",
             Command::ColorTest => "color-test",
@@ -354,6 +358,31 @@ pub fn server_stream() -> impl Stream<Item = Command> {
                             Some(Command::Status) => {
                                 STATUS.lock().map(|s| s.clone()).unwrap_or_default()
                             }
+                            // L'interface calcule l'arbre, puis le texte est
+                            // lu ici : attente prête avant l'envoi.
+                            Some(Command::A11yDump) => {
+                                let done = crate::a11y::dumped().notified();
+                                tokio::pin!(done);
+                                done.as_mut().enable();
+                                match tokio::time::timeout(
+                                    Duration::from_secs(2),
+                                    out.send(Command::A11yDump),
+                                )
+                                .await
+                                {
+                                    // Sans réponse de l'interface, pas d'arbre
+                                    // ancien présenté comme juste.
+                                    Ok(Ok(())) => {
+                                        match tokio::time::timeout(Duration::from_secs(2), done)
+                                            .await
+                                        {
+                                            Ok(()) => crate::a11y::dump(),
+                                            Err(_) => crate::i18n::tr("démon occupé").to_string(),
+                                        }
+                                    }
+                                    _ => crate::i18n::tr("démon occupé").to_string(),
+                                }
+                            }
                             Some(c) => {
                                 // L'arrêt est toujours tracé, avec son expéditeur.
                                 if c == Command::Quit {
@@ -436,6 +465,7 @@ mod tests {
             Command::Hide,
             Command::Reload,
             Command::Status,
+            Command::A11yDump,
             Command::Quit,
             Command::Settings("desktop".into()),
             Command::Settings("fond".into()),

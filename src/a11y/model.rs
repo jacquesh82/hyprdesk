@@ -168,6 +168,33 @@ impl Node {
         self.children.push(c);
         self
     }
+
+    pub fn children(mut self, c: impl IntoIterator<Item = Node>) -> Node {
+        self.children.extend(c);
+        self
+    }
+
+    /// L'arbre en texte, un nœud par ligne, indenté de deux espaces par
+    /// niveau : `rôle « nom »` (`hyprdesk a11y dump`).
+    pub fn dump(&self) -> String {
+        let mut out = String::new();
+        dump_into(&mut out, self, 0);
+        out
+    }
+}
+
+fn dump_into(out: &mut String, n: &Node, depth: usize) {
+    out.push_str(&"  ".repeat(depth));
+    out.push_str(n.role.name());
+    if !n.name.is_empty() {
+        out.push_str(" « ");
+        out.push_str(&n.name);
+        out.push_str(" »");
+    }
+    out.push('\n');
+    for c in &n.children {
+        dump_into(out, c, depth + 1);
+    }
 }
 
 /// Un nœud de l'arbre aplati : liens par rang dans [`Tree::nodes`].
@@ -286,6 +313,20 @@ mod tests {
         assert_eq!(t.nodes[0].index_in_parent, -1);
         assert_eq!(Tree::path(0), ROOT_PATH);
         assert_eq!(Tree::path(3), "/org/a11y/atspi/accessible/3");
+    }
+
+    #[test]
+    fn arbre_en_texte() {
+        let root = Node::new(Role::Application, "hyprdesk").child(
+            Node::new(Role::Frame, "Dock").children([
+                Node::new(Role::PushButton, "Firefox"),
+                Node::new(Role::Label, ""),
+            ]),
+        );
+        assert_eq!(
+            root.dump(),
+            "application « hyprdesk »\n  frame « Dock »\n    push button « Firefox »\n    label\n"
+        );
     }
 
     #[test]

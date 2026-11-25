@@ -1426,6 +1426,8 @@
 "notifications : {e}" = "notifications: {e}"
 "notifications affichées par hyprdesk" = "notifications displayed by hyprdesk"
 "accessibilité : {e}" = "accessibility: {e}"
+"Barre des menus" = "Menu bar"
+"  a11y dump         imprime l'arbre d'accessibilité des surfaces, tel qu'un lecteur d'écran le lit" = "  a11y dump         prints the accessibility tree of the surfaces, as a screen reader reads it"
 "accessibilité : arbre servi aux lecteurs d'écran" = "accessibility: tree served to screen readers"
 
 # Mises à jour en attente (MLG-31).

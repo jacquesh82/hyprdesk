@@ -29,25 +29,7 @@ impl App {
                 col = col.push(self.pop_workspaces(alpha));
                 continue;
             }
-            let label = match item {
-                BarItem::Widget(id) => self
-                    .cfg
-                    .widgets
-                    .iter()
-                    .find(|w| &w.id == id)
-                    .map(|w| {
-                        self.cfg
-                            .catalog
-                            .iter()
-                            .find(|t| t.id == w.type_id)
-                            .map_or(w.type_id.as_str(), |t| t.name.as_str())
-                    })
-                    .unwrap_or(id),
-                _ => crate::config::BAR_ITEMS
-                    .iter()
-                    .find(|(id, _)| *id == crate::ui::plugins::bar::surface::bar_item_key(item))
-                    .map_or("", |(_, label)| crate::i18n::tr(label)),
-            };
+            let label = self.bar_item_label(item);
             col = col.push(
                 column![
                     text(label.to_string())

@@ -25,7 +25,9 @@ mod surface;
 
 pub(in crate::ui) use contrast::Backdrop;
 pub(in crate::ui) use lifecycle::{LaunchEnd, Placement, Runtime};
-pub(in crate::ui) use surface::{LauncherSurface, Popup, PopupContent, REVEAL_STRIP, thickness};
+pub(in crate::ui) use surface::{
+    LauncherSurface, Popup, PopupContent, REVEAL_STRIP, Slot, thickness,
+};
 
 use crate::i18n::text;
 use iced::widget::{button, column, radio, row};

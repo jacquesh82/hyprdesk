@@ -14,7 +14,6 @@ use iced::futures::StreamExt;
 use zbus::zvariant::OwnedValue;
 
 use super::bus::{self, Handle, REGISTRY};
-use super::model::{Node, Role};
 
 /// Service du bus d'accessibilité, sur le bus de session.
 const A11Y_BUS: &str = "org.a11y.Bus";
@@ -70,12 +69,6 @@ pub fn on_registry_change(phase: Phase) -> Phase {
     }
 }
 
-/// Arbre servi : pour l'instant la seule application ; les surfaces s'y
-/// ajoutent aux étapes suivantes du plan.
-fn tree() -> Node {
-    Node::new(Role::Application, "hyprdesk")
-}
-
 /// Abonnement du démon : suit `org.a11y.Status` et tient le pont. Ne rend
 /// aucun message.
 pub fn stream() -> impl iced::futures::Stream<Item = ()> {
@@ -114,6 +107,7 @@ async fn run_on(session: zbus::Connection, env: Option<String>) {
         return;
     };
     let mut wake = iced::futures::stream::select(owners.map(|_| ()), changes.map(|_| ()));
+    let mut tree = super::subscribe();
     let mut phase = Phase::Off;
     let mut handle: Option<Handle> = None;
     let mut registry_events: Option<
@@ -131,12 +125,24 @@ async fn run_on(session: zbus::Connection, env: Option<String>) {
                     Some(r) => tokio::select! {
                         w = wake.next() => Wake::Status(w.is_some()),
                         r = r.next() => Wake::Registry(r.is_some()),
+                        t = tree.changed() => Wake::Tree(t.is_ok()),
                     },
                     None => Wake::Status(wake.next().await.is_some()),
                 };
                 match woke {
-                    Wake::Status(false) => return,
-                    Wake::Status(true) => {}
+                    Wake::Status(false) => {
+                        super::set_served(false);
+                        return;
+                    }
+                    Wake::Status(true) | Wake::Tree(false) => {}
+                    Wake::Tree(true) => {
+                        let now = tree.borrow_and_update().clone();
+                        if let Some(h) = handle.as_mut()
+                            && let Err(e) = h.replace(&now).await
+                        {
+                            tracing::warn!("{}", crate::tr!("accessibilité : {e}", e = e));
+                        }
+                    }
                     Wake::Registry(true) => {
                         phase = on_registry_change(phase);
                         if phase == Phase::Served
@@ -148,6 +154,7 @@ async fn run_on(session: zbus::Connection, env: Option<String>) {
                     // Le bus d'accessibilité s'est fermé : tout est à refaire,
                     // sans s'emballer s'il se referme aussitôt.
                     Wake::Registry(false) => {
+                        super::set_served(false);
                         handle = None;
                         registry_events = None;
                         phase = Phase::Off;
@@ -163,13 +170,16 @@ async fn run_on(session: zbus::Connection, env: Option<String>) {
                         pause(&mut wake).await;
                         continue;
                     };
-                    match bus::serve(conn, &tree()).await {
+                    let now = tree.borrow_and_update().clone();
+                    match bus::serve(conn, &now).await {
                         Ok(h) => {
                             tracing::info!(
                                 "{}",
                                 crate::i18n::tr("accessibilité : arbre servi aux lecteurs d'écran")
                             );
                             registry_events = Some(watch);
+                            // L'interface publie désormais ses surfaces.
+                            super::set_served(true);
                             handle = Some(h);
                             phase = Phase::Served;
                         }
@@ -209,6 +219,7 @@ async fn run_on(session: zbus::Connection, env: Option<String>) {
                     h.stop().await;
                 }
                 registry_events = None;
+                super::set_served(false);
                 phase = Phase::Off;
             }
         }
@@ -221,6 +232,8 @@ enum Wake {
     Status(bool),
     /// Le registre est arrivé ou parti (`false` : bus d'accessibilité fermé).
     Registry(bool),
+    /// L'interface a publié un autre arbre.
+    Tree(bool),
 }
 
 /// Après un échec : attendre un changement, une minute au plus, sans

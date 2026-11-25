@@ -156,6 +156,34 @@ pub fn bar_item_key(item: &BarItem) -> &str {
     }
 }
 
+impl App {
+    /// Libellé d'un module de la barre : celui du catalogue des widgets, ou
+    /// celui des modules propres à la barre (`BAR_ITEMS`).
+    pub(in crate::ui) fn bar_item_label(&self, item: &BarItem) -> String {
+        match item {
+            BarItem::Widget(id) => self
+                .cfg
+                .widgets
+                .iter()
+                .find(|w| &w.id == id)
+                .map(|w| {
+                    self.cfg
+                        .catalog
+                        .iter()
+                        .find(|t| t.id == w.type_id)
+                        .map_or(w.type_id.as_str(), |t| t.name.as_str())
+                })
+                .unwrap_or(id)
+                .to_string(),
+            _ => crate::config::BAR_ITEMS
+                .iter()
+                .find(|(id, _)| *id == bar_item_key(item))
+                .map_or("", |(_, label)| crate::i18n::tr(label))
+                .to_string(),
+        }
+    }
+}
+
 pub(in crate::ui) fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
         s.to_string()

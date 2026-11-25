@@ -81,6 +81,7 @@ Les alias donnent la même commande.
 | `focus <surface>` | donne le clavier à une surface du shell : `bar` (barre de l'écran actif), `dock`, `notifications` (centre), `settings` (volet des Réglages, sur son premier champ) ; rien ne se referme, le mode du bureau ne change pas (raccourcis `keys.focus_*`) |
 | `force-quit` | ouvre la boîte « Forcer à quitter » — une ligne par application, à confirmer en deux temps, puis ses fenêtres sont tuées —, ou la referme (raccourci `keys.force_quit`) |
 | `keyboard-access` | bascule l'accès clavier complet — Tab atteint chaque commande des Réglages, ou seulement les champs de saisie — et l'annonce à l'écran (raccourci `keys.keyboard_access`, réglage `keyboard_access`) |
+| `a11y dump` | rend l'arbre d'accessibilité des surfaces (barre, dock), un nœud par ligne — `rôle « nom »` —, tel que le pont AT-SPI le sert à un lecteur d'écran (Orca) ; calculé à la demande, même sans lecteur |
 | `menu <module>` | ouvre le menu d'un module de la barre (`volume`, `clock`, `network`, `tray`, `session`… ; anciens noms admis : `reseau`, `batterie`…) |
 | `search` | lanceur avec recherche (ouvre ou referme) |
 | `files` | recherche de fichiers (`:f`) |
