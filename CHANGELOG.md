@@ -171,6 +171,8 @@ and this project adheres to
   its application icon; a click focuses it and goes to its workspace
   (a minimised window comes back to the shown one). The active window's
   commands stay on its title.
+- The launcher opens again with **SUPER + R** by default (MLG-319)
+  (SUPER + Space since the macOS shortcuts); `keys.search` still changes it.
 - Settings open again with **SUPER + SHIFT + D** by default (MLG-316) (SUPER + comma
   since the macOS shortcuts); `keys.settings` still changes it.
 - Opening Settings no longer changes the bar (MLG-314): modules become draggable only

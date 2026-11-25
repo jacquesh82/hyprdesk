@@ -422,7 +422,7 @@ n'importe quel ordre.
 **Réglages → Raccourcis** et `hyprdesk keys` montrent toutes les liaisons
 actives, hors plein bureau et bureau affiché, avec leur ligne d'origine dans
 `hyprland.lua`. hyprdesk respecte les liaisons en place, sauf celles que vous
-lui confiez et son `SUPER + Espace` par défaut, que l'on peut désactiver.
+lui confiez et son `SUPER + R` par défaut, que l'on peut désactiver.
 
 Là où `hyprland.lua` n'a pas un raccourci essentiel, hyprdesk le pose sur une
 combinaison libre, sans modifier le fichier. Les essentiels couvrent

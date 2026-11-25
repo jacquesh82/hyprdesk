@@ -194,7 +194,7 @@ in the [user guide](docs/GUIDE.md#installation-in-detail).
 | `CTRL + F1`                               | Toggle Full Keyboard Access: Tab reaches every control in Settings, or only text fields               |
 | `ALT + SUPER + Escape`                    | Open "Force Quit": one row per application, confirmed in two steps, then its windows are killed      |
 | `SUPER + SHIFT + L`                       | Open or close LYRA, the AI assistant                                                                 |
-| `SUPER + Space`                           | `:f` searches files, `:r` settings, `:clip` the clipboard history, `:2fa`/`:mdp` the myMFA keyring   |
+| `SUPER + R`                               | `:f` searches files, `:r` settings, `:clip` the clipboard history, `:2fa`/`:mdp` the myMFA keyring   |
 | `SUPER + Tab`                             | Switch windows (`SUPER + SHIFT + Tab` goes back)                                                     |
 | `CTRL + Up`                               | Workspaces overview: drag windows between workspaces                                                 |
 | `Print` / `SUPER + Print` / `ALT + Print` | Capture an area, the screen, or a window                                                             |

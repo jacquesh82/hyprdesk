@@ -942,10 +942,10 @@ hl.bind(mainMod .. " + Tab", function()
         let i = r.issue_for("keys.switch").unwrap();
         assert!(matches!(&i.kind, Kind::Hyprland(h) if h.what == "function" && h.line == Some(10)));
         assert!(!plan.outside("switch", "SUPER + Tab") && plan.desktop("switch", "SUPER + Tab"));
-        // Le lanceur par défaut, unifié, prend SUPER + Space à window.float
-        // (HIG ENT-09) : pas de conflit.
+        // Le lanceur par défaut, unifié, prend SUPER + R à rofi : pas de
+        // conflit.
         assert!(r.issue_for("keys.search").is_none(), "{r:?}");
-        assert!(plan.take.iter().any(|t| t == "SUPER + Space"), "{plan:?}");
+        assert!(plan.take.iter().any(|t| t == "SUPER + R"), "{plan:?}");
         // Prise en main : plus de conflit, la combinaison est déliée.
         let taken = Keys {
             take: vec!["SUPER + Tab".into()],
@@ -962,20 +962,15 @@ hl.bind(mainMod .. " + Tab", function()
         assert!(!wanted(&useless, true).iter().any(|t| t == "SUPER + V"));
     }
 
-    /// Les raccourcis par défaut sont ceux de macOS (HIG ENT-06, ENT-09,
-    /// PAT-14 ; décision D2), sans doublon entre eux ; les Réglages exceptés,
-    /// sur SUPER + SHIFT + D comme les autres raccourcis du bureau.
+    /// Le commutateur et la vue d'ensemble sont ceux de macOS (HIG ENT-06,
+    /// PAT-14 ; décision D2) ; le lanceur et les Réglages gardent ceux de
+    /// hyprdesk (SUPER + R, SUPER + SHIFT + D). Sans doublon entre eux.
     #[test]
     fn raccourcis_facon_macos() {
         let k = Keys::default();
         assert_eq!(
             [&k.switch, &k.search, &k.overview, &k.settings].map(String::as_str),
-            [
-                "SUPER + Tab",
-                "SUPER + Space",
-                "CTRL + Up",
-                "SUPER + SHIFT + D"
-            ]
+            ["SUPER + Tab", "SUPER + R", "CTRL + Up", "SUPER + SHIFT + D"]
         );
         let (r, _) = analyse(&k, true, &Value::Null, &[]);
         assert!(r.issues.is_empty(), "{r:?}");

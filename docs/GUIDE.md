@@ -413,7 +413,7 @@ ALT, SHIFT, SUPER. The configuration accepts a combination in any order.
 **Settings → Shortcuts** and `hyprdesk keys` show every active binding,
 outside the full desktop and with the desktop shown, with its source line in
 `hyprland.lua`. hyprdesk respects existing bindings unless you assign them to
-hyprdesk or leave its default `SUPER + Space` override enabled.
+hyprdesk or leave its default `SUPER + R` override enabled.
 
 Where `hyprland.lua` lacks an essential shortcut, hyprdesk sets it on a free
 combination, without editing the file. Essentials cover windows, workspaces,

@@ -205,7 +205,7 @@ désinstallation sont dans le
 | `CTRL + F1` | Bascule l'accès clavier complet : Tab atteint chaque commande des Réglages, ou seulement les champs |
 | `ALT + SUPER + Escape` | Ouvre « Forcer à quitter » : une ligne par application, confirmation en deux temps, puis ses fenêtres sont tuées |
 | `SUPER + SHIFT + L` | Ouvre ou referme LYRA, l'assistant IA |
-| `SUPER + Espace` | Recherche des applications. `:f` fouille les fichiers, `:r` cherche un réglage, `:clip` le presse-papiers, `:2fa` et `:mdp` le trousseau myMFA |
+| `SUPER + R` | Recherche des applications. `:f` fouille les fichiers, `:r` cherche un réglage, `:clip` le presse-papiers, `:2fa` et `:mdp` le trousseau myMFA |
 | `SUPER + Tab` | Change de fenêtre (`SUPER + SHIFT + Tab` recule) |
 | `CTRL + Up` | Vue des workspaces : glisser les fenêtres d'un workspace à l'autre |
 | `Impr` / `SUPER + Impr` / `ALT + Impr` | Capture une zone, l'écran ou une fenêtre |

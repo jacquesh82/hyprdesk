@@ -1580,13 +1580,13 @@ impl Default for Keys {
         Keys {
             toggle: "SUPER + D".into(),
             launcher: "SUPER + ALT + D".into(),
-            // Raccourcis de macOS (HIG ENT-06, ENT-09, PAT-14 ; décision D2) :
-            // Commande-Tab, le commutateur ; Commande-Espace, le lanceur ;
-            // Contrôle-Flèche haut, Mission Control ; Commande-Virgule, les
-            // Réglages.
+            // Raccourcis de macOS (HIG ENT-06, PAT-14 ; décision D2) :
+            // Commande-Tab, le commutateur ; Contrôle-Flèche haut, Mission
+            // Control. Le lanceur et les Réglages gardent ceux de hyprdesk
+            // (SUPER + R, SUPER + SHIFT + D).
             switch: "SUPER + Tab".into(),
             // Le lanceur de hyprdesk, dans tous les modes (apps_unified).
-            search: "SUPER + Space".into(),
+            search: "SUPER + R".into(),
             search_desktop: String::new(),
             overview: "CTRL + Up".into(),
             assistant: "SUPER + SHIFT + L".into(),
