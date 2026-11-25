@@ -62,6 +62,7 @@
 | 2026-11-25 | A42 | ICO-10, étape 2 (apparence des SVG) ; il en reste 1 dans ce couloir (ICO-10, en cours) |
 | 2026-11-25 | A43 | ICO-10, étapes 3 et 4 (apparence des matricielles) ; il en reste 1 dans ce couloir (ICO-10, en cours) |
 | 2026-11-25 | A44 | ICO-10 fait (étapes 5 et 6 : Réglages, documentation) ; il en reste 0 dans ce couloir |
+| 2026-11-25 | A45 | clôture de la boucle (`7d070a6`) : audit accessibilité rattaché en troisième partie de `00b-fondations-structure.md`, bilan au README et au plan d'action (section 7), `DESIGN.md` complété ; 151 traités, 1 sans objet, 1 bloqué (TYP-09, au propriétaire), 54 hors plan, 16 identité ; il n'en reste aucun à traiter, tous couloirs |
 
 ### Couloir B
 
