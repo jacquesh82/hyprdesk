@@ -59,6 +59,19 @@ pub struct Overview {
     pub visibility: Fade,
     /// Astuce de cette ouverture (HIG DAT-07).
     pub tip: Option<&'static crate::tips::Tip>,
+    /// Dernier déplacement déposé, à annuler (HIG DAT-12) : il prend la
+    /// place de l'astuce au-dessus de l'aide.
+    pub undo: Option<MoveUndo>,
+}
+
+/// Fenêtre déposée sur un autre espace : de quoi la ramener.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MoveUndo {
+    pub address: String,
+    /// Nom affiché : titre de la fenêtre, sinon sa classe.
+    pub name: String,
+    pub from: String,
+    pub to: String,
 }
 
 /// Pressé dans une carte : fenêtre saisie (glisser-déposer d'un espace à
@@ -114,6 +127,10 @@ pub enum OMsg {
     NewWorkspace,
     /// Astuce refermée.
     TipClose,
+    /// « Annuler » : la dernière fenêtre déposée revient à son espace.
+    Undo,
+    /// Bulle d'annulation refermée.
+    UndoClose,
 }
 
 /// Une carte, données tirées de l'état Hyprland courant.
@@ -142,6 +159,7 @@ impl Overview {
             last_title: None,
             visibility,
             tip: None,
+            undo: None,
         }
     }
 }
@@ -278,7 +296,11 @@ impl App {
     /// Bas réservé : l'aide, plus l'astuce tant qu'elle est là.
     fn overview_hints_h(&self) -> f32 {
         HINTS_H
-            + if self.overview.as_ref().is_some_and(|o| o.tip.is_some()) {
+            + if self
+                .overview
+                .as_ref()
+                .is_some_and(|o| o.tip.is_some() || o.undo.is_some())
+            {
                 TIP_H
             } else {
                 0.0
@@ -435,6 +457,18 @@ impl App {
 
     pub(super) fn overview_update(&mut self, m: OMsg) -> Task<Msg> {
         match m {
+            OMsg::Undo => {
+                let Some(u) = self.overview.as_mut().and_then(|o| o.undo.take()) else {
+                    return Task::none();
+                };
+                move_task(u.address, u.from)
+            }
+            OMsg::UndoClose => {
+                if let Some(o) = self.overview.as_mut() {
+                    o.undo = None;
+                }
+                Task::none()
+            }
             OMsg::TipClose => {
                 if let Some(o) = self.overview.as_mut() {
                     o.tip = None;
@@ -645,6 +679,24 @@ impl App {
         {
             o.tip = None;
         }
+        // Le déplacement se propose à l'annulation (HIG DAT-12).
+        let from = self
+            .ws_geos
+            .iter()
+            .find(|g| g.address == w.address)
+            .map(|g| g.workspace.clone());
+        if let Some(o) = self.overview.as_mut() {
+            o.undo = from.map(|from| MoveUndo {
+                address: w.address.clone(),
+                name: if w.title.trim().is_empty() {
+                    w.class.clone()
+                } else {
+                    w.title.clone()
+                },
+                from,
+                to: card.name.clone(),
+            });
+        }
         let used = self.tip_used("apercu-glisser");
         Task::batch([used, move_task(w.address.clone(), card.name.clone())])
     }
@@ -661,6 +713,17 @@ impl App {
             {
                 o.renaming = None;
             }
+            return Task::none();
+        }
+        // Fenêtre saisie : Échap interrompt le glisser, l'écran reste
+        // ouvert (HIG DAT-12) ; le relâché ne dépose plus rien.
+        if matches!(key, keyboard::Key::Named(Named::Escape))
+            && let Some(o) = self.overview.as_mut()
+            && o.press
+                .as_ref()
+                .is_some_and(|p| !p.title && p.window.is_some())
+        {
+            o.press = None;
             return Task::none();
         }
         let selected = match self.overview.as_ref() {
@@ -949,7 +1012,14 @@ impl App {
         let hints = row![
             hint("↑↓←→", "Naviguer"),
             hint("Entrée", "Ouvrir"),
-            hint("Échap", "Fermer"),
+            hint(
+                "Échap",
+                if dragging.is_some() {
+                    "Annuler le glisser"
+                } else {
+                    "Fermer"
+                },
+            ),
             Space::new().width(Length::Fill),
             add,
         ]
@@ -961,8 +1031,33 @@ impl App {
         let (inset_top, inset_bottom) = self.overview_insets();
         // Astuce de cette ouverture (HIG DAT-07), au-dessus de l'aide ; un
         // clic dessus ne passe pas au fond.
-        let tip: Element<'_, Msg> = match o.tip {
-            Some(t) => container(
+        let tip: Element<'_, Msg> = match (&o.undo, o.tip) {
+            // Déplacement déposé : « Annuler » prend la place de l'astuce.
+            (Some(u), _) => container(
+                iced::widget::mouse_area(super::search::notice_row(
+                    self,
+                    "edit-undo",
+                    crate::tr!(
+                        "« {name} » déplacée vers l'espace {to}",
+                        name = crate::ui::plugins::bar::surface::truncate(&u.name, 40),
+                        to = u.to
+                    ),
+                    Some((
+                        crate::i18n::tr("Annuler le déplacement").to_string(),
+                        Msg::Overview(OMsg::Undo),
+                    )),
+                    fg,
+                    dim,
+                    Msg::Overview(OMsg::UndoClose),
+                    "Fermer",
+                ))
+                .on_press(Msg::Noop),
+            )
+            .max_width(560)
+            .height(TIP_H)
+            .center_y(TIP_H)
+            .into(),
+            (None, Some(t)) => container(
                 iced::widget::mouse_area(super::search::tip_row(
                     self,
                     t,
@@ -976,7 +1071,7 @@ impl App {
             .height(TIP_H)
             .center_y(TIP_H)
             .into(),
-            None => Space::new().into(),
+            (None, None) => Space::new().into(),
         };
         let tip = container(tip).center_x(Length::Fill);
         let content = column![title, Space::new().height(Length::Fill), tip, hints]
@@ -1647,5 +1742,98 @@ mod tests {
         )));
         assert_eq!(app.overview.as_ref().unwrap().selected, 2);
         assert_eq!(app.overview_cards()[2].id, 4);
+    }
+
+    /// Un déplacement déposé se propose à l'annulation ; Échap interrompt
+    /// le glisser sans fermer l'écran (HIG DAT-12).
+    #[test]
+    fn le_depot_s_annule_et_echap_interrompt_le_glisser() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-apercu-tests/config.lua"),
+            true,
+        )
+        .0;
+        app.monitors = vec![crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 1440,
+            height: 900,
+            workspace: "Projet 1".into(),
+            base: String::new(),
+            focused: true,
+            scale: 1.0,
+            reserved: (0.0, 0.0, 0.0, 0.0),
+            x: 0.0,
+            y: 0.0,
+        }];
+        let win = Id::unique();
+        app.overview = Some(Overview::new(
+            win,
+            "A".into(),
+            Fade {
+                from: 1.0,
+                to: 1.0,
+                start: Instant::now(),
+                dur: std::time::Duration::ZERO,
+            },
+        ));
+        app.workspaces = (1..=2)
+            .map(|id| crate::hypr::Workspace {
+                id,
+                name: format!("Projet {id}"),
+                monitor: "A".into(),
+                windows: 1,
+                fullscreen: false,
+            })
+            .collect();
+        app.ws_geos = vec![crate::hypr::WindowGeo {
+            address: "0x6".into(),
+            class: "kitty".into(),
+            title: "zsh".into(),
+            workspace: "Projet 1".into(),
+            floating: false,
+            rect: (0, 0, 800, 600),
+            fullscreen: false,
+        }];
+        let surface = app.overview_surface(app.overview.as_ref().unwrap());
+        let cards = app.overview_layout(surface);
+        let (r0, _) = cards[0];
+        let (r1, _) = cards[1];
+        let press = Press {
+            card: 0,
+            window: Some(Win {
+                address: "0x6".into(),
+                class: "kitty".into(),
+                title: "zsh".into(),
+            }),
+            start: r0.center(),
+            title: false,
+        };
+        app.cursor.insert(win, r1.center());
+        // Échap pendant le glisser : le geste cesse, l'écran reste ouvert.
+        app.overview.as_mut().unwrap().press = Some(press.clone());
+        let _ = app.overview_key(&keyboard::Key::Named(keyboard::key::Named::Escape), false);
+        let o = app.overview.as_ref().unwrap();
+        assert!(o.press.is_none());
+        assert_eq!(o.visibility.to, 1.0, "l'écran reste ouvert");
+        let _ = app.overview_release();
+        assert!(
+            app.overview.as_ref().unwrap().undo.is_none(),
+            "rien de déposé"
+        );
+        // Déposée sur l'espace 2 : « Annuler » la ramène à l'espace 1.
+        app.overview.as_mut().unwrap().press = Some(press);
+        let _ = app.overview_release();
+        assert_eq!(
+            app.overview.as_ref().unwrap().undo,
+            Some(MoveUndo {
+                address: "0x6".into(),
+                name: "zsh".into(),
+                from: "Projet 1".into(),
+                to: "Projet 2".into(),
+            })
+        );
+        let _ = app.overview_update(OMsg::Undo);
+        assert!(app.overview.as_ref().unwrap().undo.is_none());
     }
 }

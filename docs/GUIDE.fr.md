@@ -612,6 +612,10 @@ de même pour le glisser d'une fenêtre vers un autre espace, la bulle du
 survol d'une icône du dock, pour son menu au clic droit, et la page Widgets
 des Réglages, pour le glisser d'un widget sur le bureau.
 
+Une fenêtre déposée sur un autre espace se ramène par « Annuler le
+déplacement », dans la ligne qui prend alors la place de l'astuce ; Échap,
+pendant le glisser, l'interrompt sans fermer l'écran des espaces.
+
 L'index vit en arrière-plan, tenu à jour par inotify et un rescan
 périodique. Il se règle dans **Réglages → Index de fichiers** : racines,
 exclusions par nom ou par expression régulière, extensions et catégories à

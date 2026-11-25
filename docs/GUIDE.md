@@ -589,6 +589,10 @@ for dragging a window onto another workspace, and so do the hover bubble
 of a dock icon, for its right-click menu, and the Widgets page of Settings,
 for dragging a widget on the desktop.
 
+A window dropped onto another workspace comes back with “Undo move”, in
+the line that then takes the tip's place; Escape, during the drag, stops it
+without closing the workspaces screen.
+
 The index runs in the background, kept fresh by inotify and a periodic
 rescan. Tune it in **Settings → File index**: roots, exclusions by name or
 regular expression, ignored extensions and categories, maximum file size.

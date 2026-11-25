@@ -2145,6 +2145,31 @@ pub(super) fn tip_row<'a>(
     dim: Color,
     close: Msg,
 ) -> Element<'a, Msg> {
+    notice_row(
+        app,
+        tip.icon,
+        crate::i18n::tr(tip.text).to_string(),
+        None,
+        fg,
+        dim,
+        close,
+        "Fermer l'astuce",
+    )
+}
+
+/// Ligne discrète d'un écran (astuce, annulation) : glyphe, texte, action
+/// facultative à la couleur d'accent, puis fermeture.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn notice_row<'a>(
+    app: &App,
+    icon: &str,
+    label: String,
+    action: Option<(String, Msg)>,
+    fg: Color,
+    dim: Color,
+    close: Msg,
+    close_label: &'static str,
+) -> Element<'a, Msg> {
     // Glyphes du jeu intégré, comme la loupe et la croix du champ.
     let glyphe = |name: &str, size: f32| -> Option<Element<'a, Msg>> {
         crate::ui::icons::get(name).map(|h| {
@@ -2155,8 +2180,23 @@ pub(super) fn tip_row<'a>(
                 .into()
         })
     };
-    let icon = glyphe(tip.icon, 16.0)
+    let icon = glyphe(icon, 16.0)
         .unwrap_or_else(|| iced::widget::Space::new().width(16).height(16).into());
+    // L'opacité de la ligne (fondu de l'écran) vaut pour l'action.
+    let accent = crate::ui::color(app.cfg.general.theme.accent, fg.a);
+    let action: Element<'a, Msg> = match action {
+        Some((label, msg)) => button(
+            text(label)
+                .font(app.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(accent),
+        )
+        .padding([4, 8])
+        .style(button::text)
+        .on_press(msg)
+        .into(),
+        None => iced::widget::Space::new().into(),
+    };
     let fermer = glyphe("window-close", 12.0).unwrap_or_else(|| {
         text("×")
             .size(crate::ui::tokens::ts(12.0))
@@ -2166,17 +2206,18 @@ pub(super) fn tip_row<'a>(
     container(
         row![
             icon,
-            text(crate::i18n::tr(tip.text))
+            text(label)
                 .font(app.font)
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
+            action,
             iced::widget::tooltip(
                 button(fermer)
                     .padding(4)
                     .style(button::text)
                     .on_press(close),
-                text(crate::i18n::tr("Fermer l'astuce"))
+                text(crate::i18n::tr(close_label))
                     .font(app.font)
                     .size(crate::ui::tokens::ts(12.0)),
                 iced::widget::tooltip::Position::Bottom,
