@@ -515,6 +515,108 @@ pub const TINT_FLOOR: f32 = 0.25;
 /// Identifiant du filtre d'apparence injecté dans un SVG d'application.
 const LOOK_ID: &str = "hyprdesk-apparence-icone";
 
+/// Icône d'application matricielle passée à son apparence, sous la clé
+/// (chemin, apparence).
+type RasterKey = (std::path::PathBuf, String);
+
+/// Icônes d'application matricielles déjà décodées et passées à leur
+/// apparence (HIG ICO-10) : les tâches qui résolvent les icônes les
+/// préparent hors du fil de l'interface, `app_raster` n'a plus qu'à les
+/// prendre. Les poignées partagent leurs pixels.
+fn app_raster_cache()
+-> &'static std::sync::Mutex<std::collections::HashMap<RasterKey, iced::widget::image::Handle>> {
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<RasterKey, iced::widget::image::Handle>>,
+    > = std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+/// Vrai pour une image matricielle : ni SVG, ni SVGZ.
+pub fn is_raster(p: &std::path::Path) -> bool {
+    !p.extension().is_some_and(|e| e == "svg" || e == "svgz")
+}
+
+/// Applique une matrice d'apparence (`Appearance::matrix`) à des pixels
+/// RGBA 8 bits non prémultipliés, en sRGB comme le filtre des SVG : le même
+/// résultat sur les deux sortes d'icônes (HIG ICO-10).
+pub fn apply_matrix(m: &[f32; 20], rgba: &mut [u8]) {
+    for px in rgba.as_chunks_mut::<4>().0 {
+        let v = px.map(|c| f32::from(c) / 255.0);
+        for (row, out) in px.iter_mut().enumerate() {
+            let r = &m[row * 5..row * 5 + 5];
+            let c = r[0] * v[0] + r[1] * v[1] + r[2] * v[2] + r[3] * v[3] + r[4];
+            *out = (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+        }
+    }
+}
+
+/// Décode une icône d'application matricielle et la passe à son
+/// apparence ; `None` pour l'apparence par défaut, un SVG ou une image
+/// illisible.
+fn decode_app_raster(p: &std::path::Path, look: Appearance) -> Option<iced::widget::image::Handle> {
+    let m = look.matrix()?;
+    if !is_raster(p) {
+        return None;
+    }
+    let mut img = ::image::open(p).ok()?.into_rgba8();
+    apply_matrix(&m, &mut img);
+    let (w, h) = img.dimensions();
+    Some(iced::widget::image::Handle::from_rgba(w, h, img.into_raw()))
+}
+
+/// Prépare une icône d'application matricielle à son apparence, à appeler
+/// hors du fil de l'interface (tâches de résolution des icônes) ; rien pour
+/// l'apparence par défaut ni pour un SVG.
+pub fn prepare_app_raster(p: Option<&std::path::Path>, look: Appearance) {
+    let Some(p) = p.filter(|p| is_raster(p)) else {
+        return;
+    };
+    if look.matrix().is_none() {
+        return;
+    }
+    let key = (p.to_path_buf(), format!("{look:?}"));
+    if app_raster_cache()
+        .lock()
+        .map_or(true, |c| c.contains_key(&key))
+    {
+        return;
+    }
+    if let Some(h) = decode_app_raster(p, look)
+        && let Ok(mut c) = app_raster_cache().lock()
+    {
+        c.insert(key, h);
+    }
+}
+
+/// Icône d'application matricielle à son apparence (HIG ICO-10) : celle
+/// préparée par `prepare_app_raster`, à défaut décodée sur place (aperçu,
+/// icône arrivée par un autre chemin) ; `None` pour l'apparence par défaut
+/// ou une image illisible, qui se chargent alors telles quelles.
+pub fn app_raster(p: &std::path::Path, look: Appearance) -> Option<iced::widget::image::Handle> {
+    look.matrix()?;
+    let key = (p.to_path_buf(), format!("{look:?}"));
+    if let Some(h) = app_raster_cache()
+        .lock()
+        .ok()
+        .and_then(|c| c.get(&key).cloned())
+    {
+        return Some(h);
+    }
+    let h = decode_app_raster(p, look)?;
+    if let Ok(mut c) = app_raster_cache().lock() {
+        c.insert(key, h.clone());
+    }
+    Some(h)
+}
+
+/// Oublie les icônes matricielles préparées : relues, depuis le disque, à
+/// chaque rechargement des icônes.
+pub fn forget_app_rasters() {
+    if let Ok(mut c) = app_raster_cache().lock() {
+        c.clear();
+    }
+}
+
 /// Masque unique des icônes d'application (HIG ICO-04, décision D4) : un
 /// rectangle arrondi dont le rayon vaut 22,37 % du côté, la courbure des
 /// icônes d'application de macOS. L'icône de remplacement le prend aussi.
@@ -714,6 +816,56 @@ mod tests {
         assert!(m[5..15].iter().all(|v| *v == 0.0));
         assert_eq!(m[15..], [0.0, 0.0, 0.0, 1.0, 0.0]);
         assert_eq!(super::Appearance::Default.matrix(), None);
+    }
+
+    /// La matrice d'apparence appliquée aux pixels d'une image de 2 × 2 :
+    /// sombre, les couleurs à 80 % ; teintée de rouge, le blanc donne
+    /// l'accent, le noir son plancher ; l'opacité reste la même (HIG ICO-10).
+    #[test]
+    fn apparence_des_icones_matricielles() {
+        let pixels = [
+            255, 255, 255, 255, // blanc
+            0, 0, 0, 255, // noir
+            10, 132, 255, 128, // bleu à demi transparent
+            0, 0, 0, 0, // transparent
+        ];
+        let mut dark = pixels;
+        super::apply_matrix(&super::Appearance::Dark.matrix().unwrap(), &mut dark);
+        assert_eq!(dark[..4], [204, 204, 204, 255]);
+        assert_eq!(dark[4..8], [0, 0, 0, 255]);
+        assert_eq!(dark[8..12], [8, 106, 204, 128]);
+        assert_eq!(dark[15], 0);
+        let red = crate::config::Rgba(255, 0, 0, 255);
+        let mut tinted = pixels;
+        super::apply_matrix(
+            &super::Appearance::Tinted(red).matrix().unwrap(),
+            &mut tinted,
+        );
+        assert_eq!(tinted[..4], [255, 0, 0, 255]);
+        assert_eq!(tinted[4..8], [64, 0, 0, 255]);
+        assert_eq!(tinted[11], 128);
+        // Préparée hors du fil de l'interface, l'icône est reprise à son
+        // apparence ; à l'apparence par défaut, rien à préparer.
+        let dir = std::env::temp_dir().join(format!("hyprdesk-prepare-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("c.png");
+        ::image::RgbaImage::from_pixel(2, 2, ::image::Rgba([255, 255, 255, 255]))
+            .save(&png)
+            .unwrap();
+        let look = super::Appearance::Dark;
+        super::prepare_app_raster(Some(&png), look);
+        let a = super::app_raster(&png, look).unwrap();
+        assert!(
+            super::app_raster(&png, super::Appearance::Default).is_none(),
+            "telle quelle"
+        );
+        let iced::widget::image::Handle::Rgba { pixels, .. } = &a else {
+            panic!("pixels attendus")
+        };
+        assert_eq!(pixels[..4], [204, 204, 204, 255]);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(super::is_raster(std::path::Path::new("a.png")));
+        assert!(!super::is_raster(std::path::Path::new("a.svgz")));
     }
 
     use super::*;

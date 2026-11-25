@@ -570,10 +570,11 @@ impl App {
         // Même taille que les classes du dock : les poignées sont partagées
         // (HIG ICO-01).
         let px = self.class_icon_px();
-        let (apps, theme, gen_) = (
+        let (apps, theme, gen_, look) = (
             self.apps.clone(),
             self.cfg.general.icon_theme.clone(),
             self.icons_gen,
+            self.icon_appearance(),
         );
         Task::perform(
             async move {
@@ -582,6 +583,7 @@ impl App {
                         .into_iter()
                         .map(|c| {
                             let p = crate::launch::icon_for_class(&c, &apps, theme.as_deref(), px);
+                            super::icons::prepare_app_raster(p.as_deref(), look);
                             (c, p)
                         })
                         .collect::<Vec<_>>()

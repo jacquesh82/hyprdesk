@@ -2665,10 +2665,11 @@ impl App {
         // Taille affichée la plus grande (dock grossi au survol), à l'échelle
         // de l'écran (HIG ICO-01).
         let px = self.class_icon_px();
-        let (apps, theme, gen_) = (
+        let (apps, theme, gen_, look) = (
             self.apps.clone(),
             self.cfg.general.icon_theme.clone(),
             self.icons_gen,
+            self.icon_appearance(),
         );
         // SmartUI design : les nouvelles applications du lanceur reçoivent leur icône.
         let auto = self.smartui_auto(missing.clone());
@@ -2679,6 +2680,7 @@ impl App {
                         .into_iter()
                         .map(|c| {
                             let p = launch::icon_for_class(&c, &apps, theme.as_deref(), px);
+                            icons::prepare_app_raster(p.as_deref(), look);
                             (c, p)
                         })
                         .collect::<Vec<_>>()
@@ -2736,7 +2738,14 @@ impl App {
         self.icons_gen += 1;
         self.icon_scale_seen = self.icon_scale();
         self.icon_appearance_seen = self.icon_appearance();
-        let (gen_, cfg, scale) = (self.icons_gen, self.cfg.clone(), self.icon_scale());
+        // Les matricielles préparées sont relues, à la nouvelle apparence.
+        icons::forget_app_rasters();
+        let (gen_, cfg, scale, look) = (
+            self.icons_gen,
+            self.cfg.clone(),
+            self.icon_scale(),
+            self.icon_appearance_seen,
+        );
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
@@ -2745,12 +2754,18 @@ impl App {
                         .icons
                         .iter()
                         .map(|d| {
-                            launch::resolve(
+                            let r = launch::resolve(
                                 d,
                                 g.icon_theme.as_deref(),
                                 icon_px(f32::from(g.grid.icon_size), scale),
                                 &g.terminal,
-                            )
+                            );
+                            // Applications seulement : les autres icônes du
+                            // bureau se chargent telles quelles.
+                            if matches!(d.kind, crate::config::IconKind::App(_)) {
+                                icons::prepare_app_raster(r.image.as_deref(), look);
+                            }
+                            r
                         })
                         .collect::<Vec<_>>();
                     // Jeu de hyprdesk d'abord, comme `want_icon` : le thème ne
@@ -3754,6 +3769,17 @@ impl App {
                 .push(svg::Handle::from_memory(src.into_bytes()));
             return IconImg::Vector(self.vectors.len() - 1);
         }
+        // Matricielle à une autre apparence que par défaut : ses pixels
+        // passés à la matrice, préparés hors du fil de l'interface (HIG
+        // ICO-10).
+        if let Some(h) = p
+            .filter(|p| icons::is_raster(p) && !crate::smartui::owns(p))
+            .and_then(|p| icons::app_raster(p, look))
+        {
+            self.rasters.push(h);
+            self.app_rasters.insert(self.rasters.len() - 1);
+            return IconImg::Raster(self.rasters.len() - 1);
+        }
         let img = self.handle_for(p);
         if let IconImg::Raster(i) = img {
             self.app_rasters.insert(i);
@@ -3923,14 +3949,22 @@ impl App {
             self.cfg.general.icon_theme.clone(),
             self.icons_gen,
         );
+        // Icône d'application : préparée à son apparence (HIG ICO-10).
+        let look = name
+            .starts_with(APP_ICON_KEY)
+            .then(|| self.icon_appearance());
         Task::perform(
             async move {
                 let n2 = n;
                 let p = tokio::task::spawn_blocking(move || {
                     // Repli : le thème par défaut. Jamais la version en couleur
                     // d'une icône symbolique : elle détonnerait dans la barre.
-                    launch::lookup_icon(&n2, theme.as_deref(), px)
-                        .or_else(|| launch::lookup_icon(&n2, Some("Adwaita"), px))
+                    let p = launch::lookup_icon(&n2, theme.as_deref(), px)
+                        .or_else(|| launch::lookup_icon(&n2, Some("Adwaita"), px));
+                    if let Some(look) = look {
+                        icons::prepare_app_raster(p.as_deref(), look);
+                    }
+                    p
                 })
                 .await
                 .ok()
@@ -7152,6 +7186,38 @@ mod regression_tests {
         assert_eq!(a.icon_appearance(), Appearance::Dark);
         a.theme_variant = Some("light".into());
         assert_eq!(a.icon_appearance(), Appearance::Default);
+    }
+
+    /// Une icône d'application matricielle prend l'apparence : ses pixels,
+    /// passés à la matrice, remplacent le chemin ; à l'apparence par défaut,
+    /// elle se charge telle quelle (HIG ICO-10).
+    #[test]
+    fn icones_matricielles_a_l_apparence() {
+        let mut a = app();
+        let dir = std::env::temp_dir().join(format!("hyprdesk-apparence-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("b.png");
+        ::image::RgbaImage::from_pixel(2, 2, ::image::Rgba([255, 255, 255, 255]))
+            .save(&png)
+            .unwrap();
+        a.theme_variant = Some("dark".into());
+        let IconImg::Raster(i) = a.app_handle_for(Some(&png)) else {
+            panic!("matricielle")
+        };
+        match &a.rasters[i] {
+            image::Handle::Rgba { pixels, .. } => assert_eq!(pixels[..4], [204, 204, 204, 255]),
+            h => panic!("pixels attendus : {h:?}"),
+        }
+        assert!(a.app_rasters.contains(&i), "masque unique");
+        a.theme_variant = Some("light".into());
+        let IconImg::Raster(j) = a.app_handle_for(Some(&png)) else {
+            panic!("matricielle")
+        };
+        assert!(
+            matches!(a.rasters[j], image::Handle::Path(..)),
+            "telle quelle"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Une variante changée relit les icônes d'application déjà chargées,
