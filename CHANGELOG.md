@@ -175,7 +175,15 @@ and this project adheres to
   since the macOS shortcuts); `keys.settings` still changes it.
 - Opening Settings no longer changes the bar (MLG-314): modules become draggable only
   on the Bar page, and without darker islands under the zones.
-
+- **Continuity control center, laid out like macOS's** (MLG-318): a narrow card under
+  its bar module instead of the full-width dashboard. Wi-Fi and Bluetooth
+  in one tile (round toggle in the accent colour, network or device below;
+  the title opens the details), a Silence tile, two square tiles (night
+  light and screenshot when their widgets are there, otherwise lock and
+  screens), Display and Sound bands with thick sliders (the speaker symbol
+  mutes, the side button opens the sound card and its output choice), and
+  the track playing. Calendar, notifications, system and network stay on
+  their own cards and modules.
 - The Sound page's mute button reads « Couper le son » / « Rétablir le
   son » (« Mute » / « Unmute »), so that « Couper » is the edit menu's Cut.
 - **The dock is a plugin of its own** (MLG-305): Settings → Dock (Content,

@@ -5028,3 +5028,5 @@
 "Sombre" = "Dark"
 "Teintée" = "Tinted"
 "Automatique : sombres avec un thème sombre. Teintées : de la couleur d'accent. Le dessin de chaque icône reste le même." = "Automatic: dark with a dark theme. Tinted: in the accent color. Each icon keeps its design."
+"Sortie audio" = "Audio output"
+"jusqu'à {hour}" = "until {hour}"
