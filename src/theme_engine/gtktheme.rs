@@ -137,8 +137,25 @@ fn read_inlined(path: &Path, depth: usize, budget: &mut usize) -> Option<String>
     *budget -= text.len();
     let dir = path.parent()?.to_path_buf();
     let mut out = String::with_capacity(text.len());
+    let major = if path.to_string_lossy().contains("/gtk-4.") { 4 } else { 3 };
     for line in text.split_inclusive('\n') {
         let t = line.trim();
+        // Feuille embarquée dans GTK (`resource:///…`, ainsi la base
+        // Adwaita-dark) : extraite pour être recolorée elle aussi.
+        if let Some(inner) = t
+            .strip_prefix("@import")
+            .and_then(|r| url_target(r.trim()))
+            .and_then(|u| u.strip_prefix("resource://").map(str::to_string))
+            .and_then(|res| gtk_resource(major, &res))
+        {
+            if inner.len() > *budget {
+                return None;
+            }
+            *budget -= inner.len();
+            out.push_str(&inner);
+            out.push('\n');
+            continue;
+        }
         if let Some(target) = t
             .strip_prefix("@import")
             .and_then(|r| url_target(r.trim()))
@@ -160,6 +177,91 @@ fn read_inlined(path: &Path, depth: usize, budget: &mut usize) -> Option<String>
         out.push_str(&absolute_urls(line, &dir));
     }
     Some(out)
+}
+
+/// Bibliothèque GTK `major` (celle qui porte ses feuilles embarquées).
+fn libgtk(major: u8) -> Option<PathBuf> {
+    let name = if major == 4 { "libgtk-4.so.1" } else { "libgtk-3.so.0" };
+    ["/usr/lib", "/usr/lib64", "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu"]
+        .iter()
+        .map(|d| Path::new(d).join(name))
+        .find(|p| p.is_file())
+}
+
+/// Feuille embarquée dans GTK (`/org/gtk/libgtk/…`), extraite par
+/// `gresource` ; ses `url()` relatives pointent sur ses ressources.
+pub fn gtk_resource(major: u8, path: &str) -> Option<String> {
+    if !path.starts_with("/org/gtk/libgtk/") {
+        return None;
+    }
+    let lib = libgtk(major)?;
+    let out = std::process::Command::new("gresource")
+        .arg("extract")
+        .arg(&lib)
+        .arg(path)
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let css = String::from_utf8(out.stdout).ok().filter(|c| has_rules(c))?;
+    let dir = path.rsplit_once('/').map_or("", |(d, _)| d);
+    Some(
+        css.split_inclusive('\n')
+            .map(|l| resource_urls(l, dir))
+            .collect(),
+    )
+}
+
+/// Adwaita de GTK 3, embarqué dans la bibliothèque : sa feuille
+/// (`gtk-contained[-dark].css`), extraite.
+pub fn builtin_adwaita(dark: bool) -> Option<String> {
+    gtk_resource(
+        3,
+        &format!(
+            "/org/gtk/libgtk/theme/Adwaita/gtk-contained{}.css",
+            if dark { "-dark" } else { "" }
+        ),
+    )
+}
+
+/// Une feuille porte-t-elle des règles ? Les talons d'Adwaita dans
+/// `/usr/share/themes` (« this file is no longer used ») n'en ont pas :
+/// recolorés, ils donneraient un thème sans style — menus transparents.
+pub fn has_rules(css: &str) -> bool {
+    let mut rest = css;
+    let mut code = String::new();
+    while let Some(i) = rest.find("/*") {
+        code.push_str(&rest[..i]);
+        rest = rest[i + 2..].split_once("*/").map_or("", |(_, r)| r);
+    }
+    code.push_str(rest);
+    code.contains('{') || code.contains("@import")
+}
+
+/// `url(relatif)` → `url("resource://<dir>/relatif")`.
+fn resource_urls(line: &str, dir: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(i) = rest.find("url(") {
+        out.push_str(&rest[..i]);
+        let after = &rest[i..];
+        match (url_target(after), after.find(')')) {
+            (Some(target), Some(end)) if is_relative(&target) => {
+                out.push_str(&format!("url(\"resource://{dir}/{target}\")"));
+                rest = &after[end + 1..];
+            }
+            (_, Some(end)) => {
+                out.push_str(&after[..=end]);
+                rest = &after[end + 1..];
+            }
+            _ => {
+                out.push_str(after);
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Cible d'un `url("…")`, `url('…')` ou `url(…)` en tête de `s`.
@@ -629,6 +731,36 @@ mod tests {
             "{css}"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Talon d'Adwaita (`/usr/share/themes/Adwaita/gtk-3.0/gtk.css`) : sans
+    /// règle, il ne sert pas de base (le thème rendu n'aurait aucun style,
+    /// menus transparents dans MarkText). Images d'une feuille embarquée :
+    /// ressources de GTK.
+    #[test]
+    fn talon_d_adwaita_sans_regle() {
+        assert!(!has_rules(
+            "/* Adwaita is now part of GTK+ 3, this file is no longer used */\n"
+        ));
+        assert!(has_rules(
+            "@import url(\"resource:///org/gtk/libgtk/theme/Adwaita/gtk-contained-dark.css\");"
+        ));
+        assert!(has_rules("/* a */ menu { background: #fff; }"));
+        assert_eq!(
+            resource_urls(
+                "check { x: image(url(\"assets/c.svg\")); }",
+                "/org/gtk/libgtk/theme/Adwaita"
+            ),
+            "check { x: image(url(\"resource:///org/gtk/libgtk/theme/Adwaita/assets/c.svg\")); }"
+        );
+        assert_eq!(gtk_resource(3, "/ailleurs/x.css"), None);
+        // GTK 3 et gresource présents : Adwaita extrait, et recolorable.
+        if let Some(css) = builtin_adwaita(true) {
+            assert!(css.contains("menu"), "feuille d'Adwaita");
+            assert!(!css.contains("url(\"assets/"), "images en ressources");
+            let r = Recolor::new(&css, &pack()).expect("repères d'Adwaita");
+            assert_ne!(r.sheet(&css), css);
+        }
     }
 
     #[test]

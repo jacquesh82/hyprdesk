@@ -643,14 +643,18 @@ fn plan_gtk_theme(named_block: &str, resolved: &Resolved, roots: &Roots) -> Vec<
     let dark = resolved.variant != "light";
     let mut files: Vec<(String, String)> = Vec::new();
     for (major, dir) in [(3u8, "gtk-3.0"), (4, "gtk-4.0")] {
+        // Une feuille sans règle (talon d'Adwaita dans /usr/share/themes)
+        // compte comme absente : Adwaita est intégré à GTK 3.
         let sheet = base_dir
             .as_deref()
             .and_then(|d| g::base_sheet(d, major, dark))
-            .and_then(|p| g::read_sheet(&p));
+            .and_then(|p| g::read_sheet(&p))
+            .filter(|css| g::has_rules(css))
+            .or_else(|| (major == 3).then(|| g::builtin_adwaita(dark)).flatten());
         let css = match sheet {
             Some(css) => g::render_sheet(Some(&css), resolved, named_block),
-            // Base introuvable (Adwaita intégré à GTK 3) : sa feuille
-            // embarquée, couleurs nommées redéfinies par-dessus.
+            // Adwaita intégré, illisible (gresource absent) : sa feuille
+            // embarquée importée, couleurs nommées redéfinies par-dessus.
             None if major == 3 => format!(
                 "@import url(\"resource:///org/gtk/libgtk/theme/Adwaita/gtk-contained{}.css\");\n\n{named_block}",
                 if dark { "-dark" } else { "" }
