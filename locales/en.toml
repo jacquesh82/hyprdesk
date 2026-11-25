@@ -5014,3 +5014,7 @@
 "Changez de mode avec SUPER + D, ou ici : vos fenêtres seules, le dock par-dessus, puis le bureau complet." = "Switch modes with SUPER + D, or here: your windows alone, the dock on top, then the full desktop."
 "Ouvrez l'écran des espaces de travail, puis refermez-le avec Échap." = "Open the workspaces screen, then close it with Escape."
 "Ouvrez la grille des applications, puis refermez-la avec Échap." = "Open the applications grid, then close it with Escape."
+"Icônes d'application" = "App icons"
+"Sombre" = "Dark"
+"Teintée" = "Tinted"
+"Automatique : sombres avec un thème sombre. Teintées : de la couleur d'accent. Le dessin de chaque icône reste le même." = "Automatic: dark with a dark theme. Tinted: in the accent color. Each icon keeps its design."

@@ -736,6 +736,13 @@ installée. Le style par défaut demande un carré plein cadre, sans coins
 arrondis, reflet ni ombre : hyprdesk y pose son masque unique, le même pour
 toutes les icônes d'application.
 
+L'**apparence des icônes** (Réglages → Thème → Couleurs, ou
+`hyprdesk config set icons.appearance auto|default|dark|tinted`) les accorde
+au thème : *Automatique* les assombrit avec un thème sombre, *Sombre*
+toujours, *Teintée* les passe en niveaux de gris colorés de l'accent. Le
+dessin de chaque icône reste le même. Un SVG que le masque ne sait pas
+découper, ou compressé (`.svgz`), reste tel quel.
+
 ![Tiroir de LYRA : aperçu en direct et demande d'approbation d'une commande](../assets/screenshots/assistant-chat.png)
 
 | Assistant | Autres services IA | SmartUI design |

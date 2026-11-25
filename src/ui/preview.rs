@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 185] = [
+const SCENES: [&str; 186] = [
     "desktop",
     "typography",
     "icons",
@@ -226,6 +226,8 @@ const SCENES: [&str; 185] = [
     // Apparence des icônes d'application (HIG ICO-10) : sombre, puis teintée.
     "icones-sombres",
     "icones-teintees",
+    // Réglages → Thème → Couleurs : l'apparence des icônes (HIG ICO-10).
+    "reglages-icones",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -1059,7 +1061,7 @@ impl Preview {
             "a-propos" => Some("about"),
             "raccourcis" | "raccourcis-essentiels" => Some("keys"),
             "reglages-valeur-saisie" => Some("dock"),
-            "reglages-echelle" => Some("theme"),
+            "reglages-echelle" | "reglages-icones" => Some("theme"),
             "reglages-notifications" => Some("notifications"),
             "bar-graphite-edit" => Some("bar"),
             _ => None,
@@ -1723,6 +1725,9 @@ impl Preview {
             // du thème, dont des curseurs gradués (colonnes, nombre visible).
             if SCENES[self.scene] == "reglages-echelle" {
                 self.app.subtabs.insert("theme", "composants");
+            }
+            if SCENES[self.scene] == "reglages-icones" {
+                self.app.subtabs.insert("theme", "couleurs");
             }
             // Valeur d'un curseur saisie (HIG SEL-08) : « Taille des icônes »,
             // Dock → Apparence ; l'aperçu ne peut pas cliquer la valeur.

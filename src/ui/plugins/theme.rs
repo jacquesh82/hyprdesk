@@ -261,6 +261,36 @@ impl App {
         col.into()
     }
 
+    /// Apparence des icônes d'application (HIG ICO-10), réglage
+    /// `icons.appearance` : un choix aux libellés traduits, que les valeurs
+    /// brutes de `design_fields` ne donneraient pas.
+    fn icon_appearance_field(&self) -> Element<'_, UiMsg> {
+        const LOOKS: [(&str, &str); 4] = [
+            ("auto", "Automatique"),
+            ("default", "Par défaut"),
+            ("dark", "Sombre"),
+            ("tinted", "Teintée"),
+        ];
+        let cur = crate::design_options::choice(&self.cfg.general, "icons.appearance");
+        let current = LOOKS.iter().position(|(v, _)| *v == cur).or(Some(0));
+        row(LOOKS.iter().enumerate().map(|(i, (_, label))| {
+            self.focusable(
+                radio(crate::i18n::tr(label), i, current, |v| {
+                    wrap(Msg::DesignOpt(
+                        "icons.appearance".into(),
+                        LOOKS[v].0.into(),
+                        true,
+                    ))
+                })
+                .font(self.font)
+                .size(crate::ui::tokens::ts(14.0)),
+            )
+        }))
+        .spacing(12)
+        .wrap()
+        .into()
+    }
+
     /// Options du registre `design_options` d'un composant, sous un titre :
     /// Thème → Composants, et la page de son plugin (Dock → Apparence).
     pub(in crate::ui) fn design_fields(
@@ -954,9 +984,21 @@ impl App {
                         .into()
                 }))
                 .spacing(4);
-                return column![self.section("Couleurs"), colors, note]
-                    .spacing(14)
-                    .into();
+                return column![
+                    self.section("Couleurs"),
+                    colors,
+                    note,
+                    self.section("Icônes d'application"),
+                    self.field("Apparence des icônes", "", self.icon_appearance_field()),
+                    text(crate::i18n::tr(
+                        "Automatique : sombres avec un thème sombre. Teintées : de la couleur d'accent. Le dessin de chaque icône reste le même."
+                    ))
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+                ]
+                .spacing(14)
+                .into();
             }
             "texte" => return self.typography(),
             "composants" => return self.design_components(),

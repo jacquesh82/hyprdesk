@@ -705,6 +705,13 @@ enabled by default when LYRA is installed. The default style asks for a
 full-bleed square, without rounded corners, highlights or shadows: hyprdesk
 applies its single mask, the same for every app icon.
 
+**Icon appearance** (Settings → Theme → Colors, or
+`hyprdesk config set icons.appearance auto|default|dark|tinted`) matches app
+icons to the theme: *Automatic* darkens them with a dark theme, *Dark* always
+does, *Tinted* turns them to grayscale colored with the accent. Each icon keeps
+its design. An SVG the mask cannot cut, or a compressed one (`.svgz`), stays as
+it is.
+
 ![LYRA’s drawer showing a live preview and an approval prompt for a command](../assets/screenshots/assistant-chat.png)
 
 | Assistant | Other AI services | SmartUI design |
