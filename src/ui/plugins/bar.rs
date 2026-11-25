@@ -501,6 +501,12 @@ impl App {
                         row(
                             BAR_STYLES
                                 .iter()
+                                // Styles en développement : en configuration
+                                // avancée seulement — sauf celui déjà choisi,
+                                // pour que la sélection reste visible.
+                                .filter(|&&(style, _, _)| {
+                                    !style.in_development() || self.advanced() || style == b.style
+                                })
                                 .map(|&(style, _, label)| {
                                     let choice = self.focusable(radio(
                                         crate::i18n::tr(label),

@@ -208,7 +208,8 @@ and this project adheres to
   launcher only, full desktop) (MLG-328); the Windows menu names the window
   its commands act on (MLG-329).
 - Settings → Bar marks the Graphite, Island and Convex styles « In
-  development » (MLG-331).
+  development » and only lists them with advanced settings on (the style in
+  use always shows) (MLG-331).
 - **Windows and hyprdesk share their corners** (MLG-320): Hyprland's
   `decoration.rounding` defaults to 12 px when neither Effects nor the theme
   pack set it, and the Settings drawer uses the same radius.
