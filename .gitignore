@@ -8,3 +8,6 @@ dist/
 WORKLOG.md
 .zcode/
 deliverables/
+
+# Plans de design : notes de travail locales, hors dépôt.
+/design-plans/
