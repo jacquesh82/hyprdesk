@@ -137,7 +137,11 @@ fn read_inlined(path: &Path, depth: usize, budget: &mut usize) -> Option<String>
     *budget -= text.len();
     let dir = path.parent()?.to_path_buf();
     let mut out = String::with_capacity(text.len());
-    let major = if path.to_string_lossy().contains("/gtk-4.") { 4 } else { 3 };
+    let major = if path.to_string_lossy().contains("/gtk-4.") {
+        4
+    } else {
+        3
+    };
     for line in text.split_inclusive('\n') {
         let t = line.trim();
         // Feuille embarquée dans GTK (`resource:///…`, ainsi la base
@@ -181,11 +185,20 @@ fn read_inlined(path: &Path, depth: usize, budget: &mut usize) -> Option<String>
 
 /// Bibliothèque GTK `major` (celle qui porte ses feuilles embarquées).
 fn libgtk(major: u8) -> Option<PathBuf> {
-    let name = if major == 4 { "libgtk-4.so.1" } else { "libgtk-3.so.0" };
-    ["/usr/lib", "/usr/lib64", "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu"]
-        .iter()
-        .map(|d| Path::new(d).join(name))
-        .find(|p| p.is_file())
+    let name = if major == 4 {
+        "libgtk-4.so.1"
+    } else {
+        "libgtk-3.so.0"
+    };
+    [
+        "/usr/lib",
+        "/usr/lib64",
+        "/usr/lib/x86_64-linux-gnu",
+        "/usr/lib/aarch64-linux-gnu",
+    ]
+    .iter()
+    .map(|d| Path::new(d).join(name))
+    .find(|p| p.is_file())
 }
 
 /// Feuille embarquée dans GTK (`/org/gtk/libgtk/…`), extraite par
@@ -203,7 +216,9 @@ pub fn gtk_resource(major: u8, path: &str) -> Option<String> {
         .output()
         .ok()
         .filter(|o| o.status.success())?;
-    let css = String::from_utf8(out.stdout).ok().filter(|c| has_rules(c))?;
+    let css = String::from_utf8(out.stdout)
+        .ok()
+        .filter(|c| has_rules(c))?;
     let dir = path.rsplit_once('/').map_or("", |(d, _)| d);
     Some(
         css.split_inclusive('\n')

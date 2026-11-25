@@ -7059,7 +7059,12 @@ impl App {
         .padding({
             let one_line = 6.0 + size + 9.0 + line + 6.0 + 6.0;
             let v = 6.0 + ((cell - one_line) / 2.0).max(0.0);
-            Padding { top: v, bottom: v, left: 6.0, right: 6.0 }
+            Padding {
+                top: v,
+                bottom: v,
+                left: 6.0,
+                right: 6.0,
+            }
         })
         .style(move |_| container::Style {
             background: hl.map(Background::Color),

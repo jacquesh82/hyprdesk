@@ -146,7 +146,11 @@ fn nearest_free(
     // l'ancrage, coûte moins que sur le côté ou à rebours.
     let cost = |r: &Rectangle| {
         let (dx, dy) = (r.x - p.x, r.y - p.y);
-        let against = if anchor_y == Alignment::End { dy > 0.0 } else { dy < 0.0 };
+        let against = if anchor_y == Alignment::End {
+            dy > 0.0
+        } else {
+            dy < 0.0
+        };
         4.0 * dx * dx + dy * dy * if against { 1.5 } else { 1.0 }
     };
     let mut best: Option<(f32, Rectangle)> = None;
@@ -381,11 +385,17 @@ mod tests {
             .collect();
         for (i, a) in rects.iter().enumerate() {
             assert!(
-                a.x >= 0.0 && a.y >= 0.0 && a.x + a.width <= area.width + 0.5 && a.y + a.height <= area.height + 0.5,
+                a.x >= 0.0
+                    && a.y >= 0.0
+                    && a.x + a.width <= area.width + 0.5
+                    && a.y + a.height <= area.height + 0.5,
                 "hors de l'écran {area:?} : {a:?}"
             );
             for b in &rects[i + 1..] {
-                assert!(!overlaps(*a, *b), "recouvrement dans {area:?} : {a:?} / {b:?}");
+                assert!(
+                    !overlaps(*a, *b),
+                    "recouvrement dans {area:?} : {a:?} / {b:?}"
+                );
             }
         }
     }
