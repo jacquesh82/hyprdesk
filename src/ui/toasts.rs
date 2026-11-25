@@ -820,16 +820,17 @@ impl Layout {
 }
 
 impl App {
-    /// Une carte de la barre liste l'historique en ce moment — la carte
-    /// Notifications, le centre Continuité —, ouverte et non en train de se
-    /// refermer (HIG SYS-02) : ce qui y arrive est montré, donc lu.
+    /// La carte Notifications de la barre liste l'historique en ce moment,
+    /// ouverte et non en train de se refermer (HIG SYS-02) : ce qui y arrive
+    /// est montré, donc lu. Le centre de Continuité, composé comme celui de
+    /// macOS, ne le liste pas.
     pub(super) fn history_list_open(&self) -> bool {
         self.popover.as_ref().is_some_and(|p| {
             !p.closing()
-                && (matches!(
+                && matches!(
                     p.kind,
                     crate::ui::plugins::bar::popover::Kind::Notifications
-                ) || p.dashboard.is_some())
+                )
         })
     }
 

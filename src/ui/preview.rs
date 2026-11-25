@@ -3423,43 +3423,35 @@ impl Preview {
         let Some(dashboard) = self.app.popover.as_mut().and_then(|p| p.dashboard.as_mut()) else {
             return;
         };
-        for i in 0..24 {
-            let wave = (i as f32 * 1.15).sin();
-            let ratio = (i as f32 * 0.47).sin() * 0.10 + wave * 0.035;
-            dashboard.update(popover::continuity::Sample {
-                media: Some(crate::widgets::media::Status {
-                    title: "Night Walk".into(),
-                    artist: "Kudasai".into(),
-                    playing: true,
-                    position: Some(84),
-                    length: Some(237),
-                    ..Default::default()
-                }),
-                system: [
-                    ("CPU", "28 %", 0.28 + ratio),
-                    ("GPU", "41 %", 0.41 - ratio * 0.5),
-                    ("RAM", "6,7 / 16 Gio", 0.42),
-                ]
-                .into_iter()
-                .map(|(label, value, ratio)| widgets::SysLine {
-                    label: label.into(),
-                    value: value.into(),
-                    ratio: Some(ratio),
-                })
-                .collect(),
-                network: Some((12_400_000.0 + 2_400_000.0 * wave, 2_100_000.0)),
-            });
-        }
+        dashboard.update(popover::continuity::Sample {
+            media: Some(crate::widgets::media::Status {
+                title: "Night Walk".into(),
+                artist: "Kudasai".into(),
+                playing: true,
+                position: Some(84),
+                length: Some(237),
+                ..Default::default()
+            }),
+        });
         if SCENES[self.scene] != "bar-controls" {
             return;
         }
         let cfg = Arc::make_mut(&mut self.app.cfg);
+        // Les tuiles carrées du centre : l'éclairage nocturne allumé, la
+        // capture.
         for (type_id, value) in [
-            ("meteo", widgets::Value::Text("Paris · 8 °C".into())),
             (
-                "battery",
+                "nightlight",
                 widgets::Value::Rich(config::Rendered {
-                    text: "76 %".into(),
+                    icon: Some("night-light-symbolic".into()),
+                    toggled: Some(true),
+                    ..Default::default()
+                }),
+            ),
+            (
+                "capture",
+                widgets::Value::Rich(config::Rendered {
+                    icon: Some("camera-photo-symbolic".into()),
                     ..Default::default()
                 }),
             ),

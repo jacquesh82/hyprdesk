@@ -395,8 +395,11 @@ mod tests {
         assert!(app.popover.as_ref().unwrap().left > 500.0);
     }
 
+    /// Le centre de Continuité est une carte étroite sous son module, comme
+    /// celui de macOS, à la hauteur de ses tuiles ; les autres menus gardent
+    /// leur taille.
     #[test]
-    fn continuity_controls_use_the_output_width_and_other_menus_keep_their_size() {
+    fn continuity_controls_are_a_narrow_card_and_other_menus_keep_their_size() {
         let (mut app, bar) = app();
         let loaded = crate::config::lua::load_source(
             "hd.widget('controls', {id='controls'}); hd.bar({style='continuity', right={'controls'}})",
@@ -416,10 +419,19 @@ mod tests {
         let _ = app.open_popover(bar, widget.clone(), Kind::Widget(widget));
         let p = app.popover.as_ref().unwrap();
         assert!(p.dashboard.is_some());
-        assert_eq!((p.left, p.size.width), (8.0, 884.0));
+        assert_eq!(p.size.width, continuity::WIDTH + 2.0 * SHADOW);
+        // Centrée sur son module, à 12 px au moins des bords de l'écran.
+        assert!(p.left + SHADOW >= 12.0 && p.left + p.size.width - SHADOW <= 900.0 - 12.0);
         let win = p.win;
+        // Sa hauteur est celle de ses tuiles, pas celle de son contenu
+        // mesuré : connexions, Silence et carrés, Son (sans luminosité
+        // réglable), lecture.
         let _ = app.fit_popover(win, 80.0);
-        assert_eq!(app.popover.as_ref().unwrap().size.height, 576.0);
+        let square = ((continuity::WIDTH - 24.0 - 10.0) / 2.0 - 10.0) / 2.0;
+        assert_eq!(
+            app.popover.as_ref().unwrap().size.height,
+            24.0 + 56.0 + 10.0 + square + 10.0 + 66.0 + 10.0 + 64.0 + 2.0 * SHADOW
+        );
         let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
         let p = app.popover.as_ref().unwrap();
         assert_eq!(p.win, win);
@@ -428,7 +440,8 @@ mod tests {
     }
 
     /// HIG SYS-02 : une liste de l'historique qui s'ouvre lit tout — la carte
-    /// Notifications, le centre Continuité ; un autre menu ne lit rien.
+    /// Notifications ; un autre menu ne lit rien, le centre Continuité non
+    /// plus (il ne liste pas l'historique).
     #[test]
     fn une_liste_de_l_historique_qui_s_ouvre_lit_tout() {
         let (mut app, bar) = app();
@@ -462,7 +475,7 @@ mod tests {
         let _ = app.open_popover(bar, "volume".into(), Kind::Volume);
         let _ = app.toasts_update(arrivee(6));
         assert_eq!(app.toasts.unread(), 1, "sans liste ouverte : non lue");
-        // Le centre Continuité liste l'historique.
+        // Le centre Continuité ne liste pas l'historique : il ne lit rien.
         let loaded = crate::config::lua::load_source(
             "hd.widget('controls', {id='controls'}); hd.bar({style='continuity', right={'controls'}})",
             "test.lua",
@@ -473,7 +486,7 @@ mod tests {
         app.toasts.history = vec![non_lue(4)];
         let _ = app.open_popover(bar, "controls".into(), Kind::Widget("controls".into()));
         assert!(app.popover.as_ref().unwrap().dashboard.is_some());
-        assert_eq!(app.toasts.unread(), 0, "le centre Continuité lit tout");
+        assert_eq!(app.toasts.unread(), 1, "le centre Continuité ne lit rien");
     }
 
     /// HIG ENT-02 : le raccourci du centre ouvre la carte Notifications sur la
@@ -1337,11 +1350,15 @@ fn widened(screen: f32, left: f32, width: f32, forced: Option<bool>) -> (f32, f3
     }
 }
 
+/// Centre de contrôle de Continuité : une carte étroite sous son module,
+/// comme celle de macOS, gardée à 12 px des bords de l'écran.
 fn dashboard_placement(screen_width: f32, anchor: iced::Rectangle) -> (f32, f32, f32) {
-    let width = (screen_width - 16.0).clamp(80.0, 1600.0);
-    let left = (screen_width - width) * 0.5;
-    let origin = ((anchor.center_x() - left) / width).clamp(0.05, 0.95);
-    (left, width, origin)
+    let width = continuity::WIDTH.min((screen_width - 24.0).max(80.0));
+    let card_left =
+        (anchor.center_x() - width / 2.0).clamp(12.0, (screen_width - width - 12.0).max(12.0));
+    let left = card_left - SHADOW;
+    let origin = ((anchor.center_x() - left) / (width + 2.0 * SHADOW)).clamp(0.05, 0.95);
+    (left, width + 2.0 * SHADOW, origin)
 }
 
 /// Les commandes latérales ouvrent un tiroir depuis leur bord ; le groupe
@@ -1587,7 +1604,8 @@ impl App {
         };
         let height = if p.dashboard.is_some() {
             let max_height = (m.height as f32 - bar.height as f32 - 2.0 * GAP).max(80.0);
-            (self.dashboard_height(width - 2.0 * SHADOW) + 2.0 * SHADOW).min(max_height)
+            (self.dashboard_height(width - 2.0 * SHADOW, &bar.monitor) + 2.0 * SHADOW)
+                .min(max_height)
         } else {
             p.size.height
         };
@@ -1671,9 +1689,10 @@ impl App {
                     && matches!(w.kind, crate::config::WidgetKind::Controls)))
         });
         // Une liste de l'historique qui s'ouvre lit tout (HIG SYS-02) : la
-        // carte Notifications, le centre Continuité.
+        // carte Notifications. Le centre Continuité, composé comme celui de
+        // macOS, ne la montre pas.
         let mut tasks = Vec::new();
-        if matches!(kind, Kind::Notifications) || wide {
+        if matches!(kind, Kind::Notifications) {
             tasks.push(self.toasts_update(crate::ui::toasts::TMsg::Read));
         }
         let (mut left, width, origin) = if wide {
@@ -1684,7 +1703,7 @@ impl App {
         let options = self.convex_options().filter(|o| o.attached_panels);
         let max_height = (m.height as f32 - b.height as f32 - 2.0 * GAP).max(80.0);
         let h = if wide {
-            (self.dashboard_height(width - 2.0 * SHADOW) + 2.0 * SHADOW).min(max_height)
+            (self.dashboard_height(width - 2.0 * SHADOW, &b.monitor) + 2.0 * SHADOW).min(max_height)
         } else {
             (card_height(&kind, None, &self.audio, &self.light)
                 + 2.0 * SHADOW
@@ -2725,14 +2744,24 @@ impl App {
             .on_show(move |_| Msg::PopoverShown(win))
             .into();
         }
+        // Verre du thème (MLG-268) au rayon de la carte ; vraie réfraction de
+        // l'écran capturé à l'ouverture (MLG-275).
+        let mut style = crate::ui::design::bar_card(bg, fg);
+        style.border.color.a *= alpha;
+        style.shadow.color.a *= alpha;
         let card: Element<'_, Msg> = if let Some(dashboard) = &p.dashboard {
-            self.continuity_dashboard(p, dashboard, alpha)
+            // Centre de Continuité : ses tuiles sur le verre des menus.
+            crate::ui::glass::card(
+                self.continuity_dashboard(p, dashboard, alpha),
+                crate::config::Place::Menus,
+                crate::ui::design::RADIUS,
+                fg,
+                bg,
+                style,
+                true,
+                self.behind_backdrop(win),
+            )
         } else {
-            // Verre du thème (MLG-268) au rayon de la carte ; vraie
-            // réfraction de l'écran capturé à l'ouverture (MLG-275).
-            let mut style = crate::ui::design::bar_card(bg, fg);
-            style.border.color.a *= alpha;
-            style.shadow.color.a *= alpha;
             // Pendant un changement de taille (HIG PRES-02), le contenu qui
             // dépasse brièvement le cadre ne fait pas clignoter la barre de
             // défilement ; le widget reste le même, son état aussi.
@@ -2776,11 +2805,7 @@ impl App {
         };
         // Mouvement du thème (MLG-271) : échelle et déplacement de départ.
         let mo = crate::ui::tokens::motion();
-        let scale = if p.dashboard.is_some() {
-            1.0
-        } else {
-            mo.scale + (1.0 - mo.scale) * alpha
-        };
+        let scale = mo.scale + (1.0 - mo.scale) * alpha;
         // Changement de taille (HIG PRES-02) : le cadre a sa hauteur
         // interpolée, collé au bord où la surface est ancrée.
         let framed = container(crate::ui::plugins::bar::motion::surface(
