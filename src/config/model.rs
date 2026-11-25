@@ -460,11 +460,12 @@ pub struct LauncherCfg {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppsStyle {
     /// Grande feuille en plein bureau, carte centrée dans les autres modes.
-    #[default]
     Auto,
     /// Toujours la grande feuille (façon Launchpad, tiroir One UI).
     Sheet,
-    /// Toujours la carte centrée (façon Spotlight).
+    /// Toujours la carte centrée (façon Spotlight) : le défaut (MLG-322),
+    /// le même lanceur dans tous les modes.
+    #[default]
     Spotlight,
 }
 
@@ -506,7 +507,7 @@ impl Default for AppsCfg {
     fn default() -> Self {
         AppsCfg {
             unified: true,
-            style: AppsStyle::Auto,
+            style: AppsStyle::default(),
             suggestions: 8,
             categories: true,
             shape: LauncherShape::default(),

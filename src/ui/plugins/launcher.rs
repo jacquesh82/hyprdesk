@@ -316,7 +316,7 @@ impl App {
         };
         column![
             self.section("Lanceur d'applications"),
-            text("Un seul lanceur, quelle que soit la façon de l'ouvrir (raccourci, bouton du dock, hyprdesk apps) : en plein bureau, une grande feuille de toutes les applications ; dans les autres modes, une carte au centre de l'écran. Les applications que vous lancez le plus sont toujours mises en avant.")
+            text("Un seul lanceur, quelle que soit la façon de l'ouvrir (raccourci, bouton du dock, hyprdesk apps) : par défaut, une carte au centre de l'écran dans tous les modes ; la grande feuille de toutes les applications se choisit ci-dessous. Les applications que vous lancez le plus sont toujours mises en avant.")
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
