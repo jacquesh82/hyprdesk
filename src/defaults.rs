@@ -249,6 +249,9 @@ fn split_fields(id: &str, s: &mut Settings, changed: &mut Vec<String>) {
         if id == "input" {
             h.gestures.clear();
             h.devices.clear();
+            // Les gestes par défaut reviennent (HIG ENT-03).
+            h.gestures_seeded = false;
+            crate::hyprset::seed_gestures(h);
         }
         if id == "hyprconfig" {
             h.env.clear();

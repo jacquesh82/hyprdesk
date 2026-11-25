@@ -1316,6 +1316,8 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     if let Some(h) = t.get::<Option<Table>>("hypr")? {
         g.hypr = crate::hyprset::parse(&h).map_err(|e| err(format!("{CTX} : {e}")))?;
     }
+    // Les gestes système par défaut, une fois (HIG ENT-03).
+    crate::hyprset::seed_gestures(&mut g.hypr);
     parse_ai(t, g)?;
     if let Some(v) = opt_bool(t, "launcher_smartui", CTX)? {
         g.launcher.smartui = v;
@@ -3633,6 +3635,21 @@ impl LuaHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Les gestes système par défaut paraissent au chargement ; une marque
+    /// posée sans geste les garde absents (HIG ENT-03).
+    #[test]
+    fn gestes_systeme_au_chargement() {
+        let h = load("hd.config({})").unwrap().config.general.hypr;
+        assert!(h.gestures_seeded);
+        assert_eq!(h.gestures.len(), crate::hyprset::DEFAULT_GESTURES.len());
+        let h = load("hd.config({ hypr = { gestures_seeded = true } })")
+            .unwrap()
+            .config
+            .general
+            .hypr;
+        assert!(h.gestures.is_empty());
+    }
 
     #[test]
     fn theme_des_applications_actif_par_defaut() {

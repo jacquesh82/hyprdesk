@@ -427,12 +427,20 @@ application : `hyprdesk binds generate --write`.
   dans la zone voisine.
 - **Apparence et comportement.** Animations, bordures, marges, règles de
   fenêtres, groupes, curseur, gestes du pavé tactile (doigts et sens →
-  workspace, déplacer, redimensionner, plein écran…), environnement et
+  workspace, déplacer, redimensionner, plein écran…, ou une surface de
+  hyprdesk), environnement et
   délais de veille. hyprdesk les écrit dans des fichiers générés chargés
   par `hyprland.lua`. « Mouvement réduit » (Thème → Accessibilité) l'emporte sur les
   animations réglées : fenêtres et calques ne glissent ni ne grossissent
   plus, les workspaces changent en fondu, et le dock ne grossit plus au
   survol.
+- **Gestes système.** Comme sur macOS, quatre gestes sont posés d'emblée
+  dans **Réglages → Clavier et souris → Gestes** : trois doigts vers le haut
+  ouvrent la vue d'ensemble, quatre doigts pincés les applications, écartés
+  le bureau, quatre doigts vers la gauche le centre de notifications. Un
+  geste déjà réglé sur les mêmes doigts et un sens qui le recouvre (vertical
+  couvre le haut) garde sa place ; un geste supprimé n'est pas reposé, et
+  « Par défaut… » les remet.
 - **Configuration avancée** (interrupteur dans le corps des Réglages) : ce qui ne
   sert qu'à l'expert, marqué en cyan — une fiole à côté de l'onglet et, avec
   le nombre de réglages avancés, à côté de chaque paquet qui en contient,

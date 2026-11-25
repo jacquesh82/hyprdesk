@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 184] = [
+const SCENES: [&str; 185] = [
     "desktop",
     "typography",
     "icons",
@@ -176,6 +176,8 @@ const SCENES: [&str; 184] = [
     "fenetres-apparence",
     "fenetres-regles",
     "curseur",
+    // Réglages → Gestes avec les gestes système par défaut (HIG ENT-03).
+    "gestes",
     "environnement",
     "panorama-media",
     "panorama-system",
@@ -1011,7 +1013,7 @@ impl Preview {
             "energie" => Some("energy"),
             "performance" => Some("performance"),
             "fenetres-apparence" | "fenetres-regles" => Some("windows"),
-            "curseur" => Some("input"),
+            "curseur" | "gestes" => Some("input"),
             "environnement" => Some("hyprconfig"),
             "date-heure" => Some("datetime"),
             "reseau" => Some("network"),
@@ -1600,6 +1602,19 @@ impl Preview {
                     "services"
                 },
             );
+        }
+        // Gestes (HIG ENT-03) : celui de Hyprland pour les espaces, puis les
+        // gestes système par défaut.
+        if SCENES[self.scene] == "gestes" {
+            let h = &mut Arc::make_mut(&mut self.app.cfg).general.hypr;
+            h.gestures = vec![serde_json::json!({
+                "fingers": 3,
+                "direction": "horizontal",
+                "action": "workspace",
+            })];
+            h.gestures_seeded = false;
+            crate::hyprset::seed_gestures(h);
+            self.app.subtabs.insert("input", "gestes");
         }
         // Fenêtres, curseur, environnement (MLG-141, 142, 144) : valeurs
         // d'exemple, l'aperçu ne lit pas Hyprland.

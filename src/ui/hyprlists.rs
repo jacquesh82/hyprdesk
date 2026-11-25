@@ -370,40 +370,10 @@ fn item_mut(h: &mut Hypr, list: List, i: usize) -> Option<&mut serde_json::Value
     }
 }
 
-/// Le sens `a` couvre le sens `b` (HIG ENT-03) : « vertical » couvre « up »
-/// et « down », « horizontal » « left » et « right », « swipe » tout
-/// balayement, « pinch » « pinchin » et « pinchout » ; tout sens se couvre.
-pub(crate) fn covers(a: &str, b: &str) -> bool {
-    a == b
-        || match a {
-            "horizontal" => matches!(b, "left" | "right"),
-            "vertical" => matches!(b, "up" | "down"),
-            "swipe" => matches!(
-                b,
-                "horizontal" | "vertical" | "left" | "right" | "up" | "down"
-            ),
-            "pinch" => matches!(b, "pinchin" | "pinchout"),
-            _ => false,
-        }
-}
-
-/// Deux sens se recouvrent : l'un couvre l'autre (« vertical » et « up »).
-pub(crate) fn overlaps(a: &str, b: &str) -> bool {
-    covers(a, b) || covers(b, a)
-}
-
 /// Geste ajouté : la première combinaison libre parmi les courantes ; un
 /// geste déjà réglé dont le sens recouvre la combinaison la prend.
 fn new_gesture(h: &Hypr) -> serde_json::Value {
-    let taken = |f: i64, d: &str| {
-        h.gestures.iter().any(|g| {
-            g.get("fingers").and_then(|v| v.as_i64()) == Some(f)
-                && g.get("direction")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|gd| overlaps(gd, d))
-                && g.get("mods").is_none()
-        })
-    };
+    let taken = |f: i64, d: &str| crate::hyprset::gesture_taken(&h.gestures, f, d);
     let (f, d, a) = [
         (3, "horizontal", "workspace"),
         (4, "vertical", "fullscreen"),
@@ -1285,6 +1255,7 @@ mod tests {
     /// un balayement tout sens, un pincement ses deux sens (HIG ENT-03).
     #[test]
     fn sens_qui_se_recouvrent() {
+        use crate::hyprset::overlaps;
         assert!(overlaps("vertical", "up") && overlaps("down", "vertical"));
         assert!(overlaps("horizontal", "left") && overlaps("swipe", "right"));
         assert!(overlaps("pinch", "pinchout") && overlaps("up", "up"));

@@ -417,10 +417,17 @@ and disabled bindings are kept. A hand-written file is copied
   window to the next zone.
 - **Look and behaviour.** Adjust animations, borders, gaps, window rules,
   groups, cursor, touchpad gestures (fingers and direction → workspace,
-  move, resize, fullscreen…), environment, and idle delays. hyprdesk writes
+  move, resize, fullscreen…, or a hyprdesk surface), environment, and idle delays. hyprdesk writes
   them to generated files loaded by `hyprland.lua`. **Reduce motion**
   (Theme → Accessibility) overrides the animations set here: windows and layers no longer slide or grow,
   workspaces switch with a fade, and the dock no longer magnifies on hover.
+- **System gestures.** As on macOS, four gestures are set from the start in
+  **Settings → Keyboard and mouse → Gestures**: three fingers up open the
+  overview, four fingers pinched in the applications, spread out the
+  desktop, four fingers to the left the notification center. A gesture
+  already set on the same fingers and an overlapping direction (vertical
+  covers up) keeps its place; a deleted gesture is not set again, and
+  “Defaults…” brings them back.
 - **Advanced settings** (switch in the body of Settings) show what only an
   expert needs, marked in cyan: a flask next to the tab and, with the count
   of advanced settings, next to each package that holds some, an
