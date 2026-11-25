@@ -963,13 +963,19 @@ hl.bind(mainMod .. " + Tab", function()
     }
 
     /// Les raccourcis par défaut sont ceux de macOS (HIG ENT-06, ENT-09,
-    /// PAT-14 ; décision D2), sans doublon entre eux.
+    /// PAT-14 ; décision D2), sans doublon entre eux ; les Réglages exceptés,
+    /// sur SUPER + SHIFT + D comme les autres raccourcis du bureau.
     #[test]
     fn raccourcis_facon_macos() {
         let k = Keys::default();
         assert_eq!(
             [&k.switch, &k.search, &k.overview, &k.settings].map(String::as_str),
-            ["SUPER + Tab", "SUPER + Space", "CTRL + Up", "SUPER + comma"]
+            [
+                "SUPER + Tab",
+                "SUPER + Space",
+                "CTRL + Up",
+                "SUPER + SHIFT + D"
+            ]
         );
         let (r, _) = analyse(&k, true, &Value::Null, &[]);
         assert!(r.issues.is_empty(), "{r:?}");

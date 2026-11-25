@@ -197,7 +197,7 @@ désinstallation sont dans le
 | `SUPER + D` | Mode suivant : masqué → dock → bureau complet → masqué |
 | `SUPER + ALT + D` | Fait apparaître ou disparaître le dock, fenêtres en place |
 | `SUPER + CTRL + D` | Masque le bureau et le dock |
-| `SUPER + ,` | Ouvre les Réglages |
+| `SUPER + SHIFT + D` | Ouvre les Réglages |
 | `CTRL + F2` | Donne le clavier à la barre de l'écran actif : flèches et Tab d'un module au suivant, Entrée l'ouvre, Échap rend le clavier |
 | `CTRL + F3` | Donne le clavier au dock de l'écran actif (bureau masqué : il paraît sous les fenêtres, en place) |
 | `CTRL + F8` | Donne le clavier aux bulles à l'écran, sinon ouvre le centre de notifications |
@@ -231,7 +231,7 @@ les Réglages, et reste facultatif.
 
 ```lua
 hd.wallpaper({ path = "~/.wallpapers/default.jpg" })
-hd.bar({ left = { "workspaces", "window" }, right = { "tray", "volume", "session" } })
+hd.bar({ left = { "menus", "workspaces", "window" }, right = { "tray", "volume", "session" } })
 hd.icon({ app = "firefox" })
 hd.widget("clock", { anchor = "top-right", format = "%H:%M" })
 ```

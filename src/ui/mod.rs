@@ -5555,6 +5555,29 @@ impl App {
                             }
                         })
                     }
+                    popover::Request::Windows => {
+                        let (workspaces, apps) = (self.workspaces.clone(), self.apps.clone());
+                        Task::perform(
+                            async move {
+                                tokio::task::spawn_blocking(move || {
+                                    plugins::bar::window::read_all(&workspaces, &apps)
+                                })
+                                .await
+                                .unwrap_or_default()
+                            },
+                            move |(addresses, entries)| {
+                                Msg::PopoverReady(
+                                    request,
+                                    bar_id,
+                                    key.clone(),
+                                    popover::Kind::Menu {
+                                        entries,
+                                        source: popover::MenuSource::Windows { addresses },
+                                    },
+                                )
+                            },
+                        )
+                    }
                     popover::Request::Window => {
                         let workspaces = self.workspaces.clone();
                         Task::perform(

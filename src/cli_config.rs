@@ -522,7 +522,7 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.hide.clone(),
         |s, v, c| { s.key_hide = Some(combo(v)?); Ok(()) },
         |s| s.key_hide = None;
-    "keys.settings", "keys", "raccourci | none — ouvrir ou fermer les réglages (SUPER + comma)",
+    "keys.settings", "keys", "raccourci | none — ouvrir ou fermer les réglages (SUPER + SHIFT + D)",
         |c| c.general.keys.settings.clone(),
         |s, v, c| { s.key_settings = Some(combo(v)?); Ok(()) },
         |s| s.key_settings = None;

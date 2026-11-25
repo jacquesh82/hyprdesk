@@ -493,13 +493,17 @@ impl Preview {
             height: 44,
             margin: 0,
             zones: [
-                vec![BarItem::Workspaces, BarItem::Window],
-                vec![BarItem::Widget("barclock".into())],
+                // Pose macOS du style par défaut, l'horloge en bout de barre ; les
+                // numéros d'espaces ajoutés pour les scènes du sélecteur.
+                vec![BarItem::Menus],
+                vec![BarItem::Window],
                 vec![
+                    BarItem::Workspaces,
                     BarItem::Brightness,
                     BarItem::Volume,
                     BarItem::Desktop,
                     BarItem::Widget("barcontrols".into()),
+                    BarItem::Widget("barclock".into()),
                 ],
             ],
             portrait: None,
@@ -859,13 +863,17 @@ impl Preview {
         }
         if let Some(bar) = cfg.bar.as_mut() {
             bar.zones = [
-                vec![BarItem::Workspaces, BarItem::Window],
-                vec![BarItem::Widget("barclock".into())],
+                // Pose macOS du style par défaut, l'horloge en bout de barre ; les
+                // numéros d'espaces ajoutés pour les scènes du sélecteur.
+                vec![BarItem::Menus],
+                vec![BarItem::Window],
                 vec![
+                    BarItem::Workspaces,
                     BarItem::Brightness,
                     BarItem::Volume,
                     BarItem::Desktop,
                     BarItem::Widget("barcontrols".into()),
+                    BarItem::Widget("barclock".into()),
                 ],
             ];
             // Retour à la pose de référence : les scènes Graphite se règlent

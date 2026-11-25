@@ -146,6 +146,7 @@ pub(in crate::ui) fn resolve_color(c: &crate::config::ColorRef, light: bool) -> 
 /// Clé d'un module propre à la barre (couleur par module, `module_colors`).
 pub fn bar_item_key(item: &BarItem) -> &str {
     match item {
+        BarItem::Menus => "menus",
         BarItem::Workspaces => "workspaces",
         BarItem::Window => "window",
         BarItem::Desktop => "desktop",
@@ -581,8 +582,6 @@ impl App {
         } else {
             &bar.zones
         };
-        // Les index du bandeau comptent d'abord les titres de menus (HIG MENU-01).
-        let titles = super::menus::titles().len();
         zones
             .iter()
             .flatten()
@@ -590,7 +589,7 @@ impl App {
             .filter(|(i, _)| {
                 self.bar_hidden
                     .get(&id)
-                    .is_some_and(|hidden| hidden.contains(&(i + titles)))
+                    .is_some_and(|hidden| hidden.contains(i))
             })
             .map(|(_, item)| item.clone())
             .collect()
@@ -598,6 +597,8 @@ impl App {
 
     fn bar_priority(&self, item: &BarItem) -> u8 {
         match item {
+            // Les menus du shell ne débordent jamais (HIG MENU-01).
+            BarItem::Menus => crate::ui::plugins::bar::layout::PINNED,
             BarItem::Workspaces => 95,
             BarItem::Window => 0,
             BarItem::Volume => 60,
@@ -1333,9 +1334,10 @@ impl App {
             _ => (&bar.zones, 0),
         };
         // Chaque zone est rognée : sur un écran étroit, elles ne se chevauchent pas.
-        // Réglages ouverts : les modules se déplacent en les glissant (zones
-        // ordinaires seulement ; les écrans verticaux gardent les leurs).
-        let edit = self.panel.is_some();
+        // Réglages ouverts sur la page Barre : les modules se déplacent en les
+        // glissant (zones ordinaires seulement ; les écrans verticaux gardent
+        // les leurs). Sur les autres pages, la barre garde son apparence.
+        let edit = self.panel.as_ref().is_some_and(|p| p.tab == "bar");
         let graphite = style == crate::config::BarStyle::Graphite;
         let content: Element<'_, Msg> = if !edit
             || graphite
@@ -1343,11 +1345,8 @@ impl App {
                 style,
                 crate::config::BarStyle::Convexe | crate::config::BarStyle::Island
             ) {
-            // Aperçu d'un module : compté sur les modules seuls ; les titres de
-            // menus (HIG MENU-01), en tête, le décalent d'autant.
-            let preview = self
-                .bar_preview
-                .map(|(i, pressed)| (i + super::menus::titles().len(), pressed));
+            // Aperçu d'un module : son rang parmi les modules, ceux du bandeau.
+            let preview = self.bar_preview;
             let mut slots: Vec<_> = zones
                 .iter()
                 .enumerate()
@@ -1423,22 +1422,6 @@ impl App {
                     },
                 )
                 .collect();
-            // Menus du shell (HIG MENU-01) : toujours en tête de la zone amont,
-            // jamais débordés, hors réglage. L'aperçu d'un module est compté
-            // sur les modules seuls : les titres le décalent d'autant.
-            let titles = self.bar_menu_titles(id, s);
-            let n = titles.len();
-            slots.extend(
-                titles
-                    .into_iter()
-                    .map(|content| crate::ui::plugins::bar::layout::Slot {
-                        zone: 0,
-                        priority: crate::ui::plugins::bar::layout::PINNED,
-                        flexible: false,
-                        content,
-                    }),
-            );
-            slots.rotate_right(n);
             if edit {
                 for (zone, items) in zones.iter().enumerate() {
                     let z = zone + zone_offset;
@@ -1477,15 +1460,14 @@ impl App {
                     !self.bar_item_is_launcher(item)
                         && !matches!(
                             item,
-                            BarItem::Workspaces
+                            BarItem::Menus
+                                | BarItem::Workspaces
                                 | BarItem::Window
                                 | BarItem::Desktop
                                 | BarItem::Tray
                         )
                 })
                 .collect();
-            // Les titres de menus ne prennent pas le fond du rail.
-            eligible.splice(0..0, std::iter::repeat_n(false, n));
             if edit {
                 eligible.extend([false; 3]);
             }
@@ -1564,14 +1546,14 @@ impl App {
             )
         } else {
             row![
-                container(self.bar_zone(id, s, &zones[0], true, edit.then_some(zone_offset)))
+                container(self.bar_zone(id, s, &zones[0], edit.then_some(zone_offset)))
                     .width(Length::Fill)
                     .align_x(Alignment::Start)
                     .clip(true),
-                container(self.bar_zone(id, s, &zones[1], false, edit.then_some(1 + zone_offset)))
+                container(self.bar_zone(id, s, &zones[1], edit.then_some(1 + zone_offset)))
                     .align_x(Alignment::Center)
                     .clip(true),
-                container(self.bar_zone(id, s, &zones[2], false, edit.then_some(2 + zone_offset)))
+                container(self.bar_zone(id, s, &zones[2], edit.then_some(2 + zone_offset)))
                     .width(Length::Fill)
                     .align_x(Alignment::End)
                     .clip(true),
@@ -1613,8 +1595,10 @@ impl App {
             }
         }
         // Fond de zones à path (Convex) : canvas sous le contenu, aux
-        // étendues mesurées des zones.
-        let underlay = (!continuity || !edit)
+        // étendues mesurées des zones. Continuité ne peint ses groupes que
+        // détachés : en lame continue, la barre reste d'un seul tenant, comme
+        // celle de macOS, sans îlot sous ses zones.
+        let underlay = (!continuity || (shape.groups && !edit))
             .then(|| {
                 crate::ui::plugins::bar::style::zone_underlay(
                     style,
@@ -1825,41 +1809,35 @@ impl App {
         id: Id,
         s: &'a BarSurface,
         items: &'a [BarItem],
-        leading: bool,
         edit: Option<usize>,
     ) -> Element<'a, Msg> {
         let compact = self.bar_compact(&s.monitor);
         let Some(z) = edit else {
-            // Menus du shell (HIG MENU-01) : d'abord, dans la zone amont.
-            let titles = if leading {
-                self.bar_menu_titles(id, s)
-            } else {
-                Vec::new()
-            };
-            let unrailed = std::iter::repeat_n(false, titles.len());
-            let content = row(titles.into_iter().chain(items.iter().map(|it| {
+            let content = row(items.iter().map(|it| {
                 motion::anchor(
                     self.bar_item(id, s, it),
                     id,
                     bar_item_key(it).into(),
                     self.bar_duration(140),
                 )
-            })))
+            }))
             .spacing(if compact { 0 } else { 2 })
             .align_y(Alignment::Center);
             return motion::rail(
                 content,
                 None,
-                unrailed
-                    .chain(items.iter().map(|it| {
+                items
+                    .iter()
+                    .map(|it| {
                         !matches!(
                             it,
-                            BarItem::Workspaces
+                            BarItem::Menus
+                                | BarItem::Workspaces
                                 | BarItem::Window
                                 | BarItem::Desktop
                                 | BarItem::Tray
                         )
-                    }))
+                    })
                     .collect(),
                 crate::ui::plugins::bar::style::rail_look(
                     self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default(),
@@ -1885,10 +1863,6 @@ impl App {
                 .into()
         };
         let mut r = row![].spacing(0).align_y(Alignment::Center);
-        if leading {
-            // Les menus du shell restent en tête : ils ne se déplacent pas.
-            r = r.push(row(self.bar_menu_titles(id, s)).spacing(if compact { 0 } else { 2 }));
-        }
         for (i, it) in items.iter().enumerate() {
             r = r.push(marker((z, i)));
             let dragged = drag.is_some_and(|(from, _)| from == (z, i));
@@ -1917,15 +1891,12 @@ impl App {
             .on_enter(Msg::BarDragOver(z, items.len()))
             .on_release(Msg::BarDragEnd),
         );
+        // Pas d'îlot sous la zone : la lame reste d'un seul tenant, les cadres
+        // des modules suffisent à dire qu'on peut les déplacer.
         container(row)
             .padding([0, 3])
             .height(Length::Fill)
             .align_y(Alignment::Center)
-            .style(move |_| container::Style {
-                background: Some(color(pal.bg, pal.opacity).into()),
-                border: Border::default().rounded(12),
-                ..Default::default()
-            })
             .into()
     }
 
@@ -2125,7 +2096,7 @@ impl App {
     }
 
     /// Titres des menus du shell (HIG MENU-01), dans l'ordre de la barre :
-    /// toujours en tête de la zone amont, hors catalogue et hors débordement.
+    /// le contenu du module `menus`, qui ne déborde jamais.
     fn bar_menu_titles<'a>(&'a self, id: Id, s: &'a BarSurface) -> Vec<Element<'a, Msg>> {
         let pal = self.bar_palette();
         let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
@@ -2151,15 +2122,28 @@ impl App {
                     .color(fg)
                     // Titres de menus : semibold (DESIGN.md, HIG MENU-07).
                     .font(self.ui_font(iced::font::Weight::Semibold));
-                // Clic droit sur « Fenêtre » : le menu du clic gauche, sous la
+                // Le menu hyprdesk porte le logo, comme la pomme de macOS ;
+                // son nom reste à l'arbre d'accessibilité (`titles`).
+                let title: Element<'a, Msg> = match (key == "menus:hyprdesk")
+                    .then(|| crate::ui::icons::get("hyprdesk-logo"))
+                    .flatten()
+                {
+                    Some(logo) => iced::widget::svg(logo)
+                        .width((size * 1.15).round())
+                        .height((size * 1.15).round())
+                        .style(move |_, _| iced::widget::svg::Style { color: Some(fg) })
+                        .into(),
+                    None => title.into(),
+                };
+                // Clic droit sur « Fenêtres » : le menu du clic gauche, sous la
                 // même clé — un contenu, une carte (HIG ENT-07).
-                let right = (actionable && matches!(request, Request::Window))
+                let right = (actionable && matches!(request, Request::Windows))
                     .then(|| Msg::OpenPopover(id, key.into(), request.clone()));
                 motion::anchor(
                     self.module(
                         s,
                         1.0,
-                        title.into(),
+                        title,
                         actionable.then(|| Msg::OpenPopover(id, key.into(), request)),
                         right,
                         None,
@@ -2222,9 +2206,10 @@ impl App {
         }
     }
 
-    /// Titre de menu du shell actif. Sans fenêtre active, « Fenêtre » n'a
-    /// rien à montrer : le titre reste, inactif (désactiver plutôt que
-    /// retirer).
+    /// Titre de menu du shell actif. Les titres de la barre le sont tous :
+    /// « Fenêtres » sans fenêtre ouverte le dit dans sa carte. Le menu de la
+    /// fenêtre active, lui, n'a rien à montrer sans elle (désactiver plutôt
+    /// que retirer).
     pub(in crate::ui) fn bar_title_live(&self, request: &Request) -> bool {
         !matches!(request, Request::Window)
             || self
@@ -2240,6 +2225,18 @@ impl App {
         item: &'a BarItem,
         alpha: f32,
     ) -> Element<'a, Msg> {
+        // Menus du shell (HIG MENU-01) : leurs titres en rangée, chacun sa
+        // carte. Une barre verticale n'a pas la place de titres écrits.
+        if matches!(item, BarItem::Menus) {
+            if bar.position.vertical() {
+                return Space::new().into();
+            }
+            let compact = self.bar_compact(&bar.monitor);
+            return row(self.bar_menu_titles(bar_id, bar))
+                .spacing(if compact { 0 } else { 2 })
+                .align_y(Alignment::Center)
+                .into();
+        }
         let pal = self.bar_palette();
         let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
         let t = crate::ui::plugins::bar::style::durations(self);
@@ -2258,6 +2255,8 @@ impl App {
         let monitor = bar.monitor.clone();
         let compact = self.bar_compact(&monitor);
         match item {
+            // Rendus plus haut, avant les couleurs d'un module.
+            BarItem::Menus => Space::new().into(),
             // Les touches d'espaces sont le geste du style : chaque rendu son
             // langage (capsule glissante en Continuité, touche soulevée en Graphite).
             BarItem::Workspaces => {
@@ -2326,13 +2325,23 @@ impl App {
                 // Le mode de cet écran (celui du workspace qu'il affiche) ;
                 // un clic le change pour cet écran.
                 let mode = self.monitor_mode(&monitor);
-                let accent = color(pal.accent, alpha);
-                let on_accent = if style == crate::config::BarStyle::Continuite {
-                    crate::ui::plugins::bar::style::continuite::selected_ink(&pal, alpha)
+                let fgc = color(base, alpha);
+                // Continuité : ni piste ni accent, la barre reste unie ; le
+                // mode en cours garde une touche neutre, comme un menu ouvert.
+                let uni = style == crate::config::BarStyle::Continuite;
+                let accent = if uni {
+                    Color {
+                        a: 0.18 * alpha,
+                        ..fgc
+                    }
+                } else {
+                    color(pal.accent, alpha)
+                };
+                let on_accent = if uni {
+                    fg
                 } else {
                     design::on_accent(accent, color(pal.fg, alpha), color(pal.bg, alpha))
                 };
-                let fgc = color(base, alpha);
                 let h = (bar.height as f32 * 0.66).round();
                 let seg = |m: M, icon: &str, cmd: control::Command, tip: &'static str| {
                     let active = mode == m;
@@ -2417,7 +2426,7 @@ impl App {
                 )
                 .padding(2)
                 .style(move |_| container::Style {
-                    background: Some(Background::Color(Color {
+                    background: (!uni).then_some(Background::Color(Color {
                         a: 0.10 * alpha,
                         ..fgc
                     })),
@@ -2791,18 +2800,14 @@ impl App {
                         }
                         // État « actif » : la couleur choisie pour le module l'emporte
                         // sur l'accent ; avertissement et critique restent visibles.
-                        let toggled =
-                            style == crate::config::BarStyle::Continuite && r.toggled == Some(true);
-                        let tint = if toggled {
-                            crate::ui::plugins::bar::style::continuite::selected_ink(&pal, alpha)
-                        } else {
-                            selected.unwrap_or_else(|| match r.state {
-                                RenderState::Active if self.bar_item_color(item).is_some() => {
-                                    color(base, alpha)
-                                }
-                                s => self.state_color(s, color(base, 0.92)).scale_alpha(alpha),
-                            })
-                        };
+                        // Un module allumé (Wi-Fi, Bluetooth) ne se remplit pas en
+                        // Continuité : son icône dit l'état, la barre reste unie.
+                        let tint = selected.unwrap_or_else(|| match r.state {
+                            RenderState::Active if self.bar_item_color(item).is_some() => {
+                                color(base, alpha)
+                            }
+                            s => self.state_color(s, color(base, 0.92)).scale_alpha(alpha),
+                        });
                         let mut content = row![].spacing(6).align_y(Alignment::Center);
                         let mut has_icon = false;
                         if let Some(icon) = r
@@ -2867,7 +2872,7 @@ impl App {
                             None,
                             scroll_cb,
                             r.tooltip.clone(),
-                            open || toggled,
+                            open,
                         )
                     }
                 }

@@ -186,7 +186,7 @@ in the [user guide](docs/GUIDE.md#installation-in-detail).
 | `SUPER + D`                               | Next mode: hidden → dock → full desktop → hidden                                                     |
 | `SUPER + ALT + D`                         | Toggle the dock and keep windows in place                                                            |
 | `SUPER + CTRL + D`                        | Hide the desktop and dock                                                                            |
-| `SUPER + ,`                               | Open Settings                                                                                        |
+| `SUPER + SHIFT + D`                       | Open Settings                                                                                        |
 | `CTRL + F2`                               | Give the keyboard to the bar of the active screen: arrows and Tab from module to module, Enter opens, Escape gives back |
 | `CTRL + F3`                               | Give the keyboard to the dock of the active screen (hidden desktop: it appears under the windows)   |
 | `CTRL + F8`                               | Give the keyboard to the banners on screen, otherwise open the notification center                  |
@@ -217,7 +217,7 @@ It ships fully commented, takes precedence over Settings, and is optional.
 
 ```lua
 hd.wallpaper({ path = "~/.wallpapers/default.jpg" })
-hd.bar({ left = { "workspaces", "window" }, right = { "tray", "volume", "session" } })
+hd.bar({ left = { "menus", "workspaces", "window" }, right = { "tray", "volume", "session" } })
 hd.icon({ app = "firefox" })
 hd.widget("clock", { anchor = "top-right", format = "%H:%M" })
 ```

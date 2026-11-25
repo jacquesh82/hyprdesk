@@ -92,7 +92,7 @@ pub const STEPS: &[Step] = &[
             it(
                 "keys",
                 "Les autres touches à connaître",
-                "SUPER + virgule ouvre ces Réglages, SUPER + Espace le lanceur d'applications, \
+                "SUPER + SHIFT + D ouvre ces Réglages, SUPER + Espace le lanceur d'applications, \
                  SUPER + L verrouille. En cas de souci, SUPER + Échap masque le bureau et rend \
                  tous ses raccourcis à Hyprland.",
             ),

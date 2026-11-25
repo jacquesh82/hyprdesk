@@ -80,9 +80,9 @@
 -- hd.bar({
 --     position = "top", height = 36,
     -- style = "graphite",  -- engraved monochrome slab: bottom, 40 px, 10 px margin by default,
---     left   = { "workspaces", "window" },
---     center = { { "clock", format = "%a %d %b  %H:%M" } },
---     right  = { "tray", "media", "network", "bluetooth", "battery", "volume", "notifications", "desktop", "session", "controls" },
+--     left   = { "menus" },
+--     center = { "window" },
+--     right  = { "tray", "media", "network", "bluetooth", "battery", "volume", "desktop", "notifications", "controls", { "clock", format = "%a %d %b  %H:%M" } },
 -- })
 
 -- Session: components launched and supervised by hyprdesk (restarted if they

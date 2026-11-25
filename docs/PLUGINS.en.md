@@ -364,7 +364,7 @@ hyprdesk shows notifications). The fields are described in
 
 Bar modules are widgets placed in a zone (`left`,
 `center`, `right`) of `hd.bar`, with `in_bar = true`. Some are specific to
-the bar and are not widgets: `workspaces`, `window`, `volume`, `brightness` (backlight, or external screens through DDC/CI), `tray`,
+the bar and are not widgets: `menus` (the shell menus), `workspaces`, `window`, `volume`, `brightness` (backlight, or external screens through DDC/CI), `tray`,
 `desktop`. `hd.bar({ monitor = "primary" })` shows the bar on the primary
 screen.
 

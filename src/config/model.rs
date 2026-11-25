@@ -935,6 +935,10 @@ impl BarPosition {
 /// Module de la barre : propre à la barre, ou widget (par son id).
 #[derive(Debug, Clone, PartialEq)]
 pub enum BarItem {
+    /// Menus du shell (HIG MENU-01) : « hyprdesk », « Fenêtres », « Espaces »,
+    /// « Aide », en une rangée de titres. Un module comme les autres : il se
+    /// place, se déplace ou se retire depuis Réglages → Barre.
+    Menus,
     Workspaces,
     /// Titre de la fenêtre active.
     Window,
@@ -952,6 +956,7 @@ pub enum BarItem {
 
 /// Modules propres à la barre (les autres noms sont des types de widgets).
 pub const BAR_ITEMS: &[(&str, &str)] = &[
+    ("menus", "Menus"),
     ("workspaces", "Workspaces"),
     ("window", "Fenêtre active"),
     ("volume", "Volume"),
@@ -963,6 +968,7 @@ pub const BAR_ITEMS: &[(&str, &str)] = &[
 impl BarItem {
     pub fn builtin(name: &str) -> Option<Self> {
         Some(match name {
+            "menus" => BarItem::Menus,
             "workspaces" => BarItem::Workspaces,
             "window" => BarItem::Window,
             "desktop" => BarItem::Desktop,
@@ -1371,10 +1377,46 @@ impl BarStyle {
     /// conserve son lanceur dans la zone centrale.
     pub fn preset(self) -> [Vec<BarPreset>; 3] {
         match self {
+            // Continuité, le style par défaut : la barre des menus de macOS.
+            // À gauche, les menus du shell ; au centre, la fenêtre active ; à
+            // droite, les icônes d'état, le centre de contrôle et l'horloge en
+            // bout de barre. Session est dans le menu hyprdesk, comme le menu
+            // Pomme ; les numéros d'espaces, masqués : le menu Espaces les
+            // donne.
+            BarStyle::Continuite => [
+                vec![sans_option("menus")],
+                vec![sans_option("window")],
+                vec![
+                    sans_option("tray"),
+                    sans_option("media"),
+                    // Cachés d'eux-mêmes quand ils n'ont rien à montrer.
+                    sans_option("keyboard"),
+                    sans_option("nightlight"),
+                    sans_option("removable"),
+                    sans_option("capture"),
+                    sans_option("updates"),
+                    sans_option("brightness"),
+                    sans_option("network"),
+                    sans_option("bluetooth"),
+                    sans_option("battery"),
+                    sans_option("volume"),
+                    sans_option("desktop"),
+                    sans_option("notifications"),
+                    sans_option("controls"),
+                    BarPreset {
+                        type_id: "clock",
+                        options: &[("format", "%a %d %b  %H:%M")],
+                    },
+                ],
+            ],
             // Island et Convexe gardent la pose d'origine : ils ne changent
             // que la silhouette (capsule centrale, lame à niches).
-            BarStyle::Continuite | BarStyle::Island | BarStyle::Convexe => [
-                vec![sans_option("workspaces"), sans_option("window")],
+            BarStyle::Island | BarStyle::Convexe => [
+                vec![
+                    sans_option("menus"),
+                    sans_option("workspaces"),
+                    sans_option("window"),
+                ],
                 vec![BarPreset {
                     type_id: "clock",
                     options: if self == BarStyle::Convexe {
@@ -1406,7 +1448,7 @@ impl BarStyle {
             ],
             // Graphite : le plugin Lanceur au centre, les widgets à droite.
             BarStyle::Graphite => [
-                vec![],
+                vec![sans_option("menus")],
                 vec![sans_option("launcher")],
                 vec![
                     sans_option("tray"),
@@ -1562,7 +1604,9 @@ impl Default for Keys {
             keyboard_access: "CTRL + F1".into(),
             take: Vec::new(),
             hide: "SUPER + CTRL + D".into(),
-            settings: "SUPER + comma".into(),
+            // SUPER + SHIFT + D, comme les autres raccourcis du bureau (SUPER + D
+            // et ses variantes), plutôt que la virgule de macOS.
+            settings: "SUPER + SHIFT + D".into(),
             // Vide : le verrouillage de hyprland.lua (SUPER + L, posé par
             // scripts/install.sh). Réglé, hyprdesk le remplace.
             lock: String::new(),

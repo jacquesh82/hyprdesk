@@ -92,44 +92,53 @@ impl App {
                 if embedded.is_some() && self.dock_focus(monitor).is_some() {
                     bar = bar.state(State::Active);
                 }
-                // Titres des menus du shell, en tête (HIG MENU-01) ;
-                // « Fenêtre » inactif sans fenêtre active, comme à l'écran.
-                let titles = crate::ui::plugins::bar::menus::titles().into_iter().map(
-                    |(key, label, request)| {
-                        let n = Node::new(Role::PushButton, tr(label))
-                            .key(key)
-                            .state(State::Focusable)
-                            .state(State::HasPopup);
-                        if self.bar_title_live(&request) {
-                            n.action()
-                        } else {
-                            let mut n = n;
-                            n.states = n.states.without(State::Enabled).without(State::Sensitive);
-                            n
-                        }
-                    },
-                );
-                out.push(
-                    bar.children(titles)
-                        .children(zones.iter().flatten().map(|item| {
-                            match embedded.filter(|_| self.bar_item_is_launcher(item)) {
-                                Some(m) => self.dock_a11y(m, false),
-                                None => {
-                                    let b = button(self.bar_item_label(item)).key(
-                                        crate::ui::plugins::bar::surface::bar_item_key(item)
-                                            .to_string(),
-                                    );
-                                    // Un module qui ouvre une carte s'active
-                                    // comme son clic.
-                                    if self.bar_item_press(bar_id, item).is_some() {
-                                        b.action()
-                                    } else {
-                                        b
-                                    }
-                                }
+                // Titres des menus du shell (HIG MENU-01), à la place du
+                // module `menus` ; aucun sur une barre verticale, comme à
+                // l'écran.
+                let upright = self
+                    .bar_surfaces
+                    .get(&bar_id)
+                    .is_none_or(|b| !b.position.vertical());
+                let titles = || {
+                    crate::ui::plugins::bar::menus::titles()
+                        .into_iter()
+                        .filter(move |_| upright)
+                        .map(|(key, label, request)| {
+                            let n = Node::new(Role::PushButton, tr(label))
+                                .key(key)
+                                .state(State::Focusable)
+                                .state(State::HasPopup);
+                            if self.bar_title_live(&request) {
+                                n.action()
+                            } else {
+                                let mut n = n;
+                                n.states =
+                                    n.states.without(State::Enabled).without(State::Sensitive);
+                                n
                             }
-                        })),
-                );
+                        })
+                        .collect::<Vec<_>>()
+                };
+                out.push(bar.children(zones.iter().flatten().flat_map(|item| {
+                    if matches!(item, crate::config::BarItem::Menus) {
+                        return titles();
+                    }
+                    vec![match embedded.filter(|_| self.bar_item_is_launcher(item)) {
+                        Some(m) => self.dock_a11y(m, false),
+                        None => {
+                            let b = button(self.bar_item_label(item)).key(
+                                crate::ui::plugins::bar::surface::bar_item_key(item).to_string(),
+                            );
+                            // Un module qui ouvre une carte s'active comme
+                            // son clic.
+                            if self.bar_item_press(bar_id, item).is_some() {
+                                b.action()
+                            } else {
+                                b
+                            }
+                        }
+                    }]
+                })));
             }
         }
         let mut docks: Vec<&str> = self
@@ -910,7 +919,7 @@ mod tests {
         let (mut app, _) =
             App::boot_with(PathBuf::from("/tmp/hyprdesk-a11y-tests/config.lua"), true);
         let loaded = crate::config::lua::load_source(
-            "hd.bar({left={'workspaces'},right={'volume','tray'},portrait={left={'volume'}}})",
+            "hd.bar({left={'menus','workspaces'},right={'volume','tray'},portrait={left={'menus','volume'}}})",
             "test.lua",
             Path::new("/tmp"),
         )
@@ -942,12 +951,12 @@ mod tests {
         );
         let tree = crate::a11y::root(app.a11y_surfaces());
         // Actions : les titres de menu et les cases du dock s'activent ;
-        // « Fenêtre », sans fenêtre active, est inactif, sans action.
+        // « Fenêtres » aussi sans fenêtre ouverte (sa carte le dit).
         let bar = &tree.children[0];
         assert!(bar.children[0].action, "hyprdesk");
-        assert!(!bar.children[1].action, "Fenêtre");
+        assert!(bar.children[1].action, "Fenêtres");
         assert!(
-            !bar.children[1]
+            bar.children[1]
                 .states
                 .contains(crate::a11y::model::State::Enabled)
         );
@@ -1059,14 +1068,14 @@ mod tests {
         let surfaces = app.a11y_surfaces();
         assert_eq!(
             crate::a11y::model::Node::dump(&surfaces[1]),
-            "frame « Barre des menus »\n  push button « hyprdesk »\n  push button « Fenêtre »\n  push button « Espaces »\n  push button « Aide »\n  push button « Volume »\n"
+            "frame « Barre des menus »\n  push button « hyprdesk »\n  push button « Fenêtres »\n  push button « Espaces »\n  push button « Aide »\n  push button « Volume »\n"
         );
         assert_eq!(
             tree.dump(),
             "application « hyprdesk »
   frame « Barre des menus »
     push button « hyprdesk »
-    push button « Fenêtre »
+    push button « Fenêtres »
     push button « Espaces »
     push button « Aide »
     push button « Workspaces »
@@ -1138,10 +1147,11 @@ mod tests {
         assert!(d.children.iter().any(|n| n.name == "firefox"));
         assert!(!surfaces[0].states.contains(State::Active));
         // Le module du dock y prend la place de son bouton : un nœud par
-        // titre de menu du shell et par module, une seule `Frame`.
+        // titre de menu du shell (le module `menus`) et par autre module,
+        // une seule `Frame`.
         let items = app.cfg.bar.as_ref().unwrap().zones.iter().flatten().count();
         let titles = crate::ui::plugins::bar::menus::titles().len();
-        assert_eq!(surfaces[0].children.len(), titles + items);
+        assert_eq!(surfaces[0].children.len(), titles + items - 1);
         assert_eq!(
             surfaces[0]
                 .children

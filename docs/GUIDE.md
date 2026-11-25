@@ -822,8 +822,8 @@ hd.widget("calendar", { screen = "DP-2", if_missing = "hide" })
 hd.widget("controls", {})
 ```
 
-The bar includes `workspaces`, `window`, `volume`, `brightness`, `tray`, and
-`desktop`. Add any widget in **Settings → Bar → Modules**, or to a zone in
+The bar includes `menus` (the hyprdesk, Windows, Workspaces and Help menus),
+`workspaces`, `window`, `volume`, `brightness`, `tray`, and `desktop`. Add any widget in **Settings → Bar → Modules**, or to a zone in
 `hd.bar`. Modules that do not fit remain available under **More controls**.
 To add a Lua widget or plugin, see [Writing a plugin](WRITING_PLUGINS.md).
 

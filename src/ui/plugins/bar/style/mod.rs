@@ -124,7 +124,8 @@ pub(in crate::ui) fn module_button(
 /// Aspect de la capsule qui suit le module survolé autour du ruban entier.
 pub(in crate::ui) fn rail_look(style: BarStyle, pal: &BarPalette) -> motion::RailLook {
     match style {
-        BarStyle::Continuite => motion::RailLook::Fill(continuite::tone(pal, 0.12, 1.0)),
+        // Plus claire que la lame (0,16) : le survol éclaircit, comme macOS.
+        BarStyle::Continuite => motion::RailLook::Fill(continuite::tone(pal, 0.28, 1.0)),
         BarStyle::Graphite => motion::RailLook::Fill(color(pal.fg, 0.07)),
         BarStyle::Island => motion::RailLook::Fill(color(pal.fg, 0.08)),
         BarStyle::Convexe => motion::RailLook::Fill(color(pal.fg, 0.07)),

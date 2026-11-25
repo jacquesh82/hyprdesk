@@ -58,6 +58,8 @@ pub enum Request {
     Silence,
     /// Menu de la fenêtre active, sur son titre (MLG-311).
     Window,
+    /// Menu « Fenêtres » : toutes les fenêtres ouvertes, un clic y mène.
+    Windows,
     /// Menu du shell « hyprdesk », toujours en tête de la barre (HIG MENU-01).
     Shell,
     /// Menu « Aide », en dernier des titres de la barre (HIG MENU-05).
@@ -1073,6 +1075,11 @@ pub enum MenuSource {
     /// Fenêtre active (adresse lue à l'ouverture du menu).
     Window {
         address: String,
+    },
+    /// Menu « Fenêtres » : l'action d'une entrée est le rang de l'adresse de
+    /// sa fenêtre (lues à l'ouverture du menu).
+    Windows {
+        addresses: Vec<String>,
     },
     /// Menu « hyprdesk » : les commandes du shell (`bar::menus`).
     Shell,
@@ -2172,6 +2179,7 @@ impl App {
                     MenuSource::Shell => super::menus::submit(action, &text),
                     MenuSource::Tray { .. }
                     | MenuSource::Window { .. }
+                    | MenuSource::Windows { .. }
                     | MenuSource::Silence
                     | MenuSource::Module => Task::none(),
                 };
@@ -2481,6 +2489,27 @@ impl App {
                 },
                 |_| Msg::Noop,
             ),
+            // Menu « Fenêtres » : le focus va à la fenêtre, son espace suit ;
+            // réduite, elle revient d'abord sur l'espace affiché.
+            MenuSource::Windows { addresses } => {
+                let Some(address) = usize::try_from(action)
+                    .ok()
+                    .and_then(|i| addresses.get(i).cloned())
+                else {
+                    return self.close_popover();
+                };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            if let Err(e) = crate::hypr::focus_window(&address) {
+                                tracing::warn!("{}", crate::tr!("fenêtre : {e}", e = e));
+                            }
+                        })
+                        .await
+                    },
+                    |_| Msg::Noop,
+                )
+            }
             // Menu « hyprdesk » (HIG MENU-01).
             MenuSource::Shell => super::menus::act(self, action),
             MenuSource::Silence => {

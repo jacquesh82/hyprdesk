@@ -4204,7 +4204,7 @@ mod tests {
     fn graphite_hosts_launcher_and_preserves_explicit_widget_zones() {
         let c = load(r#"hd.bar({ style = "graphite" })"#).unwrap().config;
         let b = c.bar.as_ref().unwrap();
-        assert!(b.zones[0].is_empty());
+        assert_eq!(b.zones[0], vec![BarItem::Menus]);
         assert_eq!(b.zones[1].len(), 1);
         let BarItem::Widget(id) = &b.zones[1][0] else {
             panic!("launcher widget");
@@ -4227,11 +4227,14 @@ mod tests {
             ]
         );
         assert_eq!(b.zones[2], vec![BarItem::Volume]);
+        // Pose macOS par défaut : les menus à gauche, la fenêtre au centre,
+        // l'horloge en bout.
         let c = load("hd.bar({})").unwrap().config;
-        assert_eq!(
-            c.bar.unwrap().zones[0],
-            vec![BarItem::Workspaces, BarItem::Window]
-        );
+        let zones = c.bar.as_ref().unwrap().zones.clone();
+        assert_eq!(zones[0], vec![BarItem::Menus]);
+        assert_eq!(zones[1], vec![BarItem::Window]);
+        assert_eq!(zones[2][0], BarItem::Tray);
+        assert!(!zones.iter().flatten().any(|i| *i == BarItem::Workspaces));
         assert!(
             !c.widgets
                 .iter()

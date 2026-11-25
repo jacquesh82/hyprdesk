@@ -559,7 +559,7 @@ impl Ctx {
                 "layout(\"zone {d}\"",
             ),
             // Point-virgule : une vraie touche en QWERTY comme en AZERTY (la
-            // virgule est aux Réglages, HIG PAT-14) ; ALT et CTRL plutôt que
+            // virgule reste libre) ; ALT et CTRL plutôt que
             // SHIFT, qui change la touche sur certains claviers.
             "mon-focus" => vec![want(
                 "",

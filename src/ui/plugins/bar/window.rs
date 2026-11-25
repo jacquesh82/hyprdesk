@@ -23,6 +23,128 @@ const CLOSE_ALL: i64 = 7;
 /// Déplacer vers l'espace `n` : `MOVE + n`.
 const MOVE: i64 = 1000;
 
+/// Longueur d'un titre de fenêtre dans le menu « Fenêtres ».
+const TITLE_MAX: usize = 60;
+
+/// Menu « Fenêtres » de la barre, lu sur le compositeur : les adresses
+/// (l'action d'une entrée est le rang de la sienne) et les entrées. `apps`
+/// donne l'icône de chaque application.
+pub(in crate::ui) fn read_all(
+    workspaces: &[Workspace],
+    apps: &[crate::launch::AppInfo],
+) -> (Vec<String>, Vec<MenuEntry>) {
+    let clients = ipc::query_json("clients")
+        .map(|v| crate::hypr::parse_clients(&v))
+        .unwrap_or_default();
+    let active = ipc::query_json("activewindow")
+        .ok()
+        .and_then(|v| v["address"].as_str().map(str::to_string));
+    let mut icons = std::collections::HashMap::new();
+    list(&clients, workspaces, active.as_deref(), &mut |class| {
+        icons
+            .entry(class.to_string())
+            .or_insert_with(|| {
+                crate::launch::icon_name_for_class(class, apps)
+                    .map(|n| crate::ui::App::app_icon_key(&n))
+            })
+            .clone()
+    })
+}
+
+/// Toutes les fenêtres ouvertes, groupées par espace dans l'ordre des
+/// espaces, les espaces spéciaux ensuite, les réduites en dernier ; la
+/// fenêtre active cochée. Les fenêtres que hyprdesk a mises de côté
+/// (`STASH`) n'y sont pas : le mode du bureau qui les a rangées les rendra.
+/// `icon` : nom d'icône de l'application d'une classe.
+fn list(
+    clients: &[crate::hypr::Client],
+    workspaces: &[Workspace],
+    active: Option<&str>,
+    icon: &mut dyn FnMut(&str) -> Option<String>,
+) -> (Vec<String>, Vec<MenuEntry>) {
+    let tr = |s: &str| crate::i18n::tr(s).to_string();
+    // Rang d'un groupe : espaces ordinaires par numéro, puis spéciaux, puis
+    // réduites ; et son en-tête.
+    let group = |name: &str| -> ((u8, i64, String), String) {
+        if name == crate::hypr::MINIMIZED {
+            return ((2, 0, String::new()), tr("Réduites"));
+        }
+        if let Some(special) = name.strip_prefix("special:") {
+            return ((1, 0, special.to_string()), special.to_string());
+        }
+        let id = workspaces
+            .iter()
+            .find(|w| w.name == name)
+            .map(|w| w.id)
+            .or_else(|| name.parse().ok())
+            .unwrap_or(i64::MAX);
+        let header = if name == id.to_string() {
+            crate::tr!("Espace {n}", n = id)
+        } else {
+            name.to_string()
+        };
+        ((0, id, name.to_string()), header)
+    };
+    let mut shown: Vec<_> = clients
+        .iter()
+        .filter(|c| c.workspace != crate::hypr::STASH && !c.workspace.is_empty())
+        .map(|c| (group(&c.workspace), c))
+        .collect();
+    // Tri stable : dans un groupe, l'ordre du compositeur.
+    shown.sort_by(|a, b| a.0.0.cmp(&b.0.0));
+    if shown.is_empty() {
+        return (
+            Vec::new(),
+            vec![MenuEntry::Item {
+                label: tr("Aucune fenêtre ouverte"),
+                detail: None,
+                icon: None,
+                checked: None,
+                enabled: false,
+                action: None,
+                confirm: None,
+            }],
+        );
+    }
+    let mut addresses = Vec::with_capacity(shown.len());
+    let mut out = Vec::new();
+    let mut current = None;
+    for ((rank, header), c) in shown {
+        if current.as_ref() != Some(&rank) {
+            if current.is_some() {
+                out.push(MenuEntry::Separator);
+            }
+            out.push(MenuEntry::Header(header));
+            current = Some(rank);
+        }
+        let title = if c.title.trim().is_empty() {
+            c.class.clone()
+        } else {
+            truncate(c.title.trim(), TITLE_MAX)
+        };
+        out.push(MenuEntry::Item {
+            label: title,
+            detail: None,
+            icon: icon(&c.class),
+            checked: (active == Some(c.address.as_str())).then_some(true),
+            enabled: true,
+            action: Some(addresses.len() as i64),
+            confirm: None,
+        });
+        addresses.push(c.address.clone());
+    }
+    (addresses, out)
+}
+
+/// Titre tenu à `max` caractères, points de suspension compris.
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max.saturating_sub(1)).collect();
+    format!("{cut}…")
+}
+
 /// Fenêtre active : son adresse et son menu ; rien sans fenêtre active.
 pub(in crate::ui) fn read(workspaces: &[Workspace]) -> Option<(String, Vec<MenuEntry>)> {
     let v = ipc::query_json("activewindow").ok()?;
@@ -364,5 +486,79 @@ mod tests {
         .unwrap();
         assert_eq!(same_application(&v, &clients), 2);
         assert_eq!(same_application(&serde_json::json!({}), &clients), 1);
+    }
+
+    fn client(address: &str, class: &str, title: &str, workspace: &str) -> crate::hypr::Client {
+        crate::hypr::Client {
+            address: address.into(),
+            class: class.into(),
+            title: title.into(),
+            workspace: workspace.into(),
+            monitor: "A".into(),
+        }
+    }
+
+    #[test]
+    fn fenetres_par_espace_les_reduites_en_dernier() {
+        let clients = [
+            client("0x3", "foot", "terminal", crate::hypr::MINIMIZED),
+            client("0x1", "brave", "Recherche", "2"),
+            client("0x2", "thunar", "", "1"),
+            client("0x4", "kitty", "rangée", crate::hypr::STASH),
+            client("0x5", "foot", "second", "2"),
+        ];
+        let mut icon = |class: &str| Some(format!("app:{class}"));
+        let (addresses, entries) = list(&clients, &[ws(1), ws(2)], Some("0x5"), &mut icon);
+        // Espace 1, espace 2 (ordre du compositeur gardé), réduites ; la
+        // fenêtre mise de côté par hyprdesk n'y est pas.
+        assert_eq!(addresses, ["0x2", "0x1", "0x5", "0x3"]);
+        let rows: Vec<String> = entries
+            .iter()
+            .map(|e| match e {
+                MenuEntry::Header(h) => format!("# {h}"),
+                MenuEntry::Separator => "-".into(),
+                MenuEntry::Item {
+                    label,
+                    checked,
+                    action,
+                    icon,
+                    ..
+                } => format!(
+                    "{label} {action:?} {} {}",
+                    checked.is_some(),
+                    icon.as_deref().unwrap_or("")
+                ),
+                _ => "?".into(),
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                "# Espace 1",
+                // Sans titre : le nom de l'application.
+                "thunar Some(0) false app:thunar",
+                "-",
+                "# Espace 2",
+                "Recherche Some(1) false app:brave",
+                "second Some(2) true app:foot",
+                "-",
+                "# Réduites",
+                "terminal Some(3) false app:foot",
+            ]
+        );
+    }
+
+    #[test]
+    fn aucune_fenetre_une_ligne_inactive() {
+        let (addresses, entries) = list(&[], &[], None, &mut |_| None);
+        assert!(addresses.is_empty());
+        assert!(matches!(
+            entries.as_slice(),
+            [MenuEntry::Item {
+                enabled: false,
+                action: None,
+                ..
+            }]
+        ));
     }
 }

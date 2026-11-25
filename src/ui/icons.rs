@@ -204,6 +204,11 @@ pub fn get_weighted(name: &str, weight: iced::font::Weight) -> Option<svg::Handl
             // Le h plié du logo livré dans assets/greeter/logo.png.
             r##"<defs><linearGradient id="hyprdesk-mark" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#00d8b2"/><stop offset="1" stop-color="#00b9a5"/></linearGradient></defs><g fill="url(#hyprdesk-mark)" stroke="none"><path d="M2 14.8V4.8a3 3 0 0 1 3-3h2.2a3 3 0 0 1 3 3v5.8l6-2.1c2.9-1 5.8 1.1 5.8 4.2v6.5a3 3 0 0 1-3 3h-2.4a3 3 0 0 1-3-3v-3.9c0-1.8-.8-2.3-3.3-1.9-2.8.4-5.7 1.1-8.3 2z"/><path d="M2 17.2c0-1.4 1.9-1.7 3.8-2.2l4.4-1v5.2a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3z"/></g>"##
         }
+        // Le même h plié, d'une seule encre : titre du menu hyprdesk dans la
+        // barre, comme la pomme de macOS (teinté à l'encre de la barre).
+        "hyprdesk-logo" => {
+            r##"<g fill="currentColor" stroke="none"><path d="M2 14.8V4.8a3 3 0 0 1 3-3h2.2a3 3 0 0 1 3 3v5.8l6-2.1c2.9-1 5.8 1.1 5.8 4.2v6.5a3 3 0 0 1-3 3h-2.4a3 3 0 0 1-3-3v-3.9c0-1.8-.8-2.3-3.3-1.9-2.8.4-5.7 1.1-8.3 2z"/><path d="M2 17.2c0-1.4 1.9-1.7 3.8-2.2l4.4-1v5.2a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3z"/></g>"##
+        }
         "hyprdesk-task-view" => {
             r#"<rect x="3" y="7" width="14" height="14" rx="2"/><rect x="7" y="3" width="14" height="14" rx="2"/>"#
         }

@@ -381,6 +381,7 @@ impl BarSettings {
                 zones[z]
                     .iter()
                     .map(|it| match it {
+                        BarItem::Menus => BarEntry::new("menus"),
                         BarItem::Workspaces => BarEntry::new("workspaces"),
                         BarItem::Window => BarEntry::new("window"),
                         BarItem::Desktop => BarEntry::new("desktop"),

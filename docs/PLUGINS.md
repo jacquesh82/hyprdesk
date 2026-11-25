@@ -380,7 +380,7 @@ dans `hyprdesk.meta.lua` ; les widgets intégrés `network`, `bluetooth`,
 
 Les modules de la barre sont des widgets placés dans une zone (`left`,
 `center`, `right`) de `hd.bar`, avec `in_bar = true`. Certains sont propres à
-la barre et ne sont pas des widgets : `workspaces`, `window`, `volume`, `brightness` (luminosité : rétroéclairage ou écrans externes par DDC/CI), `tray`,
+la barre et ne sont pas des widgets : `menus` (les menus du shell), `workspaces`, `window`, `volume`, `brightness` (luminosité : rétroéclairage ou écrans externes par DDC/CI), `tray`,
 `desktop`. `hd.bar({ monitor = "primary" })` affiche la barre sur l'écran
 principal.
 

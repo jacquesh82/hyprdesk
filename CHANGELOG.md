@@ -149,6 +149,33 @@ and this project adheres to
 
 ### Changed
 
+- **Bar laid out like the macOS menu bar** (MLG-313), Continuity style:
+  - one even slab, edge to edge: no darker islands under its zones (they
+    stay with « detached groups »), no accent fill on modules that are on
+    (Wi-Fi, Bluetooth — their icon tells the state), no track under the
+    desktop-mode switch, a hover that lightens the bar;
+  - the « hyprdesk » menu shows the hyprdesk logo, in the bar's ink, like
+    the Apple menu;
+  - default layout: menus on the left, the active window in the middle,
+    status icons, Control Centre and the clock at the right end; Session
+    lives in the hyprdesk menu and the workspace numbers are hidden (the
+    Workspaces menu lists them; add the `workspaces` module back from
+    Settings → Bar). A bar still on the former default (clock in the
+    middle) moves to it once at start-up.
+- **The bar menus are a module, `menus`** (MLG-317): placed, moved or removed from
+  Settings → Bar like any other module (never in « More controls »). Every
+  bar gets it once at start-up, first on the left as before; a Continuity
+  bar with an empty middle moves its active window there.
+- The « Window » bar menu becomes **« Windows »** (MLG-315): every open window,
+  grouped by workspace (minimised ones last, the active one ticked), with
+  its application icon; a click focuses it and goes to its workspace
+  (a minimised window comes back to the shown one). The active window's
+  commands stay on its title.
+- Settings open again with **SUPER + SHIFT + D** by default (MLG-316) (SUPER + comma
+  since the macOS shortcuts); `keys.settings` still changes it.
+- Opening Settings no longer changes the bar (MLG-314): modules become draggable only
+  on the Bar page, and without darker islands under the zones.
+
 - The Sound page's mute button reads « Couper le son » / « Rétablir le
   son » (« Mute » / « Unmute »), so that « Couper » is the edit menu's Cut.
 - **The dock is a plugin of its own** (MLG-305): Settings → Dock (Content,

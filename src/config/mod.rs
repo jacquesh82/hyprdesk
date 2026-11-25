@@ -42,9 +42,9 @@ hd.widget("system", {{ id = "system", anchor = "bottom-right" }})
 hd.widget("media", {{ id = "media", anchor = "bottom-left", x = 48 }})
 hd.bar({{
     position = "top", height = 36,
-    left   = {{ "workspaces", "window" }},
-    center = {{ {{ "clock", format = "%a %d %b  %H:%M" }} }},
-    right  = {{ "tray", "media", "network", "bluetooth", "battery", "volume", "notifications", "desktop", "session", "controls" }},
+    left   = {{ "menus" }},
+    center = {{ "window" }},
+    right  = {{ "tray", "media", "network", "bluetooth", "battery", "volume", "desktop", "notifications", "controls", {{ "clock", format = "%a %d %b  %H:%M" }} }},
 }})
 "#
     )

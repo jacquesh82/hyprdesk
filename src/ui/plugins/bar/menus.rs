@@ -47,13 +47,14 @@ const NOTIFICATIONS: &str = "notifications";
 const GUIDE_DIR: &str = "/usr/share/doc/hyprdesk";
 
 /// Titres des menus, dans l'ordre de la barre : clef d'ancre de la carte,
-/// libellé, contenu demandé. « Fenêtre » et « Espaces » ouvrent les menus
-/// qui existent déjà ailleurs (titre de la fenêtre, carte des espaces) ;
-/// « Aide » ferme la barre (HIG MENU-05).
+/// libellé, contenu demandé. « Fenêtres » liste toutes les fenêtres ouvertes
+/// (un clic y mène, sur leur espace) ; « Espaces » ouvre la carte des espaces
+/// de la barre ; « Aide » ferme la barre (HIG MENU-05). Les commandes de la
+/// fenêtre active restent sur son titre.
 pub(in crate::ui) fn titles() -> Vec<(&'static str, &'static str, popover::Request)> {
     vec![
         ("menus:hyprdesk", "hyprdesk", popover::Request::Shell),
-        ("menus:window", "Fenêtre", popover::Request::Window),
+        ("menus:windows", "Fenêtres", popover::Request::Windows),
         ("menus:workspaces", "Espaces", popover::Request::Workspaces),
         ("menus:help", "Aide", popover::Request::Help),
     ]
@@ -646,16 +647,15 @@ mod tests {
         let t = titles();
         assert_eq!(
             t.iter().map(|x| x.1).collect::<Vec<_>>(),
-            ["hyprdesk", "Fenêtre", "Espaces", "Aide"]
+            ["hyprdesk", "Fenêtres", "Espaces", "Aide"]
         );
-        // « hyprdesk » d'abord ; puis les menus de la fenêtre et des espaces,
-        // tels qu'ils existent déjà ailleurs dans la barre ; « Aide » en
-        // dernier (HIG MENU-05).
+        // « hyprdesk » d'abord ; puis la liste des fenêtres et la carte des
+        // espaces ; « Aide » en dernier (HIG MENU-05).
         assert!(matches!(
             t.iter().map(|x| &x.2).collect::<Vec<_>>().as_slice(),
             [
                 popover::Request::Shell,
-                popover::Request::Window,
+                popover::Request::Windows,
                 popover::Request::Workspaces,
                 popover::Request::Help
             ]
