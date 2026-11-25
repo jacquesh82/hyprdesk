@@ -450,10 +450,12 @@ impl App {
         head = head.push(
             container(tooltip(
                 button(
-                    crate::ui::icons::glyph(
+                    // Trait du titre voisin (HIG ICO-12).
+                    crate::ui::icons::glyph_weighted(
                         "window-close",
                         crate::ui::tokens::ts(14.0),
                         self.ink().fg,
+                        self.title_font().weight,
                     )
                     .expect("glyphe de fermeture"),
                 )

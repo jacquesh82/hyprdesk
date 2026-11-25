@@ -1299,17 +1299,19 @@ impl App {
         let entry = |label: &'static str, icon: &'static str, tab: Tab| -> Element<'_, Msg> {
             let active = p.tab == tab;
             let n = count(tab);
-            let glyph: Element<'_, Msg> = super::icons::get(icon)
-                .map(|handle| {
-                    iced::widget::svg(handle)
-                        .width(18)
-                        .height(18)
-                        .style(move |_, _| iced::widget::svg::Style {
-                            color: Some(if active { accent } else { fg }),
-                        })
-                        .into()
-                })
-                .unwrap_or_else(|| Space::new().into());
+            // Trait du libellé voisin, en Medium (HIG ICO-12).
+            let glyph: Element<'_, Msg> =
+                super::icons::get_weighted(icon, iced::font::Weight::Medium)
+                    .map(|handle| {
+                        iced::widget::svg(handle)
+                            .width(18)
+                            .height(18)
+                            .style(move |_, _| iced::widget::svg::Style {
+                                color: Some(if active { accent } else { fg }),
+                            })
+                            .into()
+                    })
+                    .unwrap_or_else(|| Space::new().into());
             let mut content = row![glyph].spacing(10).align_y(Alignment::Center);
             // Tiroir étroit (icônes seules) : la fiole suit l'icône d'un
             // paquet avancé, ou d'un paquet qui contient de l'avancé.

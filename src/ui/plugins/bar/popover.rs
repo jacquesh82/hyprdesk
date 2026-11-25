@@ -2805,7 +2805,8 @@ impl App {
         let font = self.ui_font(iced::font::Weight::Medium);
         column![
             row![
-                self.icon_named(icon, crate::ui::tokens::glyph(16.0), fg)
+                // Trait de la valeur en Medium (HIG ICO-12).
+                self.icon_named_weighted(icon, crate::ui::tokens::glyph(16.0), fg, font.weight)
                     .unwrap_or_else(|| Space::new().into()),
                 slider(0.0..=1.5f32, v.min(1.5), set)
                     .step(0.01f32)

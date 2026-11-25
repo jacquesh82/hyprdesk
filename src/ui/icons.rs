@@ -1,4 +1,5 @@
-//! Jeu d'icônes de l'interface : grille 24 px, trait de 1,7, bouts arrondis.
+//! Jeu d'icônes de l'interface : grille 24 px, trait de 1,7 à côté d'un texte
+//! régulier (plus épais à côté d'un texte plus gras, HIG ICO-12), bouts arrondis.
 //!
 //! C'est LA référence graphique de hyprdesk : toute icône symbolique (barre,
 //! menus, plugins) qu'il sait dessiner est prise ici avant le thème d'icônes,
@@ -56,7 +57,28 @@ fn wifi(bars: usize) -> String {
     out
 }
 
+/// Épaisseur du trait d'un glyphe posé à côté d'un texte de graisse `weight`
+/// (HIG ICO-12) : l'icône suit la graisse du texte voisin. Le texte régulier
+/// garde le trait du jeu, 1,7.
+pub fn stroke(weight: iced::font::Weight) -> f32 {
+    use iced::font::Weight::*;
+    match weight {
+        Thin | ExtraLight | Light => 1.5,
+        Normal => 1.7,
+        Medium => 1.85,
+        Semibold => 2.0,
+        Bold | ExtraBold | Black => 2.2,
+    }
+}
+
+/// Glyphe du jeu au trait du texte régulier.
 pub fn get(name: &str) -> Option<svg::Handle> {
+    get_weighted(name, iced::font::Weight::Normal)
+}
+
+/// Glyphe du jeu au trait de la graisse `weight` du texte voisin
+/// (HIG ICO-12). Les tracés à trait propre (éclair de la batterie) le gardent.
+pub fn get_weighted(name: &str, weight: iced::font::Weight) -> Option<svg::Handle> {
     let name = name.strip_suffix("-symbolic").unwrap_or(name);
     // Icônes des paquets de Réglages sans glyphe propre : le plus proche
     // (MLG-140 : entrées du menu sans icône).
@@ -384,7 +406,7 @@ pub fn get(name: &str) -> Option<svg::Handle> {
         }
         _ => return None,
     };
-    Some(svg::Handle::from_memory(format!(r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{path}</svg>"##).into_bytes()))
+    Some(svg::Handle::from_memory(format!(r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round">{path}</svg>"##, w = stroke(weight)).into_bytes()))
 }
 
 /// Glyphe du jeu tel qu'il se pose dans un bouton : `size` pixels logiques de
@@ -398,7 +420,18 @@ pub(crate) fn glyph<'a, Message>(
     size: f32,
     color: iced::Color,
 ) -> Option<iced::Element<'a, Message>> {
-    get(name).map(|handle| {
+    glyph_weighted(name, size, color, iced::font::Weight::Normal)
+}
+
+/// `glyph` au trait de la graisse `weight` du texte voisin (HIG ICO-12) :
+/// le glyphe d'un titre en semibold prend un trait plus épais.
+pub(crate) fn glyph_weighted<'a, Message>(
+    name: &str,
+    size: f32,
+    color: iced::Color,
+    weight: iced::font::Weight,
+) -> Option<iced::Element<'a, Message>> {
+    get_weighted(name, weight).map(|handle| {
         svg(handle)
             .width(size)
             .height(size)
@@ -671,6 +704,45 @@ mod tests {
             assert!(src(n).contains("M4 4l16 16"), "{n}");
         }
         assert_ne!(src("audio-volume-low"), src("audio-volume-medium"));
+    }
+
+    /// HIG ICO-12 : le trait suit la graisse du texte voisin ; le texte
+    /// régulier garde celui du jeu, octet pour octet.
+    #[test]
+    fn trait_selon_la_graisse() {
+        use iced::font::Weight;
+        let src = |n: &str, w: Weight| match get_weighted(n, w).map(|h| h.data().clone()) {
+            Some(iced::advanced::svg::Data::Bytes(b)) => String::from_utf8(b.to_vec()).unwrap(),
+            other => panic!("{n} : {other:?}"),
+        };
+        let bytes = |h: Option<svg::Handle>| match h.map(|h| h.data().clone()) {
+            Some(iced::advanced::svg::Data::Bytes(b)) => b.to_vec(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            bytes(get("window-close")),
+            bytes(get_weighted("window-close", Weight::Normal))
+        );
+        assert!(src("window-close", Weight::Normal).contains(r#"stroke-width="1.7""#));
+        assert!(src("window-close", Weight::Medium).contains(r#"stroke-width="1.85""#));
+        assert!(src("window-close", Weight::Semibold).contains(r#"stroke-width="2""#));
+        assert!(src("window-close", Weight::Bold).contains(r#"stroke-width="2.2""#));
+        // L'éclair de la batterie garde son trait propre.
+        assert!(
+            src("battery-level-100-charging-symbolic", Weight::Bold)
+                .contains(r#"stroke-width="1""#)
+        );
+        let mut last = 0.0;
+        for w in [
+            Weight::Light,
+            Weight::Normal,
+            Weight::Medium,
+            Weight::Semibold,
+            Weight::Bold,
+        ] {
+            assert!(stroke(w) > last, "{w:?}");
+            last = stroke(w);
+        }
     }
 
     /// HIG ICO-06 : les commandes des menus du bureau, de la fenêtre et du

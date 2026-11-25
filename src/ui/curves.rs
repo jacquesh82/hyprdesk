@@ -278,10 +278,12 @@ impl App {
                             // Retrait : le glyphe du jeu (HIG ICO-07), estompé tant que la
                             // courbe est employée.
                             button(
-                                crate::ui::icons::glyph(
+                                // Trait du titre voisin (HIG ICO-12).
+                                crate::ui::icons::glyph_weighted(
                                     "window-close",
                                     crate::ui::tokens::ts(14.0),
                                     if users.is_empty() { self.ink().fg } else { dim },
+                                    self.title_font().weight,
                                 )
                                 .expect("glyphe de fermeture"),
                             )

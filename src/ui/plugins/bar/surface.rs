@@ -24,6 +24,10 @@ use crate::ui::plugins::bar::popover::{self, Request};
 use crate::ui::{App, IconImg, Msg, color, format_now};
 use crate::{control, hypr, widgets};
 
+/// Graisse des libellés de la barre, que suivent les glyphes voisins
+/// (HIG ICO-12).
+const LABEL_WEIGHT: iced::font::Weight = iced::font::Weight::Medium;
+
 pub const BAR_NAMESPACE: &str = "hyprdesk-bar";
 
 /// Écran de barre désignant l'écran principal (`hd.bar({ monitor = "primary" })`).
@@ -2078,7 +2082,7 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts_label(size))
             .color(c)
-            .font(self.ui_font(iced::font::Weight::Medium))
+            .font(self.ui_font(LABEL_WEIGHT))
             .wrapping(iced::widget::text::Wrapping::None)
             .into()
     }
@@ -2207,7 +2211,13 @@ impl App {
                     return container(label).padding([0, 8]).into();
                 }
                 let content: Element<'a, Msg> =
-                    match self.icon_named(MENU_CHEVRON, (size * 0.75).round(), ink) {
+                    // Le chevron suit la graisse du titre (HIG ICO-12).
+                    match self.icon_named_weighted(
+                        MENU_CHEVRON,
+                        (size * 0.75).round(),
+                        ink,
+                        iced::font::Weight::Semibold,
+                    ) {
                         Some(chevron) => row![label, chevron]
                             .spacing(4)
                             .align_y(Alignment::Center)
@@ -2344,7 +2354,8 @@ impl App {
                     _ => String::new(),
                 };
                 let mut content = row![
-                    self.icon_named(volume_icon(self.volume), isz, fg)
+                    // Trait du libellé voisin (HIG ICO-12).
+                    self.icon_named_weighted(volume_icon(self.volume), isz, fg, LABEL_WEIGHT)
                         .unwrap_or_else(|| self.label(crate::i18n::tr("Vol."), size, fg))
                 ]
                 .spacing(6)
@@ -2369,7 +2380,7 @@ impl App {
                     return Space::new().into();
                 };
                 let mut content = row![
-                    self.icon_named("display-brightness-symbolic", isz, fg)
+                    self.icon_named_weighted("display-brightness-symbolic", isz, fg, LABEL_WEIGHT)
                         .unwrap_or_else(|| self.label("☀".to_string(), size, fg))
                 ]
                 .spacing(6)
@@ -2636,9 +2647,13 @@ impl App {
                                 bar,
                                 alpha,
                                 row![
-                                    self.icon_named(icon, isz * 0.85, fg).unwrap_or_else(
-                                        || self.label(crate::i18n::tr("▶"), size, fg)
-                                    ),
+                                    // Trait du libellé voisin (HIG ICO-12).
+                                    self.icon_named_weighted(icon, isz * 0.85, fg, LABEL_WEIGHT)
+                                        .unwrap_or_else(|| self.label(
+                                            crate::i18n::tr("▶"),
+                                            size,
+                                            fg
+                                        )),
                                     self.label(
                                         if compact {
                                             String::new()
@@ -2722,7 +2737,10 @@ impl App {
                         if let Some(icon) = r
                             .icon
                             .as_deref()
-                            .and_then(|name| self.icon_named(name, isz, tint))
+                            // Trait du libellé voisin (HIG ICO-12).
+                            .and_then(|name| {
+                                self.icon_named_weighted(name, isz, tint, LABEL_WEIGHT)
+                            })
                         {
                             content = content.push(icon);
                             has_icon = true;

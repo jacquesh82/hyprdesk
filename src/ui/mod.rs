@@ -409,6 +409,15 @@ struct Rot {
 /// suggestions 64), en pixels logiques (HIG ICO-01).
 const LAUNCHER_ICON_MAX: f32 = 64.0;
 
+/// Nom nu d'une icône que le jeu de hyprdesk dessine, quand `want_icon` la
+/// prend dans le jeu plutôt que dans le thème : symbolique ou propre à
+/// hyprdesk, même demandée comme icône d'application.
+fn builtin_glyph(name: &str) -> Option<&str> {
+    let bare = name.strip_prefix(APP_ICON_KEY).unwrap_or(name);
+    let symbolic = bare.ends_with("-symbolic") || bare.starts_with("hyprdesk-");
+    (symbolic && icons::get(bare).is_some()).then_some(bare)
+}
+
 /// Taille en pixels réels à chercher dans le thème : la taille affichée à
 /// l'échelle entière de l'écran (HIG ICO-01).
 fn icon_px(display: f32, scale: u16) -> u16 {
@@ -3811,6 +3820,26 @@ impl App {
         }
     }
 
+    /// `icon_named` à côté d'un texte de graisse `weight` (HIG ICO-12) : un
+    /// glyphe du jeu prend le trait de cette graisse, une icône du thème
+    /// reste telle quelle. Le glyphe résolu par `want_icon` reste la clé :
+    /// la variante, de contenu stable, est rastérisée une fois par iced.
+    pub(super) fn icon_named_weighted<'a>(
+        &self,
+        name: &str,
+        size: f32,
+        tint: Color,
+        weight: iced::font::Weight,
+    ) -> Option<Element<'a, Msg>> {
+        let builtin = builtin_glyph(name).filter(|_| {
+            weight != iced::font::Weight::Normal && self.named_icons.contains_key(name)
+        });
+        match builtin {
+            Some(bare) => icons::glyph_weighted(bare, size, tint, weight),
+            None => self.icon_named(name, size, tint),
+        }
+    }
+
     /// Échelle entière des icônes d'après les écrans (HIG ICO-01).
     pub(super) fn icon_scale(&self) -> u16 {
         icon_scale_of(self.monitors.iter().map(|m| f64::from(m.scale)))
@@ -3865,9 +3894,7 @@ impl App {
         // Icône d'interface : le jeu de hyprdesk d'abord (cohérence graphique),
         // sans passer par le thème d'icônes ; jugée sur le nom nu, même
         // demandée comme icône d'application (sans masque alors).
-        let bare = name.strip_prefix(APP_ICON_KEY).unwrap_or(name);
-        let symbolic = bare.ends_with("-symbolic") || bare.starts_with("hyprdesk-");
-        if symbolic && icons::get(bare).is_some() {
+        if let Some(bare) = builtin_glyph(name) {
             let img = self.builtin_icon(bare);
             self.named_icons.insert(name.to_string(), img);
             return Task::none();
@@ -7182,6 +7209,21 @@ mod regression_tests {
         let _ = app.want_icon(&key);
         assert!(app.named_icons.contains_key(&key), "glyphe aussitôt");
         assert!(app.icon_named(&key, 16.0, Color::WHITE).is_some());
+        // HIG ICO-12 : la variante graissée d'un glyphe résolu ne crée aucune
+        // entrée ; un nom non résolu reste absent, quelle que soit la graisse.
+        let (n, v) = (app.named_icons.len(), app.vectors.len());
+        let semibold = iced::font::Weight::Semibold;
+        assert!(
+            app.icon_named_weighted(&key, 16.0, Color::WHITE, semibold)
+                .is_some()
+        );
+        assert_eq!((app.named_icons.len(), app.vectors.len()), (n, v));
+        assert!(
+            app.icon_named_weighted("go-up-symbolic", 16.0, Color::WHITE, semibold)
+                .is_none()
+        );
+        assert_eq!(builtin_glyph(&key), Some("system-file-manager-symbolic"));
+        assert_eq!(builtin_glyph("window-close"), None, "nom de thème");
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -98,7 +98,8 @@ impl App {
         let beat = pulse.unwrap_or(1.0);
         let ink = design::mix(fg, on_accent, on).scale_alpha(beat);
         let orb = container(
-            self.icon_named(glyph, 16.0, ink)
+            // Trait du libellé voisin, en Medium (HIG ICO-12).
+            self.icon_named_weighted(glyph, 16.0, ink, iced::font::Weight::Medium)
                 .unwrap_or_else(|| Space::new().into()),
         )
         .center_x(32)
