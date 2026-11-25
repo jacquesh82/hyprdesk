@@ -264,6 +264,10 @@ desktop, shows an “Undo removal” bubble: while it is there, it puts the item
 back in its place. It follows the notification timeout, and only exists when
 hyprdesk shows notifications.
 
+A file on the desktop takes the icon of its type from the icon theme. If
+the theme has none, it takes the icon of the application that opens it,
+with its extension (`MD`, `ZIP`…) in a capsule along the bottom.
+
 ## The desktop and its modes
 
 When your tiled windows fill the screen, press `SUPER + D` twice (dock, then

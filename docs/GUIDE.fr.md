@@ -266,6 +266,10 @@ une bulle « Annuler le retrait » : tant qu'elle est là, elle remet l'élémen
 à sa place. Elle suit le délai des notifications, et n'existe que lorsque
 hyprdesk affiche les notifications.
 
+Un fichier posé sur le bureau prend l'icône de son type dans le thème
+d'icônes. Si le thème n'en a pas, il prend celle de l'application qui
+l'ouvre, son extension (`MD`, `ZIP`…) en capsule sur le bas.
+
 ## Le bureau et ses modes
 
 En tuiles, les fenêtres couvrent l'écran : `SUPER + D` (deux fois : le dock,

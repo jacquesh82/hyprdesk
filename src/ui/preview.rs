@@ -561,6 +561,39 @@ impl Preview {
             });
             app.class_imgs.insert(icon.id.clone(), app.icon_imgs[index]);
         }
+        // Fichier dont le thème n'a pas l'icône du type (HIG ICO-11) : l'icône
+        // de l'éditeur, son extension en capsule. Écrit en dur : l'aperçu ne
+        // lit ni la base MIME ni `xdg-mime`.
+        let file = "notes.md"; // nom de fichier, pas à traduire
+        let editor = cfg
+            .icons
+            .iter()
+            .position(|d| d.id == "code")
+            .expect("éditeur d'aperçu");
+        cfg.icons.push(IconDef {
+            origin: Origin::User,
+            sel: Selector::default(),
+            id: "apercu-notes".into(),
+            label: Some(file.into()),
+            kind: config::IconKind::Path("/tmp/notes.md".into()),
+            icon: None,
+            pos: Some((0, 4)),
+        });
+        // L'éditeur d'abord ; sans icône dans le thème de l'hôte, la première
+        // application qui en a une, pour que la capsule se pose sur une image.
+        let image = app.icons[editor]
+            .image
+            .clone()
+            .or_else(|| app.icons.iter().find_map(|r| r.image.clone()));
+        // Image non masquée, comme un fichier réel (`handle_for`).
+        let handle = app.handle_for(image.as_deref());
+        app.icons.push(launch::Resolved {
+            label: file.into(),
+            image,
+            command: "xdg-open /tmp/notes.md".into(),
+            badge: Some("MD".into()),
+        });
+        app.icon_imgs.push(handle);
         for name in bar::STATIC_ICONS {
             let icon = app.builtin_icon(name);
             app.named_icons.insert(name.to_string(), icon);
@@ -1510,7 +1543,7 @@ impl Preview {
             ];
             // Une icône par classe, résolue aussitôt (les scènes d'aperçu
             // n'exécutent pas les tâches) ; à défaut, une image de bureau.
-            let stand_ins: Vec<IconImg> = self.app.icon_imgs.to_vec();
+            let stand_ins = self.app_stand_ins();
             for (i, c) in self.app.clients.clone().iter().enumerate() {
                 let p = crate::launch::icon_for_class(&c.class, &self.app.apps, None, 48);
                 let img = match self.app.app_handle_for(p.as_deref()) {
@@ -3369,6 +3402,18 @@ impl Preview {
         m
     }
 
+    /// Images d'application du bureau d'aperçu, prêtes à tenir lieu
+    /// d'icône de fenêtre : le fichier à capsule (HIG ICO-11) n'en est pas.
+    fn app_stand_ins(&self) -> Vec<IconImg> {
+        self.app
+            .icon_imgs
+            .iter()
+            .zip(&self.app.icons)
+            .filter(|(_, r)| r.badge.is_none())
+            .map(|(img, _)| *img)
+            .collect()
+    }
+
     fn demo_controls(&mut self) {
         let Some(dashboard) = self.app.popover.as_mut().and_then(|p| p.dashboard.as_mut()) else {
             return;
@@ -3515,8 +3560,9 @@ impl Preview {
             });
             // Une icône plausible pour chaque classe (les images de bureau
             // résolues de l'aperçu, prises en rond).
-            if !self.app.icon_imgs.is_empty() {
-                let img = self.app.icon_imgs[i % self.app.icon_imgs.len()];
+            let stand_ins = self.app_stand_ins();
+            if !stand_ins.is_empty() {
+                let img = stand_ins[i % stand_ins.len()];
                 self.app.class_imgs.entry(class.into()).or_insert(img);
             }
         }

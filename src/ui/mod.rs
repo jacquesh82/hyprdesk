@@ -6898,6 +6898,38 @@ impl App {
                 self.title_font(),
             ),
         };
+        // Fichier dont le thème n'a pas l'icône du type : l'icône de
+        // l'application qui l'ouvre, son extension en capsule sur le bas
+        // (HIG ICO-11). La capsule grossit et s'estompe avec l'image.
+        let img = match self.icons.get(idx).and_then(|r| r.badge.clone()) {
+            Some(badge) => {
+                let (bg, ink) = (color(th.bg, 0.85 * alpha), color(th.fg, alpha));
+                iced::widget::stack![
+                    img,
+                    container(
+                        container(
+                            text(badge)
+                                .font(self.ui_font(iced::font::Weight::Semibold))
+                                .size(crate::ui::tokens::ts(10.0))
+                                .color(ink)
+                                .wrapping(iced::widget::text::Wrapping::None),
+                        )
+                        .padding([1, 6])
+                        .style(move |_| container::Style {
+                            background: Some(bg.into()),
+                            border: Border::default().rounded(10),
+                            ..Default::default()
+                        }),
+                    )
+                    .width(size)
+                    .height(size)
+                    .align_x(Alignment::Center)
+                    .align_y(Alignment::End)
+                ]
+                .into()
+            }
+            None => img,
+        };
         let label = self
             .icons
             .get(idx)
