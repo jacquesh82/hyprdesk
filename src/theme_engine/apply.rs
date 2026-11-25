@@ -584,6 +584,10 @@ fn commit_file(path: &Path, content: &str) -> Result<()> {
 /// Mode `hot` : `hyprctl keyword` pour chaque ligne du fragment, sans
 /// écrire de fichier.
 fn hot_apply(resolved: &Resolved, pack_dir: Option<&Path>) -> String {
+    // Les tests ne touchent pas à la session Hyprland qui les lance.
+    if cfg!(test) {
+        return "aucun".to_string();
+    }
     match targets::hot_keywords(resolved, pack_dir) {
         Ok(keywords) => {
             let mut ok = 0;

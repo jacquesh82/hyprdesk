@@ -228,7 +228,8 @@ pub(crate) fn config_dir(app: &str) -> PathBuf {
 /// Lance la commande de rechargement d'une cible (vide : rien), sans attendre
 /// son résultat.
 pub(crate) fn run_reload(cmd: &str) {
-    if cmd.trim().is_empty() {
+    // Les tests ne rechargent rien dans la session qui les lance.
+    if cmd.trim().is_empty() || cfg!(test) {
         return;
     }
     let _ = std::process::Command::new("sh").args(["-c", cmd]).status();

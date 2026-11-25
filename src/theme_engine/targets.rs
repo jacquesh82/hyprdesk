@@ -1128,6 +1128,11 @@ pub fn reload_generic(declared: &str) -> Result<Reload> {
 /// (`org.gnome.desktop.interface accent-color`), lue par libadwaita récent
 /// et les applications GNOME — le canal standard sans service de portail.
 pub fn run_reload(r: Reload, resolved: &Resolved) -> std::result::Result<Option<String>, String> {
+    // Les tests n'agissent pas sur la session qui les lance : un `hyprctl
+    // reload` y relit la config Hyprland, un `gsettings` change le thème GTK.
+    if cfg!(test) {
+        return Ok(None);
+    }
     let variant = resolved.variant.as_str();
     match r {
         Reload::None => Ok(None),
