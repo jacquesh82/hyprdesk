@@ -1280,7 +1280,7 @@ impl App {
         iced::Rectangle::new(iced::Point::new(x, y), iced::Size::new(w, h))
     }
 
-    fn bar_item_is_launcher(&self, item: &BarItem) -> bool {
+    pub(in crate::ui) fn bar_item_is_launcher(&self, item: &BarItem) -> bool {
         matches!(item, BarItem::Widget(id) if self.cfg.widgets.iter().any(|w| &w.id == id && matches!(w.kind, WidgetKind::Launcher)))
     }
 

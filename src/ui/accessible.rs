@@ -9,7 +9,8 @@ use crate::ui::App;
 use crate::ui::plugins::dock::{PopupContent, Slot};
 
 impl App {
-    /// Une `Frame` par barre et par dock, dans l'ordre des écrans.
+    /// Une `Frame` par barre et par dock, dans l'ordre des écrans ; en
+    /// Graphite, le dock logé dans la barre est une `Frame` dans la sienne.
     pub(super) fn a11y_surfaces(&self) -> Vec<Node> {
         let mut out = Vec::new();
         if let Some(def) = self.cfg.bar.as_ref() {
@@ -27,15 +28,27 @@ impl App {
                 } else {
                     &def.zones
                 };
-                out.push(
-                    Node::new(Role::Frame, tr("Barre des menus"))
-                        .key(frame)
-                        .children(zones.iter().flatten().map(|item| {
-                            button(self.bar_item_label(item)).key(
-                                crate::ui::plugins::bar::surface::bar_item_key(item).to_string(),
-                            )
-                        })),
-                );
+                // Graphite : le dock logé dans la barre y est une `Frame`,
+                // à la place de son module, comme le dock seul.
+                let embedded = self
+                    .monitors
+                    .iter()
+                    .find(|m| m.name == monitor)
+                    .filter(|m| self.launcher_in_bar(&m.name));
+                // La surface active est la fenêtre de premier niveau : la
+                // barre, quand son dock tient le clavier (`Window:Activate`
+                // part d'elle, pas de la `Frame` imbriquée).
+                let mut bar = Node::new(Role::Frame, tr("Barre des menus")).key(frame);
+                if embedded.is_some() && self.dock_focus(monitor).is_some() {
+                    bar = bar.state(State::Active);
+                }
+                out.push(bar.children(zones.iter().flatten().map(|item| {
+                    match embedded.filter(|_| self.bar_item_is_launcher(item)) {
+                        Some(m) => self.dock_a11y(m, false),
+                        None => button(self.bar_item_label(item))
+                            .key(crate::ui::plugins::bar::surface::bar_item_key(item).to_string()),
+                    }
+                })));
             }
         }
         let mut docks: Vec<&str> = self
@@ -48,36 +61,7 @@ impl App {
             let Some(m) = self.monitors.iter().find(|m| m.name == monitor) else {
                 continue;
             };
-            // Dock au clavier : la surface active, la case choisie au focus
-            // (le rang compte toutes les cases, comme la sélection).
-            let focus = self
-                .launcher_runtime
-                .focus
-                .as_ref()
-                .filter(|(name, _)| name == monitor)
-                .map(|(_, i)| *i);
-            let mut frame = Node::new(Role::Frame, tr("Dock")).key(format!("dock:{monitor}"));
-            if focus.is_some() {
-                frame = frame.state(State::Active);
-            }
-            out.push(
-                frame.children(self.dock_slots(m).into_iter().enumerate().filter_map(
-                    |(k, slot)| match slot {
-                        Slot::Item(i) => {
-                            let b = button(self.dock_item_name(&i.popup)).key(i.key.clone());
-                            Some(if focus == Some(k) {
-                                b.state(State::Focused)
-                            } else {
-                                b
-                            })
-                        }
-                        Slot::Label(ws) => {
-                            Some(Node::new(Role::Label, ws.clone()).key(format!("ws:{ws}")))
-                        }
-                        Slot::Separator => None,
-                    },
-                )),
-            );
+            out.push(self.dock_a11y(m, true));
         }
         if let Some(l) = self.launcher_a11y() {
             out.push(l);
@@ -89,6 +73,43 @@ impl App {
             out.push(w);
         }
         out
+    }
+
+    /// Le dock de l'écran `m`, seul ou logé dans la barre : ses cases en
+    /// `PushButton`, les titres d'espace en `Label` ; au clavier, la surface
+    /// active (`top` : surface de premier niveau ; logé dans la barre, c'est
+    /// elle) et la case choisie au focus.
+    fn dock_a11y(&self, m: &crate::hypr::Monitor, top: bool) -> Node {
+        let monitor = m.name.as_str();
+        let focus = self.dock_focus(monitor);
+        let mut frame = Node::new(Role::Frame, tr("Dock")).key(format!("dock:{monitor}"));
+        if top && focus.is_some() {
+            frame = frame.state(State::Active);
+        }
+        frame.children(self.dock_slots(m).into_iter().enumerate().filter_map(
+            |(k, slot)| match slot {
+                Slot::Item(i) => {
+                    let b = button(self.dock_item_name(&i.popup)).key(i.key.clone());
+                    Some(if focus == Some(k) {
+                        b.state(State::Focused)
+                    } else {
+                        b
+                    })
+                }
+                Slot::Label(ws) => Some(Node::new(Role::Label, ws.clone()).key(format!("ws:{ws}"))),
+                Slot::Separator => None,
+            },
+        ))
+    }
+
+    /// Case du dock de l'écran `monitor` choisie au clavier (le rang compte
+    /// toutes les cases, comme la sélection).
+    fn dock_focus(&self, monitor: &str) -> Option<usize> {
+        self.launcher_runtime
+            .focus
+            .as_ref()
+            .filter(|(name, _)| name == monitor)
+            .map(|(_, i)| *i)
     }
 
     /// Lanceur ouvert : surface active, champ de recherche, et en mode
@@ -475,6 +496,86 @@ mod tests {
     push button « Toutes les applications »
     push button « Réglages »
 "
+        );
+    }
+
+    /// Graphite : le dock logé dans la barre est une `Frame` dans la sienne, à
+    /// la place de son module ; au clavier, la barre est la surface active et
+    /// la case choisie au focus.
+    #[test]
+    fn dock_loge_dans_la_barre() {
+        use crate::a11y::model::{Role, State};
+        let (mut app, _) =
+            App::boot_with(PathBuf::from("/tmp/hyprdesk-a11y-tests/config.lua"), true);
+        app.monitors = vec![crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 1440,
+            height: 900,
+            workspace: "1".into(),
+            base: String::new(),
+            focused: true,
+            scale: 1.0,
+            reserved: (0.0, 0.0, 0.0, 0.0),
+            x: 0.0,
+            y: 0.0,
+        }];
+        let loaded = crate::config::lua::load_source(
+            "hd.bar({ style = 'graphite' })",
+            "test.lua",
+            Path::new("/tmp"),
+        )
+        .unwrap();
+        app.cfg = Arc::new(loaded.config);
+        {
+            let l = &mut Arc::make_mut(&mut app.cfg).general.launcher;
+            l.pinned = vec!["firefox".into()];
+            l.show_settings = true;
+            l.show_assistant = false;
+        }
+        app.test_mode(DesktopMode::FullDesktop);
+        let _ = app.sync_bars();
+        let _ = app.sync_launchers();
+        assert!(app.launcher_in_bar("A"));
+        let surfaces = app.a11y_surfaces();
+        assert_eq!(surfaces.len(), 1, "pas de dock à part : {surfaces:?}");
+        let dock = |surfaces: &[crate::a11y::model::Node]| {
+            surfaces[0]
+                .children
+                .iter()
+                .find(|n| n.role == Role::Frame && n.name == "Dock")
+                .cloned()
+                .expect("le dock dans la barre")
+        };
+        let d = dock(&surfaces);
+        assert_eq!(d.key, "dock:A");
+        assert!(d.children.iter().any(|n| n.name == "firefox"));
+        assert!(!surfaces[0].states.contains(State::Active));
+        // Le module du dock y prend la place de son bouton : un nœud par
+        // module, une seule `Frame`.
+        let items = app.cfg.bar.as_ref().unwrap().zones.iter().flatten().count();
+        assert_eq!(surfaces[0].children.len(), items);
+        assert_eq!(
+            surfaces[0]
+                .children
+                .iter()
+                .filter(|n| n.role == Role::Frame)
+                .count(),
+            1
+        );
+        // Au clavier : la barre, fenêtre de premier niveau, est la surface
+        // active ; la case choisie au focus.
+        let _ = app.launcher_grab("A", true);
+        let surfaces = app.a11y_surfaces();
+        assert!(surfaces[0].states.contains(State::Active));
+        let d = dock(&surfaces);
+        assert!(!d.states.contains(State::Active));
+        assert_eq!(
+            d.children
+                .iter()
+                .filter(|n| n.states.contains(State::Focused))
+                .count(),
+            1
         );
     }
 
