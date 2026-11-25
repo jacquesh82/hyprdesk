@@ -77,7 +77,7 @@ rqrr = "0.11"
 # téléphone, socket SSDP partagée (SO_REUSEPORT) du récepteur DIAL.
 qrcode = { version = "0.14", default-features = false }
 socket2 = { version = "0.6", features = ["all"] }
-toml = "0.9"
+toml = "1.2"
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
