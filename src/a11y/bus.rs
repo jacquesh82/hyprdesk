@@ -25,7 +25,12 @@ const ROOT_INTERFACES: [&str; 2] = ["org.a11y.atspi.Accessible", "org.a11y.atspi
 /// Tout nœud hors racine sert `Action`, sans action `NActions` à 0 : un nœud
 /// gardé dont l'action vient ou part (« Fenêtre », une entrée grisée) ne
 /// change pas d'interfaces, que libatspi garde en cache.
-const NODE_INTERFACES: [&str; 2] = ["org.a11y.atspi.Accessible", "org.a11y.atspi.Action"];
+/// `Component` aussi, partout : la place d'un nœud est celle de sa surface.
+const NODE_INTERFACES: [&str; 3] = [
+    "org.a11y.atspi.Accessible",
+    "org.a11y.atspi.Action",
+    "org.a11y.atspi.Component",
+];
 /// Nom de l'action par défaut, celui que GTK et Qt donnent au clic.
 const CLICK: &str = "click";
 /// Événements d'objet (structure, propriétés, états).
@@ -74,6 +79,34 @@ impl Shared {
 
     fn at(&self, i: usize) -> Ref {
         Ref::new(&self.name, &Tree::path(i))
+    }
+
+    /// Place du nœud `i` : la sienne, sinon celle de son plus proche ancêtre
+    /// qui en a une ; inconnue : zéro.
+    fn extents(&self, mut i: usize) -> [i32; 4] {
+        let tree = self.tree();
+        while let Some(n) = tree.get(i) {
+            if let Some(e) = n.extents {
+                return e;
+            }
+            match n.parent {
+                Some(p) => i = p,
+                None => break,
+            }
+        }
+        [0; 4]
+    }
+
+    /// La surface du nœud `i` : son ancêtre directement sous l'application.
+    fn window(&self, mut i: usize) -> usize {
+        let tree = self.tree();
+        while let Some(p) = tree.get(i).and_then(|n| n.parent) {
+            if p == 0 {
+                break;
+            }
+            i = p;
+        }
+        i
     }
 }
 
@@ -258,6 +291,86 @@ impl Actions {
         }
         let key = self.shared.tree().get(self.idx).map(|n| n.key.clone());
         key.is_some_and(super::request)
+    }
+}
+
+/// La place d'un nœud : `org.a11y.atspi.Component`. Coordonnées de l'écran
+/// (0), de la surface (1) ou du parent (2), en pixels logiques.
+struct Component {
+    idx: usize,
+    shared: Arc<Shared>,
+}
+
+/// Couches AT-SPI (`AtspiComponentLayer`) : une fenêtre, un contrôle.
+const LAYER_WIDGET: u32 = 3;
+const LAYER_WINDOW: u32 = 7;
+
+impl Component {
+    fn extents_in(&self, coord_type: u32) -> [i32; 4] {
+        let [x, y, w, h] = self.shared.extents(self.idx);
+        // Le verrou de l'arbre est rendu avant d'être repris par `extents`.
+        let parent = self.shared.tree().get(self.idx).and_then(|n| n.parent);
+        let origin = match coord_type {
+            1 => Some(self.shared.window(self.idx)),
+            2 => parent,
+            _ => None,
+        }
+        .filter(|&o| o != 0)
+        .map_or([0; 4], |o| self.shared.extents(o));
+        [x - origin[0], y - origin[1], w, h]
+    }
+}
+
+#[zbus::interface(name = "org.a11y.atspi.Component")]
+impl Component {
+    /// Un seul argument `(iiii)`, comme libatspi le lit : un tuple nu serait
+    /// rendu en quatre arguments.
+    fn get_extents(&self, coord_type: u32) -> ((i32, i32, i32, i32),) {
+        let [x, y, w, h] = self.extents_in(coord_type);
+        ((x, y, w, h),)
+    }
+
+    fn get_position(&self, coord_type: u32) -> (i32, i32) {
+        let [x, y, ..] = self.extents_in(coord_type);
+        (x, y)
+    }
+
+    fn get_size(&self) -> (i32, i32) {
+        let [.., w, h] = self.shared.extents(self.idx);
+        (w, h)
+    }
+
+    fn contains(&self, x: i32, y: i32, coord_type: u32) -> bool {
+        let [ex, ey, w, h] = self.extents_in(coord_type);
+        x >= ex && y >= ey && x < ex + w && y < ey + h
+    }
+
+    /// L'enfant au point : les enfants n'ont que la place de leur surface,
+    /// aucun ne se distingue ; nul, pour qu'un client qui descend s'arrête.
+    fn get_accessible_at_point(&self, _x: i32, _y: i32, _coord_type: u32) -> Ref {
+        Ref::null()
+    }
+
+    fn get_layer(&self) -> u32 {
+        if self.shared.tree().get(self.idx).and_then(|n| n.parent) == Some(0) {
+            LAYER_WINDOW
+        } else {
+            LAYER_WIDGET
+        }
+    }
+
+    #[zbus(name = "GetMDIZOrder")]
+    fn get_mdi_z_order(&self) -> i16 {
+        0
+    }
+
+    /// Le focus suit le clavier de hyprdesk, pas le lecteur d'écran.
+    fn grab_focus(&self) -> bool {
+        false
+    }
+
+    fn get_alpha(&self) -> f64 {
+        1.0
     }
 }
 
@@ -455,6 +568,7 @@ impl Handle {
         }
         for id in removed {
             // Absent du serveur ou retiré : plus servi dans les deux cas.
+            let _ = server.remove::<Component, _>(Tree::path(id)).await;
             let _ = server.remove::<Actions, _>(Tree::path(id)).await;
             let _ = server.remove::<Accessible, _>(Tree::path(id)).await;
             self.served.remove(&id);
@@ -530,6 +644,7 @@ impl Handle {
         let server = self.conn.object_server();
         let _ = server.remove::<Application, _>(ROOT_PATH).await;
         for &id in &self.served {
+            let _ = server.remove::<Component, _>(Tree::path(id)).await;
             let _ = server.remove::<Actions, _>(Tree::path(id)).await;
             let _ = server.remove::<Accessible, _>(Tree::path(id)).await;
         }
@@ -567,7 +682,7 @@ pub async fn serve(conn: zbus::Connection, root: &Node) -> zbus::Result<Handle> 
     })
 }
 
-/// Sert le nœud `id` : `Accessible`, et `Action` hors de la racine.
+/// Sert le nœud `id` : `Accessible`, et hors de la racine `Action` et `Component`.
 async fn serve_node(
     server: &zbus::ObjectServer,
     id: usize,
@@ -583,18 +698,24 @@ async fn serve_node(
             },
         )
         .await?;
-    if id != 0
-        && let Err(e) = server
-            .at(
-                path.as_str(),
-                Actions {
-                    idx: id,
-                    shared: shared.clone(),
-                },
-            )
-            .await
-    {
+    if id == 0 {
+        return Ok(());
+    }
+    let actions = Actions {
+        idx: id,
+        shared: shared.clone(),
+    };
+    let component = Component {
+        idx: id,
+        shared: shared.clone(),
+    };
+    let r = match server.at(path.as_str(), actions).await {
+        Ok(_) => server.at(path.as_str(), component).await.map(|_| ()),
+        Err(e) => Err(e),
+    };
+    if let Err(e) = r {
         // Pas de nœud à moitié servi : il ne serait jamais retiré.
+        let _ = server.remove::<Actions, _>(path.as_str()).await;
         let _ = server.remove::<Accessible, _>(path.as_str()).await;
         return Err(e);
     }
@@ -686,11 +807,13 @@ pub(super) mod tests {
         let me = app.unique_name().unwrap().to_string();
         let root = Node::new(Role::Application, "hyprdesk")
             .child(
-                Node::new(Role::Frame, "Dock").child(
-                    Node::new(Role::PushButton, "Firefox")
-                        .state(State::Focusable)
-                        .action(),
-                ),
+                Node::new(Role::Frame, "Dock")
+                    .at(10.0, 800.0, 1420.0, 80.0)
+                    .child(
+                        Node::new(Role::PushButton, "Firefox")
+                            .state(State::Focusable)
+                            .action(),
+                    ),
             )
             .child(Node::new(Role::Frame, "Barre des menus"));
         let mut h = start(app, &root).await.unwrap();
@@ -844,6 +967,90 @@ pub(super) mod tests {
             .deserialize()
             .unwrap();
         assert!(!second, "une seule action");
+
+        // Component : la place de la surface, l'enfant prend celle du dock.
+        const COMP: &str = "org.a11y.atspi.Component";
+        let comp = |path: String, m: &'static str, body: (u32,)| {
+            let at = at.clone();
+            let me = me.clone();
+            async move {
+                at.call_method(Some(me.as_str()), path.as_str(), Some(COMP), m, &body)
+                    .await
+                    .unwrap()
+            }
+        };
+        let ext = |path: String, coord: u32| {
+            let r = comp(path, "GetExtents", (coord,));
+            async move {
+                let m = r.await;
+                assert_eq!(m.body().signature().to_string(), "(iiii)");
+                let (r,): ((i32, i32, i32, i32),) = m.body().deserialize().unwrap();
+                r
+            }
+        };
+        assert_eq!(ext(dock.clone(), 0).await, (10, 800, 1420, 80));
+        assert_eq!(ext(firefox.clone(), 0).await, (10, 800, 1420, 80));
+        assert_eq!(
+            ext(firefox.clone(), 1).await,
+            (0, 0, 1420, 80),
+            "dans sa surface"
+        );
+        let layer = |path: String| {
+            let at = at.clone();
+            let me = me.clone();
+            async move {
+                let r: u32 = at
+                    .call_method(
+                        Some(me.as_str()),
+                        path.as_str(),
+                        Some(COMP),
+                        "GetLayer",
+                        &(),
+                    )
+                    .await
+                    .unwrap()
+                    .body()
+                    .deserialize()
+                    .unwrap();
+                r
+            }
+        };
+        assert_eq!(layer(dock.clone()).await, LAYER_WINDOW);
+        assert_eq!(layer(firefox.clone()).await, LAYER_WIDGET);
+        let inside: bool = at
+            .call_method(
+                Some(me.as_str()),
+                dock.as_str(),
+                Some(COMP),
+                "Contains",
+                &(20i32, 810i32, 0u32),
+            )
+            .await
+            .unwrap()
+            .body()
+            .deserialize()
+            .unwrap();
+        assert!(inside);
+        let outside: bool = at
+            .call_method(
+                Some(me.as_str()),
+                dock.as_str(),
+                Some(COMP),
+                "Contains",
+                &(5i32, 810i32, 0u32),
+            )
+            .await
+            .unwrap()
+            .body()
+            .deserialize()
+            .unwrap();
+        assert!(!outside);
+        let (x, y): (i32, i32) = comp(firefox.clone(), "GetPosition", (0,))
+            .await
+            .body()
+            .deserialize()
+            .unwrap();
+        assert_eq!((x, y), (10, 800));
         let mut requests = Box::pin(crate::a11y::requests());
         let done: bool = act(dock.clone(), "DoAction")
             .await

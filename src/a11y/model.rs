@@ -150,6 +150,10 @@ pub struct Node {
     /// Le nœud a une action par défaut (« click », `org.a11y.atspi.Action`) :
     /// `DoAction` renvoie sa clé à l'interface, qui l'exécute comme un clic.
     pub action: bool,
+    /// Place à l'écran, en pixels logiques (x, y, largeur, hauteur) : celle
+    /// des surfaces ; un nœud sans place prend celle de son plus proche
+    /// ancêtre qui en a une (`Component.GetExtents`).
+    pub extents: Option<[i32; 4]>,
 }
 
 impl Node {
@@ -162,7 +166,14 @@ impl Node {
             states: StateSet::shown(),
             children: Vec::new(),
             action: false,
+            extents: None,
         }
+    }
+
+    /// Place de la surface à l'écran (`Node::extents`).
+    pub fn at(mut self, x: f32, y: f32, w: f32, h: f32) -> Node {
+        self.extents = Some([x, y, w, h].map(|v| v.round() as i32));
+        self
     }
 
     /// Le nœud s'active comme un clic (`DoAction`).
@@ -236,6 +247,8 @@ pub struct Flat {
     pub index_in_parent: i32,
     /// Une action par défaut (`Node::action`).
     pub action: bool,
+    /// Place à l'écran (`Node::extents`).
+    pub extents: Option<[i32; 4]>,
 }
 
 /// Numéros des objets, stables d'un arbre à l'autre pour une même clé ; la
@@ -334,6 +347,7 @@ fn push(
         children: Vec::new(),
         index_in_parent: index,
         action: n.action,
+        extents: n.extents,
     });
     let mut seen = std::collections::HashSet::new();
     for (k, c) in n.children.iter().enumerate() {

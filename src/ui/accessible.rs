@@ -41,6 +41,9 @@ impl App {
                 // barre, quand son dock tient le clavier (`Window:Activate`
                 // part d'elle, pas de la `Frame` imbriquée).
                 let mut bar = Node::new(Role::Frame, tr("Barre des menus")).key(frame);
+                if let Some((x, y, w, h)) = self.bar_extents(bar_id) {
+                    bar = bar.at(x, y, w, h);
+                }
                 if embedded.is_some() && self.dock_focus(monitor).is_some() {
                     bar = bar.state(State::Active);
                 }
@@ -116,6 +119,23 @@ impl App {
         let monitor = m.name.as_str();
         let focus = self.dock_focus(monitor);
         let mut frame = Node::new(Role::Frame, tr("Dock")).key(format!("dock:{monitor}"));
+        // Logé dans la barre, il prend la place de la sienne.
+        if top
+            && let Some(l) = self
+                .launcher_surfaces
+                .values()
+                .find(|l| l.monitor == monitor)
+        {
+            let t = l.thickness as f32;
+            let (mw, mh) = (m.width as f32, m.height as f32);
+            let (x, y, w, h) = match l.position {
+                crate::config::LauncherPosition::Bottom => (m.x, m.y + mh - t, mw, t),
+                crate::config::LauncherPosition::Top => (m.x, m.y, mw, t),
+                crate::config::LauncherPosition::Left => (m.x, m.y, t, mh),
+                crate::config::LauncherPosition::Right => (m.x + mw - t, m.y, t, mh),
+            };
+            frame = frame.at(x, y, w, h);
+        }
         if top && focus.is_some() {
             frame = frame.state(State::Active);
         }
@@ -135,6 +155,15 @@ impl App {
                 Slot::Separator => None,
             },
         ))
+    }
+
+    /// Place de la barre `id` à l'écran : celle que sa forme lui donne
+    /// (`bar_roi` : bord, marges, longueur, alignement), sur son écran.
+    fn bar_extents(&self, id: iced::window::Id) -> Option<(f32, f32, f32, f32)> {
+        let b = self.bar_surfaces.get(&id)?;
+        let m = self.monitors.iter().find(|m| m.name == b.monitor)?;
+        let r = self.bar_roi(b);
+        Some((m.x + r.x, m.y + r.y, r.width, r.height))
     }
 
     /// Case du dock de l'écran `monitor` choisie au clavier (le rang compte
@@ -222,9 +251,17 @@ impl App {
                     .map(|(_, l)| tr(l).to_string())
             })
             .unwrap_or_else(|| tr("Menu").to_string());
+        let mut menu = Node::new(Role::Menu, name);
+        if let Some(m) = self
+            .bar_surfaces
+            .get(&p.bar)
+            .and_then(|b| self.monitors.iter().find(|m| m.name == b.monitor))
+            && let Some((x, y, w, h)) = p.screen_rect(m)
+        {
+            menu = menu.at(x, y, w, h);
+        }
         Some(
-            Node::new(Role::Menu, name)
-                .key(p.key.clone())
+            menu.key(p.key.clone())
                 .state(State::Active)
                 .children(menu_items(entries, p.sub, p.keyed, p.keyed_sub, false)),
         )
@@ -765,6 +802,11 @@ mod tests {
         };
         let d = dock(&surfaces);
         assert_eq!(d.key, "dock:A");
+        // Sa place : celle de la barre, sur l'écran de 1440 px.
+        assert!(d.extents.is_none());
+        let [x, _, w, h] = surfaces[0].extents.expect("place de la barre");
+        assert_eq!((x, w), (0, 1440));
+        assert!(h > 0);
         assert!(d.children.iter().any(|n| n.name == "firefox"));
         assert!(!surfaces[0].states.contains(State::Active));
         // Le module du dock y prend la place de son bouton : un nœud par

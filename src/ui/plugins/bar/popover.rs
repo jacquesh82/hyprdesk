@@ -757,6 +757,25 @@ mod tests {
         );
     }
 
+    /// HIG ACC-01 : la place d'un menu à l'écran, pour `Component.GetExtents`
+    /// ; à côté d'une barre verticale, aucune.
+    #[test]
+    fn place_du_menu_a_l_ecran() {
+        let mut app = open_submenu_menu(12.0);
+        let m = app.monitors[0].clone();
+        let p = app.popover.as_mut().unwrap();
+        let (x, y, w, h) = p.screen_rect(&m).expect("sous une barre horizontale");
+        // La surface porte l'ombre de la carte : elle déborde d'autant.
+        assert!(
+            x >= m.x - SHADOW && y >= m.y - SHADOW && w > 0.0 && h > 0.0,
+            "{x} {y}"
+        );
+        assert!(x + w <= m.x + m.width as f32 + 2.0 * SHADOW);
+        p.attached = None;
+        p.position = BarPosition::Left;
+        assert!(p.screen_rect(&m).is_none());
+    }
+
     /// Ouvert depuis la barre au clavier : la première entrée est choisie.
     #[test]
     fn menu_ouvert_au_clavier_choisit_sa_premiere_entree() {
@@ -1186,6 +1205,31 @@ impl Popover {
                 (0, 0, v, self.left as i32)
             }
         }
+    }
+
+    /// Place de la surface sur l'écran `m` (x, y, largeur, hauteur), en
+    /// pixels logiques : ses marges, comptées depuis le bord de l'écran
+    /// rattachée, depuis la zone que les barres réservent sinon. À côté
+    /// d'une barre verticale, la hauteur du module n'est pas retenue : aucune.
+    pub(in crate::ui) fn screen_rect(
+        &self,
+        m: &crate::hypr::Monitor,
+    ) -> Option<(f32, f32, f32, f32)> {
+        let (top, _, bottom, left) = self.margin();
+        let (rl, rt, _, rb) = m.reserved;
+        let (w, h) = (self.size.width, self.size.height);
+        let (x, y) = match (self.attached, self.position) {
+            // Ancrée à droite : la marge de gauche ne compte pas.
+            (Some(_), BarPosition::Right) => (m.x + m.width as f32 - w, m.y + top as f32),
+            (Some(_), _) => (m.x + left as f32, m.y + top as f32),
+            (None, BarPosition::Top) => (m.x + rl + left as f32, m.y + rt + top as f32),
+            (None, BarPosition::Bottom) => (
+                m.x + rl + left as f32,
+                m.y + m.height as f32 - rb - bottom as f32 - h,
+            ),
+            (None, _) => return None,
+        };
+        Some((x, y, w, h))
     }
 
     pub(in crate::ui) fn closing(&self) -> bool {
