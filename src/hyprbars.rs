@@ -74,14 +74,19 @@ pub fn load(path: &Path) -> Result<(), String> {
 }
 
 /// Décharge le plugin (rien s'il ne l'est pas).
-pub fn unload(path: &Path) -> Result<(), String> {
+/// `blur_optimizations` : la valeur réglée de
+/// `decoration.blur.new_optimizations`, rendue au déchargement (le
+/// chargement la coupe, voir `buttons_lua`).
+pub fn unload(path: &Path, blur_optimizations: bool) -> Result<(), String> {
     if !loaded() {
         return Ok(());
     }
     let r = hyprctl(&["plugin", "unload", &path.display().to_string()])?;
     if r == "ok" || !loaded() {
         // Boutons partis avec le plugin : la prochaine pose doit avoir lieu.
-        let _ = hyprpanel_core::ipc::eval(&format!("{MARK} = nil"));
+        let _ = hyprpanel_core::ipc::eval(&format!(
+            "{MARK} = nil\npcall(hl.config, {{ decoration = {{ blur = {{ new_optimizations = {blur_optimizations} }} }} }})"
+        ));
         Ok(())
     } else {
         Err(crate::tr!("Hyprbars : {r}", r = r))
@@ -129,6 +134,13 @@ pub fn buttons_lua(
     // restent posés.
     let style = format!(
         "pcall(hl.config, {{ plugin = {{ hyprbars = {{ bar_height = {HEIGHT}, bar_text_size = 11, bar_padding = 8, bar_button_padding = 2, bar_color = \"rgb({bg})\", [\"col.text\"] = \"rgb({fg})\" }} }} }})"
+    );
+    // Flou optimisé de Hyprland coupé tant que la barre est là : son flou
+    // mis en cache se peint par-dessus la barre de la fenêtre active (barre
+    // « partie de la fenêtre »), qui montrait un rectangle translucide dans
+    // un liseré à sa couleur. Rendu au déchargement (`unload`).
+    let style = format!(
+        "{style}\npcall(hl.config, {{ decoration = {{ blur = {{ new_optimizations = false }} }} }})"
     );
     // Le plugin n'a pas de retrait : une seule pose par cycle. Une relecture
     // de la config efface ses boutons et l'état Lua (donc la marque) ; le
@@ -238,6 +250,8 @@ mod tests {
         let lua = buttons_lua("/opt/hyprdesk", fg, bg, ["✕", "☐"]);
         let lines: Vec<&str> = lua.lines().filter(|l| l.contains("add_button")).collect();
         assert_eq!(lines.len(), 3);
+        // Le flou optimisé, qui se peignait sur la barre, est coupé.
+        assert!(lua.contains("new_optimizations = false"), "{lua}");
         // De droite à gauche : fermer, agrandir, réduire.
         assert!(lines[0].contains("hl.dsp.window.close()"));
         assert!(lines[1].contains(r#"mode = \"maximized\""#));

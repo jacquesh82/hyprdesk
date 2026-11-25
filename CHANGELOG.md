@@ -216,6 +216,12 @@ and this project adheres to
 
 ### Fixed
 
+- **Hyprbars title bar in one colour on the active window** (MLG-325):
+  Hyprland's optimised blur painted itself over a bar that is « part of the
+  window », leaving a translucent rectangle inside a rim of the bar colour.
+  hyprdesk turns `decoration.blur.new_optimizations` off while Hyprbars is
+  loaded and gives the configured value back when it unloads.
+
 - **Theme engine** (MLG-266): a pack's `[wallpaper]` was documented but
   silently ignored — it is now applied (per variant too) when the pack or its
   variant changes; `[fonts]`, `[icons]`, `[cursors]`, `[sounds]` took the

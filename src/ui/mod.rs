@@ -1764,6 +1764,16 @@ impl App {
         self.hyprbars_on = want;
         let custom = self.cfg.general.hyprbars_path.clone();
         let (fg, bg) = (self.cfg.general.theme.fg, self.cfg.general.theme.bg);
+        // Flou optimisé réglé (Hyprland : activé par défaut), rendu au
+        // déchargement de Hyprbars.
+        let blur_optimizations = !matches!(
+            self.cfg
+                .general
+                .fx
+                .options
+                .get("decoration.blur.new_optimizations"),
+            Some(crate::tiling::OptValue::Bool(false))
+        );
         // Étiquettes posées après le chargement (la règle doit exister) ;
         // toutes retirées au déchargement.
         let (tag, untag): (Vec<String>, Vec<String>) = if want {
@@ -1789,7 +1799,7 @@ impl App {
                         r
                     } else {
                         crate::hyprbars::set_tags(&[], &untag, false);
-                        crate::hyprbars::unload(&path)
+                        crate::hyprbars::unload(&path, blur_optimizations)
                     }
                 })
                 .await
