@@ -189,7 +189,7 @@ Référence verte : `9b19a8e` (porte complète `scripts/verify.sh` passée le 24
 
 | Écart | Objet | Nature | Effort | Confiance | Statut | Commit | Remarque |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| AUDIT-A11Y | Audit du code face à la page HIG « Accessibility » (`../00b-fondations-structure.md`, première partie), écrit dans `../audit-accessibilite.md` ; ses écarts `ACC-xx` entrent ensuite au registre, en fin de phase 1 | audit | M | — | fait | c9ad686 | `../audit-accessibilite.md` écrit à `be6cf05` : 10 écarts prouvés (1 ABSENT, 5 ÉCART, 4 PISTE), classés par importance, ajoutés en fin de phase 1 ; convention des cotes : 1 pt = 1 px logique ; ACC-01 (lecteur d'écran) est coté L et se traite sans dépendance nouvelle (`zbus` déjà directe) |
+| AUDIT-A11Y | Audit du code face à la page HIG « Accessibility » (`../00b-fondations-structure.md`, première partie), écrit dans `../audit-accessibilite.md`, devenu la troisième partie de `../00b-fondations-structure.md` à la clôture ; ses écarts `ACC-xx` entrent ensuite au registre, en fin de phase 1 | audit | M | — | fait | c9ad686 | `../audit-accessibilite.md` écrit à `be6cf05` : 10 écarts prouvés (1 ABSENT, 5 ÉCART, 4 PISTE), classés par importance, ajoutés en fin de phase 1 ; convention des cotes : 1 pt = 1 px logique ; ACC-01 (lecteur d'écran) est coté L et se traite sans dépendance nouvelle (`zbus` déjà directe) |
 
 ## Phase 0 — Corrections rapides
 

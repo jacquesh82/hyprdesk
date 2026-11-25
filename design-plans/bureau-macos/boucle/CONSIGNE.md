@@ -91,7 +91,7 @@ La règle complète est dans `.zcode/hig-boucle/prochain.py` (`--regles` l'affic
    | ENT | `08-entrees.md` |
    | PRES | `05-presentation.md` |
    | STA | `06-status.md` |
-   | ACC | `audit-accessibilite.md` |
+   | ACC | `00b-fondations-structure.md`, troisième partie (d'abord `audit-accessibilite.md`) |
 
 2. **Revérifier la preuve à HEAD**. Les numéros de ligne du plan ont été relevés à `00f6d69` : ils sont indicatifs. Retrouver le code par son contenu. Si l'écart n'existe plus : statut `sans objet` avec la raison, sans toucher au code. Si la preuve est inexacte mais l'écart réel : corriger et noter l'inexactitude en remarque.
 3. **Concevoir en réutilisant** les propriétaires existants : `src/ui/tokens.rs`, `src/ui/design.rs`, `src/ui/menu.rs`, les cartes de `src/ui/plugins/bar/popover.rs`, `src/ui/panel.rs`, les plugins et le catalogue des widgets. Ne pas créer de primitive parallèle. Respecter :
@@ -159,7 +159,7 @@ g. **Fin de plan** : si `python3 -I .zcode/hig-boucle/prochain.py --bilan` ne co
 
 ## 10. Ce que les premières itérations ont appris
 
-- L'audit accessibilité est fait : `design-plans/bureau-macos/audit-accessibilite.md`, dix écarts `ACC-01` à `ACC-10`, en fin de phase 1 au registre. `ACC-01` (aucune arborescence d'accessibilité : pont AT-SPI à construire au-dessus de `zbus`, déjà dépendance directe) est le plus gros écart du plan : il demande un plan en étapes.
+- L'audit accessibilité est fait : troisième partie de `design-plans/bureau-macos/00b-fondations-structure.md` (d'abord `audit-accessibilite.md`, rattaché à la clôture), dix écarts `ACC-01` à `ACC-10`, en fin de phase 1 au registre. `ACC-01` (aucune arborescence d'accessibilité : pont AT-SPI à construire au-dessus de `zbus`, déjà dépendance directe) est le plus gros écart du plan : il demande un plan en étapes.
 - `SYS-01` est fait. `ICO-03` reste à traiter, en couloir A : il lui reste le repli sur l'icône de la classe de l'application (voir sa ligne au registre, annotée par l'itération 1).
 - Un écart peut exiger de dépasser sa colonne Correction quand la règle de la HIG qu'il cite l'impose (ainsi `FON-02` : la bulle critique a pris le ton « attention », l'accent restant réservé à la sélection et aux actions). Noter le dépassement en remarque.
 - `boucle/guide-auditeur.md` est la consigne de l'audit initial, archivée pour référence. Ses chemins (`/tmp/hig_notes/`, `spec-<famille>.md`), son commit (`6c5be247`) et son « dépôt » (le worktree, lecture seule) sont à adapter avant toute réutilisation.

@@ -1,18 +1,57 @@
 # Bureau macOS d'après la HIG — spécifications, audit de hyprdesk et plan d'action
 
-> Proposition de design du 23 novembre 2026. **Rien n'est implémenté** : ce dossier ne modifie ni le code, ni `DESIGN.md`, ni la configuration.
+> Proposition de design du 23 novembre 2026, exécutée du 23 au 25 novembre 2026 par la boucle HIG (cinq couloirs, registre `boucle/avancement.md`). Le code est sur la branche d'intégration `hig/plan-d-action`, que seul le propriétaire publie ; `main` n'en porte encore rien. Les documents de famille décrivent le code audité, pas le code actuel : l'état de chaque écart est au registre.
 > Référentiel : Human Interface Guidelines (HIG) d'Apple, export Markdown officiel relevé le 23 novembre 2026, 95 pages.
 > Code audité : commit `00f6d69`, arbre de travail avec huit fichiers modifiés non commités.
 
+## Bilan de la boucle
+
+Clôture du 25 novembre 2026. Intégration `hig/plan-d-action` à `dde91af` à l'ouverture de la clôture, dernier commit de code `35c66f8` (ACC-01) ; le commit de clôture ne touche que des documents. 147 itérations au journal. Détail, limites et suites : `plan-d-action.md`, section 7.
+
+| Registre | Écarts |
+| --- | --- |
+| Traités (`fait`) | 151, plus l'audit accessibilité lui-même |
+| Sans objet | 1 : `SEL-04`, déjà conforme à la revérification |
+| Bloqués | 1 : `TYP-09`, décision du propriétaire attendue |
+| Hors plan | 54 : recommandations non retenues, non traitées |
+| Identité | 16 : choix assumés, signalés, jamais corrigés |
+| Total | 223 : les 213 de l'audit initial et les 10 de l'audit accessibilité |
+
+| Phase | Traités | Sans objet | Bloqués |
+| --- | --- | --- | --- |
+| Préalable : audit accessibilité (D7) | l'audit | — | — |
+| 0 — Corrections rapides | 26 | — | — |
+| 1 — Notifications, puis `ACC-01` à `ACC-10` | 25 | — | — |
+| 2 — Menus du shell et clavier | 21 | — | — |
+| 3 — Réglages | 20 | — | — |
+| 4 — Repères cohérents | 27 | 1 | 1 |
+| 5 — Bureau, interactions et accompagnement | 32 | — | — |
+
+| Couloir | Sujets | Traités | Sans objet | Bloqués | Hors plan | Identité |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | Notifications, shell, matière, accessibilité, icônes d'application | 56 et l'audit | — | — | 11 | 8 |
+| B | Réglages, saisie, glisser-déposer, annulation, accompagnement | 38 | 1 | — | 24 | 4 |
+| C | Menus, entrées, clavier | 27 | — | — | 12 | 3 |
+| D | Typographie, écriture, présentation, glyphes | 29 | — | 1 | 7 | 1 |
+| E | `ACC-01` seul : pont AT-SPI, en neuf étapes | 1 | — | — | — | — |
+
+**Décisions D1 à D7** : approuvées le 23 novembre 2026 et toutes en place (`plan-d-action.md`, section 4).
+
+**Reste au propriétaire** :
+- `TYP-09`, texte de la barre et échelle du texte : la HIG veut que les titres de la barre ne suivent pas la taille du texte, l'accessibilité veut qu'ils la suivent. Recommandation de la boucle : garder l'échelle du texte dans la barre (aujourd'hui le cas).
+- Questions relevées en marge des écarts, sans bloquer leur traitement : l'entrée « Documentation » du menu Aide reste inactive tant que le paquet n'installe pas le guide dans `/usr/share/doc/hyprdesk/` (`MENU-05`) ; montrer les réglages aussi dans les résultats généraux du lanceur, sans préfixe (`PAT-13`) ; à 640 px, le titre « Aide » passe sous l'horloge centrée, collision antérieure de la zone amont (`MENU-05`).
+
+**À vérifier en session réelle** (la boucle n'a ni lancé le démon ni touché la session) : gestes à fonction exécutés par Hyprland (`ENT-03`) ; remise du clavier à la barre et aux surfaces (`ENT-01`, `ENT-02`) ; visite guidée, sans clavier propre et absente de l'aperçu (`DAT-11`) ; bulle d'annulation, absente sans le service de notifications de hyprdesk (`PAT-12`) ; SUPER+Espace pris à une configuration existante (`ENT-09`) ; lecteur d'écran Orca et limites d'`ACC-01` ; dock et barre révélés en plein écran (`PAT-01`, `PAT-03`) ; contraste du verrouillage sur le vrai fond (`ACC-02`, `ACC-03`). Liste complète : `plan-d-action.md`, section 7.
+
 ## Par où commencer
 
-1. `plan-d-action.md` : lecture d'ensemble, sept chantiers, cinq phases, décisions à prendre.
-2. Un document par famille, chacun en deux parties : la spécification d'après la HIG, puis ce que hyprdesk fait aujourd'hui, ses écarts et l'action proposée pour chacun.
+1. `plan-d-action.md` : lecture d'ensemble, sept chantiers, cinq phases, décisions, bilan d'exécution (section 7).
+2. Un document par famille, chacun en deux parties (trois pour `00b`, l'audit accessibilité en troisième) : la spécification d'après la HIG, puis ce que hyprdesk fait aujourd'hui, ses écarts et l'action proposée pour chacun.
 
 | Document | Famille | Écarts |
 | --- | --- | --- |
 | `00a-fondations-matiere.md` | Matière, couleur, mouvement, principes de design | 14 |
-| `00b-fondations-structure.md` | Typographie, écriture, disposition générale | 19 |
+| `00b-fondations-structure.md` | Typographie, écriture, disposition générale ; accessibilité en troisième partie | 19 + 10 |
 | `00c-fondations-iconographie.md` | Icônes et images | 16 |
 | `01a-patterns-shell.md` | Patterns : comportements du shell | 21 |
 | `01b-patterns-donnees.md` | Patterns : données, documents, accompagnement | 20 |
@@ -69,9 +108,9 @@ Chaque auditeur a tenté de falsifier ses propres écarts avant de les rendre ; 
 - **Propriétaires** : `tokens.rs` (jetons de typographie, verre, états, mouvement) ; `design.rs` (rayons et surfaces) ; `menu.rs` (composant de menu unique, commit `00f6d69`) ; `plugins/bar/popover.rs` et `popover/continuity.rs` (cartes de la barre et centre de contrôle) ; `toasts.rs` et `src/notifications.rs` (notifications) ; `panel.rs` (tiroir des Réglages) ; `context.rs` (menus contextuels).
 - **Exceptions explicites** : les 16 IDENTITÉ de l'index. Les principales : les quatre styles de barre ; le verre sur les widgets et le tiroir des Réglages ; le mouvement sur le survol du Dock ; le décor animé de Panorama et de LYRA ; le volume des Réglages ; l'absence de « Quitter » dans le menu du Dock ; les thèmes d'icônes système pour les applications.
 
-## Les écarts à traiter en premier
+## Les écarts jugés prioritaires par l'audit
 
-Classés par preuve, impact, portée et coût. Le détail et les preuves complètes sont dans le document de chaque famille.
+Tous traités. Classés par preuve, impact, portée et coût. Le détail et les preuves complètes sont dans le document de chaque famille.
 
 | # | Problème | Preuve | Changement proposé | Portée | Confiance |
 | --- | --- | --- | --- | --- | --- |
@@ -84,13 +123,13 @@ Classés par preuve, impact, portée et coût. Le détail et les preuves complè
 | FON-01 | La barre et les widgets ne se densifient pas sur un fond clair | `src/config/model.rs:739-753` ; aucun des 7 packs | Densification adaptative par défaut | Barre, widgets | Haute |
 | PAT-08, PAT-11, STA-01 | Un lancement ou une commande qui échoue ne laisse qu'une ligne de journal | `src/ui/mod.rs:3588-3596` ; `src/ui/plugins/dock/lifecycle.rs:212-227` | Un retour nommant l'opération et sa cause | Dock, lanceur, recherche | Haute |
 
-## À traiter en premier
+## Premier écart traité
 
 **L'icône de l'application dans la bulle de notification (SYS-01).** Toute notification affiche la même cloche générique de 18 px, bien que le serveur relève déjà l'icône envoyée et l'entrée de bureau de l'application. Deux audits indépendants (système et icônes) le constatent, la correction tient en une journée, et elle est visible à chaque notification.
 
-## Décisions à prendre
+## Décisions
 
-Sept décisions appartiennent au propriétaire du projet et conditionnent le plan : `plan-d-action.md`, section 4.
+Sept décisions du propriétaire conditionnaient le plan ; approuvées le 23 novembre 2026, elles sont en place : `plan-d-action.md`, section 4.
 
 ## Méthode
 
@@ -110,7 +149,7 @@ Sept décisions appartiennent au propriétaire du projet et conditionnent le pla
 
 ## Hors périmètre
 
-- **L'accessibilité n'a pas été auditée.** La page HIG qui la décrit figure dans `00b`, mais la méthode d'audit l'exclut sauf demande explicite. Les réglages existants (contraste renforcé, mouvement et transparence réduits, échelle de texte) ont néanmoins été relevés dans `00a`.
+- **L'accessibilité**, exclue de l'audit initial, a été auditée ensuite sur décision du propriétaire (D7) : troisième partie de `00b-fondations-structure.md`, dix écarts `ACC-01` à `ACC-10`, tous traités.
 - **Les bugs de fonctionnement, l'architecture, les performances et la qualité du code** ne sont pas traités.
 - **Les zones non ouvertes** par les auditeurs sont signalées en tête de leur audit : `layouts.rs`, `src/windows.rs`, `src/apptheme/`, la forme du lanceur.
 - **Le rendu** : les listes « À vérifier sur un rendu » de chaque audit attendent une session réelle.

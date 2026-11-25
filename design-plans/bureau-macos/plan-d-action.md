@@ -2,7 +2,7 @@
 
 Écrit contre : commit `00f6d69`, arbre de travail du 23 novembre 2026 avec huit fichiers modifiés non commités.
 
-> Proposition : rien n'est implémenté. Les identifiants (`SYS-01`, `MENU-02`…) renvoient au tableau d'écarts du document de famille correspondant, où se trouvent la règle HIG, les lignes de code et l'action complète.
+> Proposition du 23 novembre 2026, exécutée du 23 au 25 novembre 2026 par la boucle HIG : bilan en section 7, état de chaque écart au registre `boucle/avancement.md`. Les sections 1 à 6 décrivent le plan tel qu'il a été écrit, contre le code audité. Les identifiants (`SYS-01`, `MENU-02`…) renvoient au tableau d'écarts du document de famille correspondant, où se trouvent la règle HIG, les lignes de code et l'action complète.
 
 ## 1. Lecture d'ensemble
 
@@ -165,19 +165,19 @@ Le chantier E. `ICO-04` et `ICO-05` attendent la décision D4.
 
 Le chantier G, puis l'accompagnement du chantier F.
 
-## 4. Décisions à prendre
+## 4. Décisions du propriétaire
 
-Ces sept décisions changent l'identité ou les habitudes du bureau. Elles appartiennent au propriétaire du projet ; aucune n'est prise par ce plan.
+Ces sept décisions changent l'identité ou les habitudes du bureau. Elles appartiennent au propriétaire du projet, qui les a approuvées le 23 novembre 2026 ; elles sont acquises et toutes en place (dernière colonne).
 
-| # | Décision | Ce qui en dépend |
-| --- | --- | --- |
-| D1 | **Un menu « hyprdesk » en tête de la barre.** Il ajoute un élément à la zone amont du style Continuité et change la silhouette de la barre. Le constat d'absence doit aussi être consigné dans `DESIGN.md`. | `MENU-01`, `MENU-04`, `MENU-05` |
-| D2 | **Les raccourcis par défaut.** SUPER+Espace pour le lanceur et SUPER+Tab pour le commutateur suivent macOS ; aujourd'hui SUPER+R ouvre le lanceur et SUPER+Tab l'aperçu. Changer un défaut déplace les habitudes des utilisateurs actuels. | `ENT-06`, `ENT-09`, `PAT-14` |
-| D3 | **Le commutateur « Configuration avancée ».** La HIG réserve les commutateurs au corps de la fenêtre. Le déplacer change l'en-tête du tiroir. | `SEL-03` |
-| D4 | **Un masque unique pour les icônes d'application.** Il donnerait aux icônes la courbure des cartes de l'interface, au prix de la forme du thème d'icônes installé — aujourd'hui un choix d'identité. SmartUI devrait alors générer un carré plein cadre. | `ICO-04`, `ICO-05`, `ICO-16` |
-| D5 | **Un paquet de réglages Notifications.** Autorisation par application et style de remise : trois jours au moins, et une nouvelle page aux Réglages. | `SYS-03`, `PAT-07` |
-| D6 | **L'assistant de premier démarrage.** Le rendre quittable à toute étape et reporter sa personnalisation va contre une première prise en main guidée. | `DAT-01`, `DAT-07`, `DAT-11` |
-| D7 | **Auditer l'accessibilité.** La page HIG qui la décrit est spécifiée mais son application dans le code n'a pas été vérifiée. | Nouvel audit |
+| # | Décision | Ce qui en dépend | En place |
+| --- | --- | --- | --- |
+| D1 | **Un menu « hyprdesk » en tête de la barre.** Il ajoute un élément à la zone amont du style Continuité et change la silhouette de la barre. Le constat d'absence doit aussi être consigné dans `DESIGN.md`. | `MENU-01`, `MENU-04`, `MENU-05` | Menus « hyprdesk », « Fenêtre », « Espaces », « Aide » en tête de la barre, dans tous les styles (`MENU-01` `41aa821`, `MENU-05` `c4a203e`, `MENU-04` `aca0a24`) |
+| D2 | **Les raccourcis par défaut.** SUPER+Espace pour le lanceur et SUPER+Tab pour le commutateur suivent macOS ; aujourd'hui SUPER+R ouvre le lanceur et SUPER+Tab l'aperçu. Changer un défaut déplace les habitudes des utilisateurs actuels. | `ENT-06`, `ENT-09`, `PAT-14` | SUPER+Espace le lanceur, SUPER+Tab le commutateur, CONTROL+Flèche haut la vue d'ensemble, SUPER+virgule les Réglages ; une combinaison déjà prise se signale en conflit (`ENT-06`, `ENT-09`, `PAT-14`, `2544219`) |
+| D3 | **Le commutateur « Configuration avancée ».** La HIG réserve les commutateurs au corps de la fenêtre. Le déplacer change l'en-tête du tiroir. | `SEL-03` | Le commutateur a sa propre ligne dans la vue de détail du tiroir (`SEL-03`, `5d46b85`) |
+| D4 | **Un masque unique pour les icônes d'application.** Il donnerait aux icônes la courbure des cartes de l'interface, au prix de la forme du thème d'icônes installé — aujourd'hui un choix d'identité. SmartUI devrait alors générer un carré plein cadre. | `ICO-04`, `ICO-05`, `ICO-16` | Masque unique en rectangle arrondi à 22,37 % du côté, tuile de remplacement comprise (`ICO-04`, `aae6b06`) ; SmartUI génère un carré plein cadre (`ICO-05`, `2367db5`) ; `ICO-16` reste un choix d'identité, le masque se posant par-dessus le thème |
+| D5 | **Un paquet de réglages Notifications.** Autorisation par application et style de remise : trois jours au moins, et une nouvelle page aux Réglages. | `SYS-03`, `PAT-07` | Réglages → Notifications : autorisation demandée dans la bulle, style de remise par application (`PAT-02`, `PAT-07`, `SYS-03`, `56c3e6a`) |
+| D6 | **L'assistant de premier démarrage.** Le rendre quittable à toute étape et reporter sa personnalisation va contre une première prise en main guidée. | `DAT-01`, `DAT-07`, `DAT-11` | Premier démarrage court, en cinq étapes, quittable à toute étape ; les dix étapes restent au bouton « Assistant » (`DAT-01`, `175a6a4`) |
+| D7 | **Auditer l'accessibilité.** La page HIG qui la décrit est spécifiée mais son application dans le code n'a pas été vérifiée. | Nouvel audit | Audit écrit (`c9ad686`, troisième partie de `00b-fondations-structure.md`) ; ses dix écarts traités, dont le pont AT-SPI d'`ACC-01` |
 
 Une adaptation est acquise et ne demande pas de décision : **Super tient le rôle de Command** sur Hyprland.
 
@@ -185,7 +185,7 @@ Une adaptation est acquise et ne demande pas de décision : **Super tient le rô
 
 - **Les 89 PISTE non citées ci-dessus.** La HIG ne fait que les recommander ; elles restent documentées dans les tableaux de chaque famille.
 - **Les 16 choix d'identité.** Signalés, jamais corrigés.
-- **L'accessibilité** (décision D7).
+- **L'accessibilité** n'était pas dans le plan initial : la décision D7 l'a fait auditer, puis traiter (section 7).
 - **Les zones non ouvertes** par les auditeurs : `layouts.rs`, `src/windows.rs`, `src/apptheme/`, la forme du lanceur.
 - **Le rendu.** Chaque audit se termine par une liste « À vérifier sur un rendu » : lisibilité du pack « Verre » sur un papier peint clair, bulles au-dessus du verrouillage, rangées de résultats à texte long, cibles du centre de contrôle au trackpad. Ces points demandent une session réelle.
 - **Ce que la HIG ne spécifie pas** : la taille du Dock, les résultats de Spotlight, le comportement de Stage Manager et de Mission Control.
@@ -197,3 +197,72 @@ Chaque écart cité dans ce plan devient un plan d'implémentation autonome, ré
 1. La phase 0 en entier : elle ne demande aucune des sept décisions.
 2. Le chantier A, dès que D5 est tranchée.
 3. Le chantier B, dès que D1 et D2 sont tranchées.
+
+## 7. Bilan d'exécution
+
+Clôture de la boucle HIG, 25 novembre 2026. Cinq couloirs (A à E) ont traité le registre `boucle/avancement.md` en 147 itérations ; chaque lot de code a passé la porte complète `scripts/verify.sh` avant sa publication. Branche d'intégration `hig/plan-d-action` : `dde91af` à l'ouverture de la clôture ; dernier commit de code `35c66f8` (`ACC-01`, étapes 8b et 9) ; le commit de clôture ne touche que des documents. La branche n'est pas publiée sur le distant et `main` n'en porte encore rien : c'est au propriétaire de la publier.
+
+### Par statut
+
+| Statut | Écarts | Lesquels |
+| --- | --- | --- |
+| Traités (`fait`) | 151 | Toutes les phases ; plus l'audit accessibilité lui-même (`AUDIT-A11Y`) |
+| Sans objet | 1 | `SEL-04` : revérifié, chaque pastille du centre de contrôle dit déjà son état sans la couleur |
+| Bloqués | 1 | `TYP-09` : décision du propriétaire attendue (ci-dessous) |
+| Hors plan | 54 | Recommandations de la HIG non retenues (section 5) |
+| Identité | 16 | Choix assumés, signalés, jamais corrigés |
+| **Total** | **223** | Les 213 de l'audit initial et les 10 de l'audit accessibilité |
+
+Les phases ont compté plus d'écarts que la section 3 n'en annonçait (153 contre 140) : les dix de l'accessibilité ont rejoint la phase 1, et quelques recouvrements ont reçu leur propre ligne, passée `fait` avec le même commit que l'écart qu'ils recouvrent.
+
+### Par phase
+
+| Phase | Traités | Sans objet | Bloqués |
+| --- | --- | --- | --- |
+| Préalable — audit accessibilité (D7) | l'audit | — | — |
+| 0 — Corrections rapides | 26 | — | — |
+| 1 — Notifications, puis `ACC-01` à `ACC-10` | 25 | — | — |
+| 2 — Menus du shell et clavier | 21 | — | — |
+| 3 — Réglages | 20 | — | — |
+| 4 — Repères cohérents | 27 | 1 (`SEL-04`) | 1 (`TYP-09`) |
+| 5 — Bureau, interactions et accompagnement | 32 | — | — |
+
+### Par couloir
+
+| Couloir | Sujets | Itérations | Traités | Sans objet | Bloqués | Hors plan | Identité |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Avant les couloirs | Audit accessibilité, premières notifications | 3 | (comptés en A) | — | — | — | — |
+| A | Notifications, shell, matière, accessibilité, icônes d'application | 44, plus la clôture | 56 et l'audit | — | — | 11 | 8 |
+| B | Réglages, saisie, glisser-déposer, annulation, accompagnement | 37 | 38 | 1 | — | 24 | 4 |
+| C | Menus, entrées, clavier | 31 | 27 | — | — | 12 | 3 |
+| D | Typographie, écriture, présentation, glyphes | 16 | 29 | — | 1 | 7 | 1 |
+| E | `ACC-01` seul : pont AT-SPI, plan en neuf étapes | 16 | 1 | — | — | — | — |
+
+Les couloirs « hors plan » et « identité » ne sont qu'une attribution nominale : ces écarts n'ont pas été traités.
+
+### Ce qui reste au propriétaire
+
+- **`TYP-09`, texte de la barre et échelle du texte** (bloqué). La HIG ne veut pas que les titres d'une fenêtre grossissent avec le texte (« they don't expect the tab titles to increase in size ») ; l'accessibilité veut que tout texte suive l'échelle choisie (« Make sure people can adjust the size of your text »). Aujourd'hui l'horloge et les libellés de la barre suivent l'échelle, la hauteur de la barre non. **Recommandation de la boucle : garder l'échelle du texte dans la barre**, et ne rien changer au code.
+- Questions relevées en marge des écarts, sans bloquer leur traitement :
+  - l'entrée « Documentation » du menu Aide reste inactive : le paquet n'installe que README et PLUGINS dans `/usr/share/doc/hyprdesk/`, pas le guide ; elle s'active d'elle-même si `GUIDE.fr.md` ou `GUIDE.md` y est installé (`MENU-05`) ;
+  - à 640 px, le titre « Aide » passe sous l'horloge centrée : collision antérieure de la zone amont avec l'horloge, à traiter à part (`MENU-05`) ;
+  - montrer aussi les réglages dans les résultats généraux du lanceur, sans préfixe (`PAT-13`) ;
+  - curseurs des menus de la barre, saisie de leur valeur non étendue ; pas de stepper (`SEL-08`).
+- Publier la branche d'intégration : la boucle ne pousse jamais.
+
+### Ce que la boucle n'a pas pu vérifier
+
+La boucle n'a jamais lancé le démon, ni touché à la session Hyprland, ni pris de capture hors des scènes d'aperçu, qui n'exécutent pas les tâches et ne montrent pas le flou du compositeur. Ces points demandent une session réelle :
+
+- **Gestes à fonction sous Hyprland** (`ENT-03`) : que Hyprland exécute un geste écrit en fonction (`hl.dispatch(hl.dsp.exec_cmd("hyprdesk …"))`) au déclenchement. Un geste à fonction laissé dans `hyprland.lua` avant cette version n'est pas consulté au chargement et cohabite avec un défaut qui le recouvre, jusqu'à la suppression de l'un d'eux.
+- **Remise du clavier par Hyprland** (`ENT-01`, `ENT-02`) : CONTROL+F2, F3, F6 et F8, l'accès clavier complet ; la remise effective du clavier à la barre et aux surfaces ne se voit qu'en session.
+- **Focus clavier du tiroir à l'ouverture** par la recherche des Réglages, et focus et sélection du nombre à l'ouverture du champ d'un curseur (`PAT-13`, `SEL-08`) : non vérifiés à l'exécution.
+- **Visite guidée** (`DAT-11`) : sa fenêtre n'a pas de clavier propre, et l'aperçu ne la rend pas (la scène `tour` montre le tiroir seul) ; l'essai de chaque bloc n'a été vérifié que par les tests.
+- **Bulle d'annulation d'un retrait** (`PAT-12`) : sans le service de notifications de hyprdesk (un autre démon tient le bus), ni bulle ni annulation.
+- **SUPER+Espace déjà pris** (`ENT-09`) : dans une configuration existante, la combinaison est reprise à `hyprland.lua` ; dans la session du propriétaire, `binds.lua` y tient `window.float`, délié, à rebrancher dans Réglages → Raccourcis si besoin. ALT+Tab n'est plus gardé (`ENT-06`).
+- **Lecteur d'écran et limites d'`ACC-01`** : l'arbre est testé contre un faux registre, jamais lu par Orca. Limites écrites aux guides : dans les pages des Réglages, ni titres de section, ni radios, listes, boutons, « Configuration avancée », ni frappe ni interface `Value` ; la surface des Réglages n'est pas marquée active ; espaces, bureau, zone de notification, média, commandes et widgets Lua sans action ; une entrée de menu Lua ou de la zone de notification est désignée par son rang ; commutateur, lanceur et menu d'une barre verticale sans place ; un widget `launcher` dans une barre d'un autre style que Graphite n'est qu'un bouton ; l'écran de verrouillage se nomme aussi « hyprdesk » et publie son arbre à la seconde suivante.
+- **Plein écran** (`PAT-01`, `PAT-03`) : dock et barre recréés sur `Overlay` et révélés au survol du bord ; exclus, Convex masqué hors survol et une barre déjà réglée sur `Overlay` ; en style Island, marge de 8 px avant la bande de rappel.
+- **Verrouillage** (`ACC-02`, `ACC-03`) : contraste réel sur le fond d'écran de la session, à l'usage puis au repos ; un fond vidéo garde le plancher `lock.dim` seul.
+- **Rendus absents des scènes d'aperçu** : barre sous 28 px de haut (`ACC-09`) ; « ↑ », « ↓ » et « × » ensemble, et la confirmation de la remise par défaut (`ACC-10`) ; puits de couleur (`SEL-02`) ; jauge du widget Système en alerte (`SYS-16`) ; la tuile compacte du centre de contrôle, dont le menu n'est pas atteignable au clavier (`SYS-12`).
+- **Restes notés, non traités** : le fichier d'état `hyprdesk-notifications.txt` porte encore le corps quand les aperçus sont masqués (`SYS-05`) ; la hauteur de carte d'une bulle (`CARD`) ne suit pas l'échelle du texte (`ACC-04`) ; l'échelle par écran n'atteint ni le verrouillage ni l'écran de connexion (`ACC-06`) ; l'accent employé comme texte hors du tiroir n'a pas été passé au crible (`FON-05`).
+- Les listes « À vérifier sur un rendu » de chaque document de famille restent valables pour ce qui n'a pas été traité.
