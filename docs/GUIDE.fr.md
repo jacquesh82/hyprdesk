@@ -324,6 +324,12 @@ commandes de son en-tête (Fermer, Visite guidée, Assistant, effacer la
 recherche), que l'anneau de focus désigne et qu'Entrée ou Espace activent ; un
 clic de souris retire l'anneau.
 
+**Visite guidée.** Chaque bloc de la visite se termine par un essai : un
+geste réel, comme changer de mode, ouvrir l'écran des espaces ou la grille
+des applications (« Essayer », ou votre raccourci), ou changer l'un des
+réglages présentés dans le tiroir, derrière. « Fait » le confirme ; « Suivant »
+reste toujours possible.
+
 **Accès clavier complet.** Activé par défaut, il fait atteindre au Tab chaque
 commande des Réglages, pas seulement les champs de saisie. `CTRL + F1` le
 bascule partout (`hyprdesk keyboard-access`) et l'affichage à l'écran annonce

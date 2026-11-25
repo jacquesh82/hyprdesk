@@ -139,6 +139,11 @@ pub struct Panel {
     pub workspaces: plugins::workspaces::State,
     /// Étape de la visite guidée en cours.
     pub tour: Option<usize>,
+    /// L'essai de commande du bloc en cours est fait (HIG DAT-11).
+    pub tour_tried: bool,
+    /// Réglages à l'entrée dans le bloc : un réglage changé depuis fait
+    /// l'essai de réglage (une valeur, pas un simple enregistrement).
+    pub tour_from: Option<Box<crate::settings::Settings>>,
     pub layouts: plugins::layouts::State,
     pub animations: plugins::animations::State,
     pub sound: plugins::sound::State,
@@ -477,6 +482,8 @@ impl Panel {
             screens: Default::default(),
             workspaces: Default::default(),
             tour: None,
+            tour_tried: false,
+            tour_from: None,
             layouts: Default::default(),
             animations: Default::default(),
             sound: Default::default(),

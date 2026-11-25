@@ -320,6 +320,11 @@ commands of its header (Close, Guided tour, Assistant, clear the search),
 which the focus ring points out and Enter or Space activate; a mouse click
 removes the ring.
 
+**Guided tour.** Each block of the tour ends with a try: a real gesture,
+such as switching modes, opening the workspaces screen or the applications
+grid (“Try it”, or your shortcut), or changing one of the settings shown in
+the drawer behind. “Done” confirms it; “Next” is always available.
+
 **Full Keyboard Access.** On by default, it lets Tab reach every control in
 Settings, not only text fields. `CTRL + F1` toggles it anywhere (`hyprdesk
 keyboard-access`) and the on-screen display announces “Full Keyboard Access:

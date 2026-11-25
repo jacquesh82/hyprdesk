@@ -4245,6 +4245,8 @@ impl App {
         // savoir si un raccourci est arrivé jusqu'ici (MLG-206).
         if let Msg::Control(c) = &msg {
             tracing::debug!(command = c.as_str(), "commande reçue");
+            // Essai de la visite guidée (HIG DAT-11).
+            self.tour_note(c);
         }
         self.count_msg(&msg);
         let damage = self.damage_of(&msg);
