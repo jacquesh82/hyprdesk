@@ -19,7 +19,7 @@ fn gauge_alert(ratio: f32, threshold: f64) -> bool {
 }
 
 impl App {
-    /// Un widget du bureau : sa boîte, et où la poser (`desk_layout` la place
+    /// Un widget du bureau : sa boîte, et où la poser (`plugins::desktop::layout` la place
     /// sans recouvrir les autres).
     /// Le widget a un contenu lié qu'un clic sur son fond ouvre : horloge,
     /// calendrier, système, média en cours (HIG SYS-10).
@@ -38,7 +38,7 @@ impl App {
         win: iced::window::Id,
         w: &WidgetDef,
         t: f32,
-    ) -> (super::desk_layout::Spot, Element<'_, Msg>) {
+    ) -> (super::plugins::desktop::layout::Spot, Element<'_, Msg>) {
         let g = &self.cfg.general;
         let th = &g.theme;
         let fg = color(th.fg, t);
@@ -460,7 +460,7 @@ impl App {
             .map_or(margin, |m| self.desk_bottom_edge(m, margin));
         let (top, bottom) = axis(ay, w.y, if ay == Alignment::End { low } else { margin });
         (
-            super::desk_layout::Spot {
+            super::plugins::desktop::layout::Spot {
                 x: ax,
                 y: ay,
                 pad: [top, right, bottom, left],

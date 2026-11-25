@@ -1,6 +1,16 @@
-//! Paquet intégré « Bureau » : Où et comment le bureau s'affiche, typographie, session.
+//! Plugin « Bureau » : la surface du bureau de chaque écran et sa page de
+//! réglages — où et comment le bureau s'affiche, modes imposés, session.
+//! Un plugin du cœur (`CORE_PLUGINS`) : le shell n'existe pas sans lui.
+//!
+//! - `surface` : le bureau d'un écran — fond, voile du mode verre, icônes
+//!   et widgets ;
+//! - `layout` : la disposition des widgets, sans chevauchement ;
+//! - ce fichier : manifeste et page de Réglages.
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
+
+pub(in crate::ui) mod layout;
+mod surface;
 
 use crate::i18n::text;
 use iced::widget::{Space, button, column, container, pick_list, radio, row};

@@ -118,25 +118,23 @@ pub struct Group {
 }
 
 /// Navigation des Réglages, par groupes (chaque paquet dans un seul groupe,
-/// libellés uniques) : d'abord ce qui se voit (bureau, apparence, barre),
-/// puis le matériel, le système, les applications, et enfin la configuration
-/// de hyprdesk elle-même.
+/// libellés uniques) : d'abord ce qui se voit (les plugins du shell,
+/// l'apparence), puis le matériel, le système, les applications, et enfin la
+/// configuration de hyprdesk elle-même.
 pub const GROUPS: &[Group] = &[
-    Group {
-        label: "Bureau",
-        ids: &["desktop", "wallpaper", "icons"],
-    },
-    // Les plugins (Barre, Lanceur, Panorama), puis ce qui s'y ajoute :
-    // modules du Panorama, widgets, plugins installés.
+    // Les plugins du shell (Bureau, Barre, Dock, Lanceur, Panorama), puis ce
+    // qui s'y pose : modules du Panorama, widgets et icônes du bureau,
+    // plugins installés.
     Group {
         label: "Plugins",
         ids: &[
-            "bar", "dock", "launcher", "panorama", "modules", "widgets", "plugins",
+            "desktop", "bar", "dock", "launcher", "panorama", "modules", "widgets", "icons",
+            "plugins",
         ],
     },
     Group {
         label: "Apparence",
-        ids: &["theme", "apptheme", "animations"],
+        ids: &["wallpaper", "theme", "apptheme", "animations"],
     },
     Group {
         label: "Fenêtres",
@@ -1071,13 +1069,16 @@ mod tests {
             assert!(tabs(p).iter().any(|(id, _)| id == t), "{p}/{t}");
         }
         assert!(!visible("share", false) && visible("share", true));
-        // Groupe Plugins : les plugins, leurs modules, les widgets et les
-        // plugins installés, toujours visibles.
+        // Groupe Plugins, en tête : les plugins du shell — Bureau d'abord —,
+        // leurs modules, widgets et icônes, les plugins installés, toujours
+        // visibles.
+        assert_eq!(GROUPS[0].label, "Plugins");
         let g = GROUPS.iter().find(|g| g.label == "Plugins").unwrap();
         assert_eq!(
             g.ids,
             &[
-                "bar", "dock", "launcher", "panorama", "modules", "widgets", "plugins"
+                "desktop", "bar", "dock", "launcher", "panorama", "modules", "widgets", "icons",
+                "plugins"
             ]
         );
         assert!(g.ids.iter().all(|id| visible(id, false)));
