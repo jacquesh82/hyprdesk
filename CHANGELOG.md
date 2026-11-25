@@ -19,9 +19,12 @@ and this project adheres to
   desktop » leaves Hyprland's own setting. Also: whether the click that
   brings a window forward reaches it, whether an application may come to the
   front by itself, and where the focus goes when a window closes. Hyprland
-  has no separate « raise » setting: a floating window that takes the focus
-  comes to the front. Set while a screen shows the full desktop; the previous
-  values come back when leaving it, and after a Hyprland reload.
+  only brings a window to the front on a click: following the mouse,
+  hyprdesk brings the hovered window forward itself. Set while a screen shows
+  the full desktop; the previous values come back when leaving it, and after
+  a Hyprland reload.
+- `hyprdesk menu hyprdesk | windows | workspaces | help` opens the bar's menus
+  (the `menus` module), like a click on their title.
 
 - **Menus, after Apple's « Menus and actions » guidelines** (MLG-306 to
   MLG-311):

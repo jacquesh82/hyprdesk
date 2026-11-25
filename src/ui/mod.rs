@@ -2632,6 +2632,13 @@ impl App {
         let Some(bar_id) = self.focused_bar() else {
             return Task::none();
         };
+        // Titres des menus (module `menus`) : `hyprdesk menu windows`.
+        if let Some((key, _, request)) = plugins::bar::menus::titles()
+            .into_iter()
+            .find(|(k, ..)| *k == kind || k.strip_prefix("menus:") == Some(kind))
+        {
+            return Task::done(Msg::OpenPopover(bar_id, key.into(), request));
+        }
         let items: Vec<config::BarItem> = self
             .cfg
             .bar
@@ -4609,6 +4616,23 @@ impl App {
             }
             Msg::Hypr(hypr::Update::ActiveWindow(w)) => {
                 self.active_window = w;
+                // Focus qui suit la souris en plein bureau : Hyprland ne met au
+                // premier plan qu'au clic ; la fenêtre survolée qui prend le
+                // focus passe devant ici. Chaque événement compte : deux
+                // fenêtres de même classe et de même titre ne se distinguent
+                // pas, et l'active déjà devant n'en bouge pas.
+                if self.active_window.is_some()
+                    && self.focus_applied.is_some()
+                    && self.cfg.general.desktop_focus.mode == crate::config::FocusMode::Mouse
+                {
+                    return Task::perform(
+                        async {
+                            let _ = tokio::task::spawn_blocking(crate::desktop_focus::raise_active)
+                                .await;
+                        },
+                        |_| Msg::Noop,
+                    );
+                }
                 Task::none()
             }
             Msg::Hypr(hypr::Update::Urgent(addr)) => {

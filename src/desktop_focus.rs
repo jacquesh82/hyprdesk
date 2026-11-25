@@ -1,9 +1,10 @@
 //! Focus en plein bureau (`hd.config({ focus = { … } })`) : au clic ou en
 //! suivant la souris, et ce qui passe au premier plan.
 //!
-//! Hyprland n'a pas de réglage « premier plan » à part : une fenêtre
-//! flottante qui prend le focus passe devant les autres. Le choix porte donc
-//! sur ce qui donne le focus — le clic, ou le survol — et sur ce qui l'entoure
+//! Hyprland n'a pas de réglage « premier plan » à part : un clic fait passer
+//! la fenêtre devant, le survol qui donne le focus non — hyprdesk la met
+//! alors devant lui-même (`raise_active`). Le choix porte donc sur ce qui
+//! donne le focus — le clic, ou le survol — et sur ce qui l'entoure
 //! (le clic qui met au premier plan est-il transmis, une application
 //! peut-elle se mettre devant d'elle-même, où va le focus quand une fenêtre se
 //! ferme).
@@ -124,6 +125,14 @@ pub fn restore() -> Result<(), String> {
     match saved {
         Some(lua) => ipc::eval(&lua).map(|_| ()).map_err(|e| e.to_string()),
         None => Ok(()),
+    }
+}
+
+/// Met la fenêtre active au premier plan. Le focus qui suit la souris ne le
+/// fait pas dans Hyprland : seul un clic fait passer une fenêtre devant.
+pub fn raise_active() {
+    if let Err(e) = ipc::dispatch("hl.dsp.window.bring_to_top()") {
+        tracing::warn!("{}", crate::tr!("focus du bureau : {e}", e = e));
     }
 }
 
