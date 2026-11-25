@@ -102,6 +102,7 @@
 | 2026-11-25 | B34 | DAT-04, étape 2 sur 2 : survol du dock allumé, fichiers lus dès l'entrée sans figer le glisser (`c3d6de3`) ; DAT-04 fait ; il en reste 3 dans ce couloir |
 | 2026-11-25 | B35 | DAT-12 : déplacement déposé annulable, Échap interrompt le glisser (`917242e`) ; il en reste 2 dans ce couloir |
 | 2026-11-25 | B36 | PAT-12 : « Annuler le retrait » dans une bulle après un retrait du dock ou du bureau (`225615d`) ; il en reste 1 dans ce couloir |
+| 2026-11-25 | B37 | DAT-11 : un essai par bloc de la visite guidée (`e95102a`) ; il en reste 0 dans ce couloir |
 
 ### Couloir C
 
@@ -358,7 +359,7 @@ Référence verte : `9b19a8e` (porte complète `scripts/verify.sh` passée le 24
 | DAT-12 | Annulation d'un déplacement de fenêtre | PISTE | S | haute | fait | `917242e` | Échap, fenêtre saisie, interrompt le glisser sans fermer l'écran (l'aide dit « Annuler le glisser ») ; un dépôt sur un autre espace montre, à la place de l'astuce, « « titre » déplacée vers l'espace N » et « Annuler le déplacement », qui ramène la fenêtre à son espace d'origine (`MoveUndo`, `OMsg::Undo`). Ligne commune `search::notice_row`, l'astuce y passe aussi. Test `le_depot_s_annule_et_echap_interrompt_le_glisser`. Couvre la part « dépôt d'une fenêtre sur un autre espace » de PAT-12. |
 | PRES-05 | Alerte problème : titre | PISTE | S | haute | fait | d3ebf5a | le titre fixe « Un problème est survenu » devient ce qui a échoué, d'après l'origine (`title`, `src/ui/problem.rs`) : « La mise à jour a échoué » pour les mises à jour, « {origine} : un problème est survenu » sinon ; le contexte et la cause restent au détail (rapport de la mise à jour). Chaîne anglaise ; l'ancienne retirée de `locales/en.toml`. Test `titre_et_signalements_tus`. |
 | PRES-09 | Confirmation dans les menus de la barre | PISTE | S | haute | fait | 9263384 | le bouton qui valide une entrée à confirmer porte le verbe de l'entrée, traduit et sans points de suspension (`confirm_label`, `popover.rs`) ; « Confirmer » reste le repli d'un libellé vide. La question par défaut « Confirmer ? » est inchangée (hors correction). Test `la_confirmation_porte_le_verbe_de_l_entree`. Un libellé long n'est pas tronqué : les entrées à confirmer de la barre ont des verbes courts. |
-| DAT-11 | Visite des Réglages | PISTE | M | haute | à faire | — | — |
+| DAT-11 | Visite des Réglages | PISTE | M | haute | fait | `e95102a` | Plan `boucle/plans/DAT-11.md`, relu avant exécution et diff relu par des agents indépendants. Chaque bloc de la visite finit par un essai dans la surface réelle (`tour::Trial`) : une commande du shell — changer de mode, écran des espaces, grille des applications — envoyée par « Essayer » ou par le raccourci, faite à son arrivée dans `App::update` (`tour_note`) ; ou un réglage du bloc changé dans le tiroir, fait quand les réglages diffèrent de ceux de l'entrée dans le bloc (`tour_from`). « ✓ Fait » remplace le bouton ; « Suivant » reste libre. Les paragraphes restent. Noté, antérieur : la fenêtre de visite n'a pas de clavier propre, et l'aperçu ne la rend pas (scène `tour` : le tiroir seul). Test `chaque_bloc_a_son_essai`. |
 
 ## Hors plan
 
