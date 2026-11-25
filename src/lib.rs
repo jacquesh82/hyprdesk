@@ -26,6 +26,7 @@ pub mod control;
 pub mod defaults;
 pub mod design_options;
 pub mod desktop_files;
+pub mod desktop_focus;
 pub mod doctor;
 pub mod essentials;
 pub mod fileindex;

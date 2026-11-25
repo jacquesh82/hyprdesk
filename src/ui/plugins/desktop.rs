@@ -20,7 +20,7 @@ use super::super::etats::Etat;
 use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
-use crate::config::{Mode, ShowOn};
+use crate::config::{DesktopFocus, FocusMode, FocusOnClose, Mode, ShowOn};
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "desktop",
@@ -107,6 +107,10 @@ pub enum Msg {
     DesktopFiles(bool),
     ComponentRestart(String),
     FloatLaunched(bool),
+    /// Focus en plein bureau, enregistré ; `FocusLive` : appliqué pendant le
+    /// glissé d'un curseur, enregistré au relâché.
+    Focus(DesktopFocus),
+    FocusLive(DesktopFocus),
     /// Agent polkit concurrent : « Prendre la main » (pid), puis confirmation.
     TakeOver(u32),
     /// Mode imposé : écran (`DP-1`) ou workspace (`ws:5`) → mode, ou libre.
@@ -242,6 +246,7 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
+            self.focus_section(),
             self.section("Mode"),
             self.field(
                 "Mode par défaut",
@@ -282,6 +287,129 @@ impl App {
         .spacing(14)
         .into()
     }
+    /// Focus en plein bureau : ce qui donne le focus — et met au premier plan —
+    /// tant qu'un écran est en plein bureau ; les autres réglages n'ont de
+    /// sens qu'hors du mode de Hyprland.
+    fn focus_section(&self) -> Element<'_, UiMsg> {
+        let f = self.cfg.general.desktop_focus;
+        let dim = self.ink().dim;
+        let mode = |m: FocusMode| DesktopFocus { mode: m, ..f };
+        let help = |s: &'static str| {
+            text(crate::i18n::tr(s))
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim)
+        };
+        let mut col = column![
+            self.section("Focus en plein bureau"),
+            self.field(
+                "Une fenêtre prend le focus",
+                "focus.mode",
+                column![
+                    self.focusable(radio(crate::i18n::tr("Au clic"), FocusMode::Click, Some(f.mode), move |m| wrap(Msg::Focus(mode(m)))).font(self.font)),
+                    self.focusable(radio(crate::i18n::tr("En la survolant avec la souris"), FocusMode::Mouse, Some(f.mode), move |m| wrap(Msg::Focus(mode(m)))).font(self.font)),
+                    self.focusable(radio(crate::i18n::tr("Comme hors du bureau (Clavier et souris)"), FocusMode::Hyprland, Some(f.mode), move |m| wrap(Msg::Focus(mode(m)))).font(self.font)),
+                ]
+                .spacing(8),
+            ),
+            help(match f.mode {
+                FocusMode::Click => "La fenêtre cliquée prend le clavier et passe au premier plan. Le survol ne change rien ; la molette défile sous le pointeur.",
+                FocusMode::Mouse => "La fenêtre sous la souris prend le clavier et passe au premier plan dès qu'on la survole.",
+                FocusMode::Hyprland => "hyprdesk ne touche pas au focus : celui de Réglages → Clavier et souris s'applique aussi en plein bureau.",
+            }),
+        ]
+        .spacing(14);
+        if f.mode == FocusMode::Hyprland {
+            return col.into();
+        }
+        match f.mode {
+            FocusMode::Click => {
+                col = col.push(self.field(
+                    "Le clic qui met une fenêtre au premier plan ne lui est pas transmis",
+                    "focus.swallow_click",
+                    self.focusable(self.toggle(f.swallow_click).on_toggle(move |v| {
+                        wrap(Msg::Focus(DesktopFocus {
+                            swallow_click: v,
+                            ..f
+                        }))
+                    })),
+                ));
+            }
+            FocusMode::Mouse => {
+                col = col.push(self.field(
+                    "Distance à parcourir avant de changer de fenêtre",
+                    "focus.threshold",
+                    self.slider(
+                        &SliderSpec::new(
+                            "desktop_focus_threshold",
+                            (0.0, 100.0),
+                            5.0,
+                            move |v| {
+                                wrap(Msg::FocusLive(DesktopFocus {
+                                    threshold: v.round() as u16,
+                                    ..f
+                                }))
+                            },
+                            UiMsg::Panel(PanelMsg::Commit),
+                        ),
+                        f64::from(f.threshold),
+                        |v| format!("{v:.0} px"),
+                        SliderLook::fixed(13.0, 260, Alignment::Start),
+                    ),
+                ));
+            }
+            FocusMode::Hyprland => {}
+        }
+        let on_close = |c: FocusOnClose| DesktopFocus { on_close: c, ..f };
+        col.push(self.field(
+            "Une application peut passer au premier plan d'elle-même",
+            "focus.on_activate",
+            self.focusable(self.toggle(f.on_activate).on_toggle(move |v| {
+                wrap(Msg::Focus(DesktopFocus {
+                    on_activate: v,
+                    ..f
+                }))
+            })),
+        ))
+        .push(
+            self.field(
+                "Quand une fenêtre se ferme, le focus va à",
+                "focus.on_close",
+                column![
+                    self.focusable(
+                        radio(
+                            crate::i18n::tr("La fenêtre suivante"),
+                            FocusOnClose::Next,
+                            Some(f.on_close),
+                            move |c| wrap(Msg::Focus(on_close(c)))
+                        )
+                        .font(self.font)
+                    ),
+                    self.focusable(
+                        radio(
+                            crate::i18n::tr("Celle sous le pointeur"),
+                            FocusOnClose::Cursor,
+                            Some(f.on_close),
+                            move |c| wrap(Msg::Focus(on_close(c)))
+                        )
+                        .font(self.font)
+                    ),
+                    self.focusable(
+                        radio(
+                            crate::i18n::tr("La dernière utilisée"),
+                            FocusOnClose::Recent,
+                            Some(f.on_close),
+                            move |c| wrap(Msg::Focus(on_close(c)))
+                        )
+                        .font(self.font)
+                    ),
+                ]
+                .spacing(8),
+            ),
+        )
+        .into()
+    }
+
     /// Police et taille du texte de l'interface (affichées dans Thème → Texte).
     pub(in crate::ui) fn typography(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
@@ -846,6 +974,14 @@ impl App {
             Msg::FloatLaunched(v) => {
                 self.settings.float_launched = Some(v);
                 self.commit()
+            }
+            Msg::Focus(f) => {
+                self.settings.focus = Some(f);
+                self.commit()
+            }
+            Msg::FocusLive(f) => {
+                self.settings.focus = Some(f);
+                self.apply()
             }
             Msg::TakeOver(pid) => {
                 let Some(p) = self.panel.as_mut() else {

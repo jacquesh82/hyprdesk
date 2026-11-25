@@ -78,6 +78,11 @@ fn get(path: &str) -> Option<Value> {
         .and_then(|v| option_value(&v))
 }
 
+/// Valeur en vigueur d'une option de Hyprland (`input:follow_mouse`).
+pub fn option(path: &str) -> Option<Value> {
+    get(path)
+}
+
 /// Valeurs en vigueur dans Hyprland (les défauts pour ce qui ne répond pas).
 pub fn read() -> Inputs {
     let mut i = Inputs::default();

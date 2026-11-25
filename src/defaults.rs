@@ -119,7 +119,7 @@ macro_rules! components {
 
 components! {
     "desktop" => [
-        clipboard_history, autostart, desktop_files, float_launched, hyprbars,
+        clipboard_history, autostart, desktop_files, float_launched, focus, hyprbars,
         hyprbars_path, show_on, mode, glass_opacity, close_on_launch,
         forced_modes, desktops, font, font_size, language,
     ] + [DesktopModes];

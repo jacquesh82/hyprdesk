@@ -23,6 +23,7 @@
     -- keys = { toggle = "SUPER + D", settings = "SUPER + SHIFT + D", lock = "SUPER + ALT + L", leave = "SUPER + Escape" },
     -- suspend_binds   = true,       -- bureau affiché : raccourcis de Hyprland suspendus
     -- float_launched  = true,       -- ouvert depuis le bureau affiché : flottant et centré
+    -- focus = { mode = "click" },  -- plein bureau : "click", "mouse" ou "hyprland" (premier plan)
     -- mode            = "opaque",   -- "opaque" (fond d'écran) ou "glass" (fenêtres floutées)
     -- show_on         = "all",      -- "all" ou "focused"
     -- running_apps    = "workspace", -- dock des fenêtres ouvertes : "off", "workspace", "all"

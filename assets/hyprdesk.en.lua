@@ -23,6 +23,7 @@
     -- keys = { toggle = "SUPER + D", settings = "SUPER + SHIFT + D", lock = "SUPER + ALT + L", leave = "SUPER + Escape" },
     -- suspend_binds   = true,       -- desktop shown: Hyprland shortcuts suspended
     -- float_launched  = true,       -- opened from the shown desktop: floating and centered
+    -- focus = { mode = "click" },  -- full desktop: "click", "mouse" or "hyprland" (to the front)
     -- mode            = "opaque",   -- "opaque" (wallpaper) or "glass" (blurred windows)
     -- show_on         = "all",      -- "all" or "focused"
     -- running_apps    = "workspace", -- dock of open windows: "off", "workspace", "all"

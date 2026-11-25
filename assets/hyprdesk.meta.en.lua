@@ -45,6 +45,7 @@
 ---@field autostart? boolean # launch XDG autostart applications (~/.config/autostart, /etc/xdg/autostart), once per session
 ---@field desktop_files? boolean # files of the Desktop folder (xdg-user-dir DESKTOP) and Trash as desktop icons
 ---@field float_launched? boolean # opened from the shown desktop: floating, centered window
+---@field focus? { mode?: "hyprland"|"click"|"mouse", threshold?: integer, swallow_click?: boolean, on_activate?: boolean, on_close?: "next"|"cursor"|"recent" } # full desktop: focus on click or following the mouse (and to the front), set while a screen is on the full desktop
 ---@field fx? table # Hyprland animations and effects: { ["decoration.blur.variant"] = 9, animations = { windowsIn = { speed = 4, curve = "spring", style = "popin" } } }
 ---@field lock_fingerprint? boolean # fingerprint (fprintd) instead of the password, when a reader is present (default: false)
 ---@field idle_manage? boolean # hyprdesk manages idle: writes the hypridle config and runs it

@@ -45,6 +45,7 @@
 ---@field autostart? boolean # lancer les applications du démarrage automatique XDG (~/.config/autostart, /etc/xdg/autostart), une fois par session
 ---@field desktop_files? boolean # fichiers du dossier Bureau (xdg-user-dir DESKTOP) et Corbeille en icônes du bureau
 ---@field float_launched? boolean # ouvert depuis le bureau affiché : fenêtre flottante et centrée
+---@field focus? { mode?: "hyprland"|"click"|"mouse", threshold?: integer, swallow_click?: boolean, on_activate?: boolean, on_close?: "next"|"cursor"|"recent" } # plein bureau : focus au clic ou suivant la souris (premier plan), posé tant qu'un écran est en plein bureau
 ---@field fx? table # animations et effets de Hyprland : { ["decoration.blur.variant"] = 9, animations = { windowsIn = { speed = 4, curve = "spring", style = "popin" } } }
 ---@field lock_fingerprint? boolean # empreinte (fprintd) à la place du mot de passe, si un lecteur est là (défaut : false)
 ---@field idle_manage? boolean # hyprdesk gère la veille : écrit la config de hypridle et le lance

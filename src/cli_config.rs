@@ -342,6 +342,56 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.float_launched),
         |s, v, c| { s.float_launched = Some(parse_bool(v)?); Ok(()) },
         |s| s.float_launched = None;
+    "focus.mode", "desktop", "hyprland | click | mouse — plein bureau : focus au clic, ou suivant la souris (hyprland : celui de Clavier et souris)",
+        |c| c.general.desktop_focus.mode.as_str().into(),
+        |s, v, c| {
+            let mut f = s.focus.unwrap_or(c.general.desktop_focus);
+            f.mode = choice(v, crate::config::FocusMode::parse, "hyprland, click, mouse")?;
+            s.focus = Some(f);
+            Ok(())
+        },
+        |s| if let Some(f) = s.focus.as_mut() { f.mode = Default::default() };
+    "focus.threshold", "desktop", "0..500 — plein bureau, focus suivant la souris : distance (px) avant de changer de fenêtre",
+        |c| c.general.desktop_focus.threshold.to_string(),
+        |s, v, c| {
+            let mut f = s.focus.unwrap_or(c.general.desktop_focus);
+            f.threshold = v
+                .trim()
+                .parse::<u16>()
+                .ok()
+                .filter(|n| *n <= 500)
+                .ok_or_else(|| crate::tr!("« {v} » : 0 à 500", v = v))?;
+            s.focus = Some(f);
+            Ok(())
+        },
+        |s| if let Some(f) = s.focus.as_mut() { f.threshold = 0 };
+    "focus.swallow_click", "desktop", "on | off — plein bureau, focus au clic : le clic qui met une fenêtre au premier plan ne lui est pas transmis",
+        |c| on_off(c.general.desktop_focus.swallow_click),
+        |s, v, c| {
+            let mut f = s.focus.unwrap_or(c.general.desktop_focus);
+            f.swallow_click = parse_bool(v)?;
+            s.focus = Some(f);
+            Ok(())
+        },
+        |s| if let Some(f) = s.focus.as_mut() { f.swallow_click = false };
+    "focus.on_activate", "desktop", "on | off — plein bureau : une application peut prendre le focus et passer devant d'elle-même",
+        |c| on_off(c.general.desktop_focus.on_activate),
+        |s, v, c| {
+            let mut f = s.focus.unwrap_or(c.general.desktop_focus);
+            f.on_activate = parse_bool(v)?;
+            s.focus = Some(f);
+            Ok(())
+        },
+        |s| if let Some(f) = s.focus.as_mut() { f.on_activate = false };
+    "focus.on_close", "desktop", "next | cursor | recent — plein bureau : fenêtre qui prend le focus quand celle qui l'avait se ferme",
+        |c| c.general.desktop_focus.on_close.as_str().into(),
+        |s, v, c| {
+            let mut f = s.focus.unwrap_or(c.general.desktop_focus);
+            f.on_close = choice(v, crate::config::FocusOnClose::parse, "next, cursor, recent")?;
+            s.focus = Some(f);
+            Ok(())
+        },
+        |s| if let Some(f) = s.focus.as_mut() { f.on_close = Default::default() };
     "suspend_binds", "keys", "on | off — full-desktop : suspendre les raccourcis de Hyprland",
         |c| on_off(c.general.suspend_binds),
         |s, v, c| { s.suspend_binds = Some(parse_bool(v)?); Ok(()) },

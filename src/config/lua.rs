@@ -426,6 +426,52 @@ fn parse_tiling(t: &Table, tiling: &mut crate::tiling::Tiling) -> mlua::Result<(
     Ok(())
 }
 
+/// `hd.config({ focus = { mode, threshold, swallow_click, on_activate,
+/// on_close } })` : le focus en plein bureau.
+fn desktop_focus(f: &Table) -> mlua::Result<DesktopFocus> {
+    const C: &str = "hd.config.focus";
+    check_keys(
+        f,
+        &[
+            "mode",
+            "threshold",
+            "swallow_click",
+            "on_activate",
+            "on_close",
+        ],
+        C,
+    )?;
+    let mut d = DesktopFocus::default();
+    if let Some(s) = opt_string(f, "mode", C)? {
+        d.mode = FocusMode::parse(&s).ok_or_else(|| {
+            err(crate::tr!(
+                "{C} : mode « {s} » inconnu (hyprland, click, mouse)",
+                C = C,
+                s = s
+            ))
+        })?;
+    }
+    if let Some(v) = opt_num(f, "threshold", C)? {
+        d.threshold = v.clamp(0.0, 500.0) as u16;
+    }
+    if let Some(v) = opt_bool(f, "swallow_click", C)? {
+        d.swallow_click = v;
+    }
+    if let Some(v) = opt_bool(f, "on_activate", C)? {
+        d.on_activate = v;
+    }
+    if let Some(s) = opt_string(f, "on_close", C)? {
+        d.on_close = FocusOnClose::parse(&s).ok_or_else(|| {
+            err(crate::tr!(
+                "{C} : on_close « {s} » inconnu (next, cursor, recent)",
+                C = C,
+                s = s
+            ))
+        })?;
+    }
+    Ok(d)
+}
+
 fn check_keys(t: &Table, allowed: &[&str], ctx: &str) -> mlua::Result<()> {
     for pair in t.pairs::<Value, Value>() {
         let (k, _) = pair?;
@@ -642,6 +688,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "autostart",
             "desktop_files",
             "float_launched",
+            "focus",
             "hyprbars",
             "hyprbars_path",
             "mode",
@@ -787,6 +834,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = opt_bool(t, "float_launched", CTX)? {
         g.float_launched = v;
+    }
+    if let Some(f) = t.get::<Option<Table>>("focus")? {
+        g.desktop_focus = desktop_focus(&f)?;
     }
     if let Some(v) = opt_bool(t, "hyprbars", CTX)? {
         g.hyprbars = v;

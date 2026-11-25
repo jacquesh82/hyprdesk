@@ -153,7 +153,7 @@ Keys per package:
 
 | Package | Keys |
 |---|---|
-| `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `font`, `font_size` |
+| `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `focus`, `font`, `font_size` |
 | `keys` | `suspend_binds`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave`, `keys.switch`, `keys.search`, `keys.overview`, `keys.focus_bar`, `keys.focus_dock`, `keys.focus_notifications`, `keys.focus_settings`, `keys.force_quit`, `keys.keyboard_access`, `keys.take`, `keys.media`, `keys.essentials`, `keys.essentials_off` |
 | `input` | `keyboard_access` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |

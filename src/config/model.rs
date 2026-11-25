@@ -63,6 +63,86 @@ impl ShowOn {
     }
 }
 
+/// Ce qui donne le focus en plein bureau (`focus.mode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusMode {
+    /// Celui de Hyprland (Réglages → Clavier et souris) : hyprdesk n'y
+    /// touche pas.
+    #[default]
+    Hyprland,
+    /// Le clic : la fenêtre cliquée prend le clavier et passe au premier
+    /// plan ; le survol ne change rien.
+    Click,
+    /// La souris : la fenêtre survolée prend le clavier et passe au premier
+    /// plan.
+    Mouse,
+}
+
+impl FocusMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FocusMode::Hyprland => "hyprland",
+            FocusMode::Click => "click",
+            FocusMode::Mouse => "mouse",
+        }
+    }
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "hyprland" => FocusMode::Hyprland,
+            "click" => FocusMode::Click,
+            "mouse" => FocusMode::Mouse,
+            _ => return None,
+        })
+    }
+}
+
+/// Où va le focus quand la fenêtre qui l'a se ferme (`focus.on_close`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusOnClose {
+    /// La fenêtre suivante (Hyprland par défaut).
+    #[default]
+    Next,
+    /// Celle sous le pointeur.
+    Cursor,
+    /// La plus récemment utilisée.
+    Recent,
+}
+
+impl FocusOnClose {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FocusOnClose::Next => "next",
+            FocusOnClose::Cursor => "cursor",
+            FocusOnClose::Recent => "recent",
+        }
+    }
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "next" => FocusOnClose::Next,
+            "cursor" => FocusOnClose::Cursor,
+            "recent" => FocusOnClose::Recent,
+            _ => return None,
+        })
+    }
+}
+
+/// Focus en plein bureau (`hd.config({ focus = { … } })`), posé tant qu'un
+/// écran est en plein bureau (`desktop_focus`). Les autres réglages ne
+/// comptent qu'avec un mode autre que `hyprland`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DesktopFocus {
+    pub mode: FocusMode,
+    /// Suivre la souris : distance parcourue (pixels logiques) avant de
+    /// changer de fenêtre.
+    pub threshold: u16,
+    /// Au clic : le clic qui met une fenêtre au premier plan ne lui est pas
+    /// transmis.
+    pub swallow_click: bool,
+    /// Une application peut prendre le focus, et passer devant, d'elle-même.
+    pub on_activate: bool,
+    pub on_close: FocusOnClose,
+}
+
 /// Portée des icônes ajoutées depuis Réglages ou déposées sur le bureau.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IconScope {
@@ -1656,6 +1736,8 @@ pub struct General {
     /// Fenêtres ouvertes depuis le bureau resté affiché : flottantes et centrées,
     /// le bureau autour d'elles.
     pub float_launched: bool,
+    /// Focus en plein bureau : au clic ou en suivant la souris.
+    pub desktop_focus: DesktopFocus,
     /// Barres de titre Hyprbars (plugin de Hyprland) en plein bureau seulement.
     pub hyprbars: bool,
     /// Chemin de `hyprbars.so` ; vide : cherché aux emplacements connus.
@@ -1804,6 +1886,7 @@ impl Default for General {
             autostart: false,
             desktop_files: false,
             float_launched: true,
+            desktop_focus: DesktopFocus::default(),
             hyprbars: false,
             hyprbars_path: String::new(),
             mode: Mode::Opaque,

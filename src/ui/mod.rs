@@ -526,6 +526,9 @@ pub struct App {
     last_click: Option<(Id, usize, Instant)>,
     /// Hyprbars chargé par hyprdesk (plein bureau, option `hyprbars`).
     hyprbars_on: bool,
+    /// Focus en plein bureau posé dans Hyprland (`desktop_focus`) : les
+    /// valeurs posées, rien quand celles de Hyprland sont en place.
+    focus_applied: Option<[String; 6]>,
     hovered: Option<(Id, usize)>,
     cursor: HashMap<Id, Point>,
     drag: Option<Drag>,
@@ -1137,6 +1140,7 @@ impl App {
             last_click: None,
             // État réel : une instance précédente a pu le laisser chargé.
             hyprbars_on: !preview && crate::hyprbars::loaded(),
+            focus_applied: None,
             hovered: None,
             cursor: HashMap::new(),
             drag: None,
@@ -1747,6 +1751,42 @@ impl App {
         }
         self.in_submap = want;
         Self::window_result(self.windows.submap(want))
+    }
+
+    /// Focus en plein bureau (`focus`) : posé tant qu'un écran est en plein
+    /// bureau, les valeurs d'avant rendues en sortant (hors du fil de
+    /// l'interface). Comme Hyprbars, les options de Hyprland sont globales.
+    fn sync_desktop_focus(&mut self) -> Task<Msg> {
+        if self.preview {
+            return Task::none();
+        }
+        let full = self
+            .applied
+            .values()
+            .any(|(m, _)| *m == DesktopMode::FullDesktop);
+        let want = full
+            .then(|| crate::desktop_focus::values(&self.cfg.general.desktop_focus))
+            .flatten();
+        if want == self.focus_applied {
+            return Task::none();
+        }
+        self.focus_applied = want.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || match want {
+                    Some(v) => crate::desktop_focus::apply(&v),
+                    None => crate::desktop_focus::restore(),
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()))
+            },
+            |r| {
+                if let Err(e) = r {
+                    tracing::warn!("{}", crate::tr!("focus du bureau : {e}", e = e));
+                }
+                Msg::Noop
+            },
+        )
     }
 
     /// Hyprbars : chargé en plein bureau si l'option est active, déchargé
@@ -2410,6 +2450,7 @@ impl App {
         }
         tasks.push(self.sync_submap());
         tasks.push(self.sync_hyprbars());
+        tasks.push(self.sync_desktop_focus());
         tasks.push(self.sync_window_gaps());
         self.publish_status();
         Task::batch(tasks)
@@ -4280,7 +4321,7 @@ impl App {
             self.a11y_publish();
         }
         self.voice_publish();
-        let t = Task::batch([t, self.sync_hyprbars()]);
+        let t = Task::batch([t, self.sync_hyprbars(), self.sync_desktop_focus()]);
         tracing::trace!(
             message = name,
             update_us = started.elapsed().as_micros() as u64,
@@ -4746,6 +4787,10 @@ impl App {
                 // Les règles de marge ont disparu avec la relecture : les reposer.
                 self.window_gaps.clear();
                 self.lyra_rule = None;
+                // Le focus du bureau est revenu à celui des fichiers : reposé
+                // au passage suivant, d'après un nouvel instantané.
+                crate::desktop_focus::forget();
+                self.focus_applied = None;
                 let idle = self.cfg.general.idle.clone();
                 let bars = self.hyprbars_on;
                 let (fg, bg) = (self.cfg.general.theme.fg, self.cfg.general.theme.bg);

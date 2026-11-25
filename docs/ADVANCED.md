@@ -482,7 +482,7 @@ name, a number, a list, or `"*"`.
 
 | Area | Keys |
 |---|---|
-| Desktop | `mode` (`"opaque"`/`"glass"`), `glass_opacity`, `background`, `show_on` (`"all"`/`"focused"`/`"primary"`), `primary`, `float_launched`, `icon_scope` (`"global"`/`"screen"`/`"workspace"`), `icon_double_click`, `forced_modes`, `desktop_files` (Desktop folder and Trash as icons) |
+| Desktop | `mode` (`"opaque"`/`"glass"`), `glass_opacity`, `background`, `show_on` (`"all"`/`"focused"`/`"primary"`), `primary`, `float_launched`, `focus` (`mode` `"hyprland"`/`"click"`/`"mouse"`, `threshold`, `swallow_click`, `on_activate`, `on_close` `"next"`/`"cursor"`/`"recent"` — full desktop only), `icon_scope` (`"global"`/`"screen"`/`"workspace"`), `icon_double_click`, `forced_modes`, `desktop_files` (Desktop folder and Trash as icons) |
 | Grid and icons | `grid = { cell, gap, margin, icon_size }`, `icon_theme` |
 | Look | `theme = { name, fg, bg, accent, effects = { bar, menus, launcher, settings, widgets } }` (each effect: `opacity`, `blur`), `font`, `font_size`, `app_themes` (applications that follow hyprdesk's theme, `kitty`…: all of them by default, `{}` for none) |
 | Motion | `transition` (`"fade"`/`"slide"`/`"none"`), `fade_ms`, `crossfade_ms`, `fx` (Hyprland animations, curves and decoration, as `hl.config` keys) |

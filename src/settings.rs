@@ -254,6 +254,8 @@ pub struct Settings {
     pub autostart: Option<bool>,
     pub desktop_files: Option<bool>,
     pub float_launched: Option<bool>,
+    /// Focus en plein bureau (`focus`).
+    pub focus: Option<crate::config::DesktopFocus>,
     pub hyprbars: Option<bool>,
     pub hyprbars_path: Option<String>,
     pub show_on: Option<ShowOn>,
@@ -523,6 +525,7 @@ impl Settings {
             autostart: has("autostart").then_some(g.autostart),
             desktop_files: has("desktop_files").then_some(g.desktop_files),
             float_launched: has("float_launched").then_some(g.float_launched),
+            focus: has("focus").then_some(g.desktop_focus),
             hyprbars: has("hyprbars").then_some(g.hyprbars),
             hyprbars_path: has("hyprbars_path").then(|| g.hyprbars_path.clone()),
             show_on: has("show_on").then_some(g.show_on),
@@ -858,6 +861,7 @@ impl Settings {
         set!(autostart, "autostart", g.autostart);
         set!(desktop_files, "desktop_files", g.desktop_files);
         set!(float_launched, "float_launched", g.float_launched);
+        set!(focus, "focus", g.desktop_focus);
         set!(hyprbars, "hyprbars", g.hyprbars);
         if free("hyprbars_path")
             && let Some(v) = &self.hyprbars_path
@@ -1384,6 +1388,16 @@ impl Settings {
         }
         if let Some(v) = self.float_launched {
             cfg.push(format!("float_launched = {v}"));
+        }
+        if let Some(f) = self.focus {
+            cfg.push(format!(
+                "focus = {{ mode = {}, threshold = {}, swallow_click = {}, on_activate = {}, on_close = {} }}",
+                q(f.mode.as_str()),
+                f.threshold,
+                f.swallow_click,
+                f.on_activate,
+                q(f.on_close.as_str())
+            ));
         }
         if let Some(v) = self.show_on {
             cfg.push(format!("show_on = {}", q(v.as_str())));
@@ -2440,6 +2454,13 @@ mod tests {
             key_settings: Some(String::new()),
             suspend_binds: Some(false),
             float_launched: Some(false),
+            focus: Some(crate::config::DesktopFocus {
+                mode: crate::config::FocusMode::Mouse,
+                threshold: 20,
+                swallow_click: true,
+                on_activate: true,
+                on_close: crate::config::FocusOnClose::Cursor,
+            }),
             show_on: Some(ShowOn::Focused),
             mode: Some(Mode::Glass),
             glass_opacity: Some(0.5),

@@ -10,6 +10,19 @@ and this project adheres to
 
 ### Added
 
+- **Focus on the full desktop** (MLG-327): Settings → Desktop → « Focus on
+  the full desktop » (`hd.config({ focus = { … } })`, `focus.*` in
+  `hyprdesk config`). « On click »: the clicked window takes the keyboard and
+  comes to the front, hovering changes nothing; « When the mouse hovers over
+  it »: the hovered window takes the keyboard and comes to the front, also
+  between floating windows, after an optional distance; « As outside the
+  desktop » leaves Hyprland's own setting. Also: whether the click that
+  brings a window forward reaches it, whether an application may come to the
+  front by itself, and where the focus goes when a window closes. Hyprland
+  has no separate « raise » setting: a floating window that takes the focus
+  comes to the front. Set while a screen shows the full desktop; the previous
+  values come back when leaving it, and after a Hyprland reload.
+
 - **Menus, after Apple's « Menus and actions » guidelines** (MLG-306 to
   MLG-311):
   - one menu component for the bar and every right-click menu: at most
