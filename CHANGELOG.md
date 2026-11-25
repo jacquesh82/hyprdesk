@@ -216,6 +216,9 @@ and this project adheres to
 
 ### Fixed
 
+- **The window border goes around the Hyprbars title bar** (MLG-326): it
+  used to round itself under the bar, around the content only; hyprdesk now
+  sets `bar_precedence_over_border` by default.
 - **Hyprbars title bar in one colour on the active window** (MLG-325):
   Hyprland's optimised blur painted itself over a bar that is « part of the
   window », leaving a translucent rectangle inside a rim of the bar colour.

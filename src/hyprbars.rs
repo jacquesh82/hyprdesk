@@ -130,10 +130,13 @@ pub fn buttons_lua(
     .collect::<Vec<_>>()
     .join("\n");
     // Barre assez haute pour des boutons lisibles (symbole : 62 % du bouton).
+    // La bordure de la fenêtre fait le tour de la barre et du contenu
+    // (`bar_precedence_over_border`) : sinon elle s'arrondissait sous la
+    // barre, autour du contenu seul.
     // Réglage refusé (option inconnue d'une autre version) : les boutons
     // restent posés.
     let style = format!(
-        "pcall(hl.config, {{ plugin = {{ hyprbars = {{ bar_height = {HEIGHT}, bar_text_size = 11, bar_padding = 8, bar_button_padding = 2, bar_color = \"rgb({bg})\", [\"col.text\"] = \"rgb({fg})\" }} }} }})"
+        "pcall(hl.config, {{ plugin = {{ hyprbars = {{ bar_height = {HEIGHT}, bar_text_size = 11, bar_padding = 8, bar_button_padding = 2, bar_precedence_over_border = true, bar_color = \"rgb({bg})\", [\"col.text\"] = \"rgb({fg})\" }} }} }})"
     );
     // Flou optimisé de Hyprland coupé tant que la barre est là : son flou
     // mis en cache se peint par-dessus la barre de la fenêtre active (barre
