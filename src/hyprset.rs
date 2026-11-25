@@ -1211,15 +1211,46 @@ pub fn gesture_complete(g: &serde_json::Value) -> bool {
         && filled(g, "action")
 }
 
+/// Commande hyprdesk d'une action de geste `hyprdesk:<nom>` (HIG ENT-03) :
+/// vue d'ensemble, applications, centre de notifications, bureau.
+pub fn gesture_command(action: &str) -> Option<&'static str> {
+    Some(match action.strip_prefix("hyprdesk:")? {
+        "overview" => "overview",
+        "apps" => "apps",
+        "notifications" => "focus notifications",
+        "show-desktop" => "show",
+        _ => return None,
+    })
+}
+
 /// `hl.gesture(…)` ou `hl.device(…)` des éléments complets, une ligne
-/// chacun, dans l'ordre.
+/// chacun, dans l'ordre. Un geste à action hyprdesk (`hyprdesk:<nom>`)
+/// s'écrit en fonction, qui lance la commande au déclenchement : `hyprdesk`
+/// nu, trouvé dans le `PATH` (un chemin absolu serait périmé après une
+/// réinstallation, et voyagerait tel quel dans un export) ; une action
+/// hyprdesk inconnue n'est pas écrite.
 pub fn calls_lua(func: &str, list: &[serde_json::Value]) -> String {
     list.iter()
         .filter(|v| match func {
             "gesture" => gesture_complete(v),
             _ => filled(v, "name"),
         })
-        .map(|v| format!("hl.{func}({})\n", json_lua(v)))
+        .filter_map(|v| {
+            let action = v.get("action").and_then(|a| a.as_str()).unwrap_or("");
+            if func != "gesture" || !action.starts_with("hyprdesk:") {
+                return Some(format!("hl.{func}({})\n", json_lua(v)));
+            }
+            let cmd = gesture_command(action)?;
+            let mut rest = v.clone();
+            if let Some(m) = rest.as_object_mut() {
+                m.remove("action");
+            }
+            let fields = json_lua(&rest);
+            let fields = fields.trim_end_matches('}').trim_end();
+            Some(format!(
+                "hl.{func}({fields}, action = function() hl.dispatch(hl.dsp.exec_cmd(\"hyprdesk {cmd}\")) end }})\n"
+            ))
+        })
         .collect()
 }
 
@@ -1399,6 +1430,42 @@ mod tests {
         assert!(lua.contains("active_border = { colors = { \"rgba(454158ff)\" }, angle = 90 },"));
         assert!(lua.contains("[\"tap-and-drag\"] = true,"));
         assert!(lua.contains("gaps_in = { top = 5, right = 5, bottom = 5, left = 5 },"));
+    }
+
+    /// Un geste à action hyprdesk s'écrit en fonction qui lance la commande,
+    /// et sa chaîne survit à l'aller-retour par settings.lua (HIG ENT-03).
+    #[test]
+    fn geste_hyprdesk_en_fonction() {
+        let g =
+            serde_json::json!({ "fingers": 3, "direction": "up", "action": "hyprdesk:overview" });
+        assert_eq!(
+            calls_lua("gesture", std::slice::from_ref(&g)),
+            "hl.gesture({ direction = \"up\", fingers = 3, action = function() \
+             hl.dispatch(hl.dsp.exec_cmd(\"hyprdesk overview\")) end })\n"
+        );
+        let notif = serde_json::json!({ "fingers": 4, "direction": "left", "action": "hyprdesk:notifications" });
+        assert!(
+            calls_lua("gesture", &[notif])
+                .contains("hl.dsp.exec_cmd(\"hyprdesk focus notifications\")")
+        );
+        // Une action inconnue n'est pas écrite ; celles de Hyprland, telles quelles.
+        let inconnue =
+            serde_json::json!({ "fingers": 3, "direction": "up", "action": "hyprdesk:rien" });
+        assert_eq!(calls_lua("gesture", &[inconnue]), "");
+        let ws =
+            serde_json::json!({ "fingers": 3, "direction": "horizontal", "action": "workspace" });
+        assert_eq!(
+            calls_lua("gesture", &[ws]),
+            "hl.gesture({ action = \"workspace\", direction = \"horizontal\", fingers = 3 })\n"
+        );
+        // Aller-retour par settings.lua : la chaîne reste.
+        let h = Hypr {
+            gestures: vec![g.clone()],
+            ..Default::default()
+        };
+        let lua = mlua::Lua::new();
+        let t: mlua::Table = lua.load(format!("return {}", h.to_lua())).eval().unwrap();
+        assert_eq!(parse(&t).unwrap().gestures, vec![g]);
     }
 
     #[test]

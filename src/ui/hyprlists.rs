@@ -180,8 +180,13 @@ pub const DIRECTIONS: &[(&str, &str)] = &[
     ("pinchout", "Écarter"),
 ];
 
-/// Actions d'un geste.
+/// Actions d'un geste : d'abord celles de hyprdesk (HIG ENT-03, écrites en
+/// fonction par `hyprset::calls_lua`), puis celles de Hyprland.
 pub const ACTIONS: &[(&str, &str)] = &[
+    ("hyprdesk:overview", "Vue d'ensemble"),
+    ("hyprdesk:apps", "Applications"),
+    ("hyprdesk:notifications", "Centre de notifications"),
+    ("hyprdesk:show-desktop", "Afficher le bureau"),
     ("workspace", "Changer de workspace"),
     ("special", "Afficher un workspace spécial"),
     ("move", "Déplacer la fenêtre"),
@@ -1250,6 +1255,21 @@ pub fn texts() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Chaque action hyprdesk du formulaire des gestes a sa commande
+    /// (HIG ENT-03).
+    #[test]
+    fn actions_hyprdesk_des_gestes() {
+        let ids: Vec<&str> = ACTIONS
+            .iter()
+            .map(|(id, _)| *id)
+            .filter(|id| id.starts_with("hyprdesk:"))
+            .collect();
+        assert_eq!(ids.len(), 4);
+        for id in ids {
+            assert!(crate::hyprset::gesture_command(id).is_some(), "{id}");
+        }
+    }
 
     #[test]
     fn pose_et_retire_un_champ_pointe() {
