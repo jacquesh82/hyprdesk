@@ -59,7 +59,7 @@
 ---@field crossfade_ms? integer
 ---@field running_apps? "off"|"workspace"|"all"
 ---@field show_on? "all"|"focused"|"primary"
----@field apps_style? "auto"|"sheet"|"spotlight" # lanceur d'applications : grande feuille en plein bureau et carte centrée sinon (auto), ou toujours l'une
+---@field apps_style? "auto"|"sheet"|"spotlight" # lanceur d'applications : carte centrée dans tous les modes (spotlight, défaut), grande feuille toujours (sheet), ou feuille en plein bureau et carte sinon (auto)
 ---@field apps_suggestions? integer # applications les plus lancées mises en avant (0 à 16, 8 par défaut)
 ---@field apps_categories? boolean # catégories dans la grande feuille
 ---@field apps_unified? boolean # le même lanceur dans tous les modes (keys.search pris à hyprland.lua) ; false : celui de hyprland.lua hors plein bureau

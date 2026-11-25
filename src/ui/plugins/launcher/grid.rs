@@ -778,6 +778,15 @@ mod tests {
                 .apps_launcher
                 .style = st;
         };
+        // Par défaut (MLG-322) : la carte centrée dans tous les modes.
+        for mode in [
+            crate::ui::DesktopMode::NoDesktop,
+            crate::ui::DesktopMode::LauncherOnly,
+            crate::ui::DesktopMode::FullDesktop,
+        ] {
+            app.test_mode(mode);
+            assert!(!app.launcher_sheet(), "{mode:?} : carte centrée par défaut");
+        }
         style(&mut app, AppsStyle::Auto);
         app.test_mode(crate::ui::DesktopMode::NoDesktop);
         assert!(!app.launcher_sheet(), "no-desktop : carte centrée");

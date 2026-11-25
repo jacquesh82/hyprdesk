@@ -149,6 +149,9 @@ and this project adheres to
 
 ### Changed
 
+- **The launcher opens as a centered card in every mode by default**
+  (MLG-322): `apps_style` defaults to `spotlight` instead of `auto` (large
+  sheet on the full desktop); `sheet` and `auto` stay available.
 - **Bar laid out like the macOS menu bar** (MLG-313), Continuity style:
   - one even slab, edge to edge: no darker islands under its zones (they
     stay with « detached groups »), no accent fill on modules that are on

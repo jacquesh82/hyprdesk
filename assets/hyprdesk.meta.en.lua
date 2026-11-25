@@ -59,7 +59,7 @@
 ---@field crossfade_ms? integer
 ---@field running_apps? "off"|"workspace"|"all"
 ---@field show_on? "all"|"focused"|"primary"
----@field apps_style? "auto"|"sheet"|"spotlight" # application launcher: large sheet in full-desktop and centered card otherwise (auto), or always one of them
+---@field apps_style? "auto"|"sheet"|"spotlight" # application launcher: centered card in every mode (spotlight, default), large sheet always (sheet), or sheet in full-desktop and card otherwise (auto)
 ---@field apps_suggestions? integer # most launched applications highlighted (0 to 16, 8 by default)
 ---@field apps_categories? boolean # categories in the large sheet
 ---@field apps_unified? boolean # the same launcher in every mode (keys.search taken from hyprland.lua); false: hyprland.lua's one outside the full desktop

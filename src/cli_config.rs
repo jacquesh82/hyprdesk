@@ -680,7 +680,7 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.launcher.show_assistant),
         |s, v, c| { s.launcher_show_assistant = Some(parse_bool(v)?); Ok(()) },
         |s| s.launcher_show_assistant = None;
-    "apps_style", "launcher", "auto | sheet | spotlight — lanceur d'applications : grande feuille en plein bureau et carte centrée sinon, ou toujours l'une",
+    "apps_style", "launcher", "spotlight | sheet | auto — lanceur d'applications : carte centrée dans tous les modes (défaut), grande feuille toujours, ou feuille en plein bureau et carte sinon",
         |c| c.general.apps_launcher.style.as_str().to_string(),
         |s, v, c| { s.apps_style = Some(crate::config::AppsStyle::parse(v.trim()).ok_or_else(|| crate::i18n::tr("auto, sheet ou spotlight attendu").to_string())?); Ok(()) },
         |s| s.apps_style = None;
