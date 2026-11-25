@@ -53,7 +53,7 @@ Voir « Étapes ».
 5. **Réglages** : « Apparence des icônes » (Automatique, Par défaut, Sombre, Teintée), champ dédié dans Réglages › Thème ; libellés traduits ; scène `reglages-icones`.
 6. **Documentation** : guides (FR, EN), `DESIGN.md` ; l'écart passe `fait`.
 
-État : plan écrit et relu ; prochaine : étape 1 (après ICO-01).
+État : étape 1 faite (`d5bf48e`) ; prochaine : étape 2.
 
 ## Validation
 
