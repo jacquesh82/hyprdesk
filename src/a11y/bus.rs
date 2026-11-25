@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 use zbus::zvariant::{OwnedObjectPath, Type};
 
-use super::model::{Flat, NULL_PATH, Node, ROOT_PATH, Tree, locale};
+use super::model::{Flat, Ids, NULL_PATH, Node, ROOT_PATH, Tree, diff, locale};
 
 /// Nom du registre AT-SPI sur le bus d'accessibilité.
 pub const REGISTRY: &str = "org.a11y.atspi.Registry";
@@ -23,6 +23,8 @@ pub const SOCKET: &str = "org.a11y.atspi.Socket";
 /// Interfaces servies par la racine, puis par les autres nœuds.
 const ROOT_INTERFACES: [&str; 2] = ["org.a11y.atspi.Accessible", "org.a11y.atspi.Application"];
 const NODE_INTERFACES: [&str; 1] = ["org.a11y.atspi.Accessible"];
+/// Événements d'objet (structure, propriétés, états).
+const EVENT_OBJECT: &str = "org.a11y.atspi.Event.Object";
 
 /// Référence à un objet accessible : nom sur le bus et chemin (`(so)`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -232,7 +234,10 @@ pub struct Handle {
     /// inscrit.
     pub parent: Ref,
     shared: Arc<Shared>,
-    count: usize,
+    /// Numéros des objets, stables par clé.
+    ids: Ids,
+    /// Objets `Accessible` servis.
+    served: std::collections::BTreeSet<usize>,
 }
 
 impl Handle {
@@ -284,37 +289,105 @@ impl Handle {
         Ok(())
     }
 
-    /// Remplace l'arbre servi : les objets des rangs communs restent (ils
-    /// lisent l'arbre partagé), ceux qui manquent sont ajoutés, ceux de trop
-    /// retirés.
+    /// Remplace l'arbre servi par différence : les nœuds gardés (même clé)
+    /// gardent leur objet ; les nouveaux sont servis, puis annoncés
+    /// (`ChildrenChanged:add`) ; les disparus annoncés (`:remove`), puis
+    /// retirés ; un nom changé émet `PropertyChange:accessible-name`.
     pub async fn replace(&mut self, root: &Node) -> zbus::Result<()> {
-        let tree = Tree::flatten(root);
-        let count = tree.nodes.len();
-        *self.shared.tree() = tree;
+        let new = Tree::flatten_with(root, &mut self.ids);
+        // Objets à servir ou à retirer d'après ce qui est servi, pas d'après
+        // l'arbre précédent : un échec passé se rattrape au remplacement
+        // suivant.
+        let added: Vec<usize> = new.ids().filter(|id| !self.served.contains(id)).collect();
+        let removed: Vec<usize> = self
+            .served
+            .iter()
+            .copied()
+            .filter(|&id| new.get(id).is_none())
+            .collect();
+        let d = {
+            let mut cur = self.shared.tree();
+            let d = diff(&cur, &new);
+            *cur = new;
+            d
+        };
+        let mut first: zbus::Result<()> = Ok(());
+        let mut keep = |r: zbus::Result<()>| {
+            if let Err(e) = r
+                && first.is_ok()
+            {
+                first = Err(e);
+            }
+        };
         let server = self.conn.object_server();
-        for i in self.count..count {
+        for id in added {
             let node = Accessible {
-                idx: i,
+                idx: id,
                 shared: self.shared.clone(),
             };
-            server.at(Tree::path(i), node).await?;
-            // Compté dès qu'il est servi : un échec en cours de route ne
-            // laisse pas d'objet que le prochain remplacement oublierait.
-            self.count = i + 1;
+            match server.at(Tree::path(id), node).await {
+                Ok(_) => {
+                    self.served.insert(id);
+                }
+                Err(e) => keep(Err(e)),
+            }
         }
-        for i in count..self.count {
-            let _ = server.remove::<Accessible, _>(Tree::path(i)).await;
+        for &(parent, add, index, child) in &d.children {
+            let detail = if add { "add" } else { "remove" };
+            let child = self.shared.at(child);
+            keep(
+                self.emit(parent, "ChildrenChanged", detail, index, child.into())
+                    .await,
+            );
         }
-        self.count = count;
-        Ok(())
+        for &id in &d.renamed {
+            let name = self
+                .shared
+                .tree()
+                .get(id)
+                .map(|n| n.name.clone())
+                .unwrap_or_default();
+            keep(
+                self.emit(id, "PropertyChange", "accessible-name", 0, name.into())
+                    .await,
+            );
+        }
+        for id in removed {
+            // Absent du serveur ou retiré : plus servi dans les deux cas.
+            let _ = server.remove::<Accessible, _>(Tree::path(id)).await;
+            self.served.remove(&id);
+        }
+        first
+    }
+
+    /// Événement `org.a11y.atspi.Event.Object`, corps `(siiva{sv})`, émis
+    /// depuis le nœud `id`.
+    async fn emit(
+        &self,
+        id: usize,
+        member: &str,
+        detail: &str,
+        detail1: i32,
+        value: zbus::zvariant::Value<'_>,
+    ) -> zbus::Result<()> {
+        let props: HashMap<&str, zbus::zvariant::Value<'_>> = HashMap::new();
+        self.conn
+            .emit_signal(
+                None::<zbus::names::BusName<'_>>,
+                Tree::path(id).as_str(),
+                EVENT_OBJECT,
+                member,
+                &(detail, detail1, 0i32, value, props),
+            )
+            .await
     }
 
     /// Retire les objets servis ; la connexion se ferme avec le pont.
     pub async fn stop(self) {
         let server = self.conn.object_server();
         let _ = server.remove::<Application, _>(ROOT_PATH).await;
-        for i in 0..self.count {
-            let _ = server.remove::<Accessible, _>(Tree::path(i)).await;
+        for &id in &self.served {
+            let _ = server.remove::<Accessible, _>(Tree::path(id)).await;
         }
     }
 }
@@ -326,8 +399,9 @@ pub async fn serve(conn: zbus::Connection, root: &Node) -> zbus::Result<Handle> 
         .unique_name()
         .map(|n| n.to_string())
         .unwrap_or_default();
-    let tree = Tree::flatten(root);
-    let count = tree.nodes.len();
+    let mut ids = Ids::default();
+    let tree = Tree::flatten_with(root, &mut ids);
+    let all: Vec<usize> = tree.ids().collect();
     let shared = Arc::new(Shared {
         tree: Mutex::new(tree),
         parent: Mutex::new(Ref::null()),
@@ -335,18 +409,21 @@ pub async fn serve(conn: zbus::Connection, root: &Node) -> zbus::Result<Handle> 
     });
     let server = conn.object_server();
     server.at(ROOT_PATH, Application { id: 0 }).await?;
-    for i in 0..count {
+    let mut served = std::collections::BTreeSet::new();
+    for id in all {
         let node = Accessible {
-            idx: i,
+            idx: id,
             shared: shared.clone(),
         };
-        server.at(Tree::path(i), node).await?;
+        server.at(Tree::path(id), node).await?;
+        served.insert(id);
     }
     Ok(Handle {
         conn,
         parent: Ref::null(),
         shared,
-        count,
+        ids,
+        served,
     })
 }
 
@@ -362,6 +439,7 @@ pub async fn start(conn: zbus::Connection, root: &Node) -> zbus::Result<Handle> 
 pub(super) mod tests {
     use super::*;
     use crate::a11y::model::{Role, State};
+    use iced::futures::StreamExt;
     use zbus::zvariant::{OwnedValue, Value};
 
     /// Faux registre : retient la référence inscrite et rend la sienne.
@@ -511,12 +589,21 @@ pub(super) mod tests {
         let app_ref: Ref = call(&at, &me, &firefox, "GetApplication").await;
         assert_eq!(app_ref, Ref::new(&me, ROOT_PATH));
 
-        // L'arbre change : un nœud de moins, l'objet de trop est retiré.
+        // L'arbre change : un nœud de moins, l'objet de trop est retiré et
+        // annoncé ; le nom changé aussi.
+        let rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .interface(EVENT_OBJECT)
+            .unwrap()
+            .build();
+        let mut events = zbus::MessageStream::for_match_rule(rule, &at, Some(16))
+            .await
+            .unwrap();
         let smaller = Node::new(Role::Application, "hyprdesk")
             .child(Node::new(Role::Frame, "Barre des menus"));
         h.replace(&smaller).await.unwrap();
         let n: String = get(&at, &me, &dock, ACC, "Name").await.try_into().unwrap();
-        assert_eq!(n, "Barre des menus");
+        assert_eq!(n, "Barre des menus", "même rang, même objet");
         let r = at
             .call_method(
                 Some(me.as_str()),
@@ -527,12 +614,35 @@ pub(super) mod tests {
             )
             .await;
         assert!(r.is_err(), "nœud retiré");
+        let mut seen = Vec::new();
+        while seen.len() < 3 {
+            let m = tokio::time::timeout(std::time::Duration::from_secs(5), events.next())
+                .await
+                .expect("événement")
+                .unwrap()
+                .unwrap();
+            let (detail, ..): (String, i32, i32, OwnedValue, HashMap<String, OwnedValue>) =
+                m.body().deserialize().unwrap();
+            let member = m.header().member().unwrap().to_string();
+            seen.push(format!("{member}:{detail}"));
+        }
+        seen.sort();
+        assert_eq!(
+            seen,
+            [
+                "ChildrenChanged:remove",
+                "ChildrenChanged:remove",
+                "PropertyChange:accessible-name"
+            ]
+        );
         h.replace(&root).await.unwrap();
-        let n: String = get(&at, &me, &firefox, ACC, "Name")
+        let kids: Vec<Ref> = call(&at, &me, &dock, "GetChildren").await;
+        let n: String = get(&at, &me, kids[0].1.as_str(), ACC, "Name")
             .await
             .try_into()
             .unwrap();
         assert_eq!(n, "Firefox", "nœud rajouté");
+        let firefox = kids[0].1.to_string();
 
         // Lecteur coupé : désinscription, puis plus aucun objet.
         h.unembed().await.unwrap();

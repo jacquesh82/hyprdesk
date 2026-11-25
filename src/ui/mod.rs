@@ -4247,14 +4247,20 @@ impl App {
             tracing::debug!(command = c.as_str(), "commande reçue");
         }
         self.count_msg(&msg);
-        match self.damage_of(&msg) {
+        let damage = self.damage_of(&msg);
+        // Rien à redessiner, ou seulement des bureaux (trame vidéo) : l'arbre
+        // d'accessibilité, fait de la barre et du dock, n'a pas changé.
+        let still = !matches!(damage, Damage::All);
+        match damage {
             Damage::All => iced_layershell::damage::all(),
             Damage::None => iced_layershell::damage::none(),
             Damage::Only(ids) => iced_layershell::damage::only(ids),
         }
         let t = self.update_inner(msg);
         self.publish_status();
-        self.a11y_publish();
+        if !still {
+            self.a11y_publish();
+        }
         self.voice_publish();
         let t = Task::batch([t, self.sync_hyprbars()]);
         tracing::trace!(

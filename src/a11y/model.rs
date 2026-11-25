@@ -1,6 +1,8 @@
 //! Arbre d'accessibilité pur : rôles et états AT-SPI, nœuds, arbre aplati
 //! et chemins des objets. Aucune dépendance à D-Bus : testable seul.
 
+use std::collections::HashMap;
+
 /// Chemin de la racine (l'objet `Application`), fixé par le protocole.
 pub const ROOT_PATH: &str = "/org/a11y/atspi/accessible/root";
 /// Préfixe des chemins des autres nœuds.
@@ -136,6 +138,10 @@ impl StateSet {
 /// Un nœud de l'arbre, tel que les surfaces le décrivent.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
+    /// Identité stable parmi ses frères (`dock-pin:firefox`, `volume`) : un
+    /// nœud qui garde sa clé garde son objet D-Bus d'un arbre à l'autre. Vide :
+    /// son rang.
+    pub key: String,
     pub role: Role,
     pub name: String,
     pub description: String,
@@ -146,6 +152,7 @@ pub struct Node {
 impl Node {
     pub fn new(role: Role, name: impl Into<String>) -> Node {
         Node {
+            key: String::new(),
             role,
             name: name.into(),
             description: String::new(),
@@ -156,6 +163,11 @@ impl Node {
 
     pub fn describe(mut self, d: impl Into<String>) -> Node {
         self.description = d.into();
+        self
+    }
+
+    pub fn key(mut self, k: impl Into<String>) -> Node {
+        self.key = k.into();
         self
     }
 
@@ -197,9 +209,13 @@ fn dump_into(out: &mut String, n: &Node, depth: usize) {
     }
 }
 
-/// Un nœud de l'arbre aplati : liens par rang dans [`Tree::nodes`].
+/// Un nœud de l'arbre aplati. `id` est le numéro de son objet D-Bus ;
+/// parent et enfants sont donnés par leurs `id`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Flat {
+    pub id: usize,
+    /// Chemin des clés depuis la racine : l'identité du nœud.
+    pub key: String,
     pub role: Role,
     pub name: String,
     pub description: String,
@@ -210,37 +226,94 @@ pub struct Flat {
     pub index_in_parent: i32,
 }
 
+/// Numéros des objets, stables d'un arbre à l'autre pour une même clé ; la
+/// racine est toujours 0.
+#[derive(Clone, Debug)]
+pub struct Ids {
+    map: HashMap<String, usize>,
+    next: usize,
+}
+
+impl Default for Ids {
+    fn default() -> Self {
+        Ids {
+            map: HashMap::new(),
+            next: 1,
+        }
+    }
+}
+
+impl Ids {
+    fn of(&mut self, key: &str) -> usize {
+        if key.is_empty() {
+            return 0;
+        }
+        if let Some(id) = self.map.get(key) {
+            return *id;
+        }
+        let id = self.next;
+        self.next += 1;
+        self.map.insert(key.to_string(), id);
+        id
+    }
+}
+
 /// L'arbre aplati, en ordre préfixe : la racine est au rang 0.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tree {
     pub nodes: Vec<Flat>,
+    pos: HashMap<usize, usize>,
 }
 
 impl Tree {
-    /// Aplatit `root`, qui devient le nœud 0 (l'application).
+    /// Aplatit `root`, qui devient le nœud 0 (l'application), avec des
+    /// numéros neufs.
     pub fn flatten(root: &Node) -> Tree {
-        let mut nodes = Vec::new();
-        push(&mut nodes, root, None, -1);
-        Tree { nodes }
+        Tree::flatten_with(root, &mut Ids::default())
     }
 
-    /// Chemin D-Bus du nœud `i`.
-    pub fn path(i: usize) -> String {
-        if i == 0 {
+    /// Aplatit `root` en reprenant les numéros de `ids` ; ceux des clés
+    /// disparues sont oubliés.
+    pub fn flatten_with(root: &Node, ids: &mut Ids) -> Tree {
+        let mut nodes = Vec::new();
+        push(&mut nodes, ids, root, String::new(), None, -1);
+        let pos: HashMap<usize, usize> = nodes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
+        ids.map.retain(|_, id| pos.contains_key(id));
+        Tree { nodes, pos }
+    }
+
+    /// Chemin D-Bus du nœud numéro `id`.
+    pub fn path(id: usize) -> String {
+        if id == 0 {
             ROOT_PATH.to_string()
         } else {
-            format!("{NODE_PREFIX}{i}")
+            format!("{NODE_PREFIX}{id}")
         }
     }
 
-    pub fn get(&self, i: usize) -> Option<&Flat> {
-        self.nodes.get(i)
+    /// Le nœud numéro `id`.
+    pub fn get(&self, id: usize) -> Option<&Flat> {
+        self.pos.get(&id).and_then(|&i| self.nodes.get(i))
+    }
+
+    pub fn ids(&self) -> impl Iterator<Item = usize> + '_ {
+        self.nodes.iter().map(|n| n.id)
     }
 }
 
-fn push(nodes: &mut Vec<Flat>, n: &Node, parent: Option<usize>, index: i32) -> usize {
+fn push(
+    nodes: &mut Vec<Flat>,
+    ids: &mut Ids,
+    n: &Node,
+    key: String,
+    parent: Option<usize>,
+    index: i32,
+) -> usize {
+    let id = ids.of(&key);
     let me = nodes.len();
     nodes.push(Flat {
+        id,
+        key: key.clone(),
         role: n.role,
         name: n.name.clone(),
         description: n.description.clone(),
@@ -249,11 +322,78 @@ fn push(nodes: &mut Vec<Flat>, n: &Node, parent: Option<usize>, index: i32) -> u
         children: Vec::new(),
         index_in_parent: index,
     });
+    let mut seen = std::collections::HashSet::new();
     for (k, c) in n.children.iter().enumerate() {
-        let id = push(nodes, c, Some(me), k as i32);
-        nodes[me].children.push(id);
+        let mut own = if c.key.is_empty() {
+            format!("#{k}")
+        } else {
+            c.key.clone()
+        };
+        // Deux frères de même clé : le second prend aussi son rang.
+        if !seen.insert(own.clone()) {
+            own = format!("{own}#{k}");
+        }
+        let child = push(nodes, ids, c, format!("{key}/{own}"), Some(id), k as i32);
+        nodes[me].children.push(child);
     }
-    me
+    id
+}
+
+/// Ce qui change d'un arbre à l'autre, pour le pont.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Diff {
+    /// Nœuds nouveaux (objets à servir), en ordre préfixe.
+    pub added: Vec<usize>,
+    /// Nœuds disparus (objets à retirer).
+    pub removed: Vec<usize>,
+    /// Nœuds gardés dont le nom change (`PropertyChange:accessible-name`).
+    pub renamed: Vec<usize>,
+    /// `ChildrenChanged` : (parent, ajout ?, rang, enfant), pour le plus haut
+    /// nœud ajouté ou retiré de chaque branche.
+    pub children: Vec<(usize, bool, i32, usize)>,
+}
+
+/// Différence de `old` à `new` (numéros tirés des mêmes [`Ids`]). Un
+/// enfant gardé qui change de rang est annoncé retiré puis ajouté ; les
+/// retraits d'un même parent partent du rang le plus haut, pour que chaque
+/// rang annoncé reste exact.
+pub fn diff(old: &Tree, new: &Tree) -> Diff {
+    let mut d = Diff::default();
+    let mut removes = Vec::new();
+    let mut adds = Vec::new();
+    for n in &old.nodes {
+        match new.get(n.id) {
+            None => {
+                d.removed.push(n.id);
+                if let Some(p) = n.parent.filter(|p| new.get(*p).is_some()) {
+                    removes.push((p, false, n.index_in_parent, n.id));
+                }
+            }
+            Some(m) if m.index_in_parent != n.index_in_parent && m.parent == n.parent => {
+                if let Some(p) = n.parent {
+                    removes.push((p, false, n.index_in_parent, n.id));
+                    adds.push((p, true, m.index_in_parent, n.id));
+                }
+            }
+            Some(_) => {}
+        }
+    }
+    for n in &new.nodes {
+        match old.get(n.id) {
+            None => {
+                d.added.push(n.id);
+                if let Some(p) = n.parent.filter(|p| old.get(*p).is_some()) {
+                    adds.push((p, true, n.index_in_parent, n.id));
+                }
+            }
+            Some(o) if o.name != n.name => d.renamed.push(n.id),
+            Some(_) => {}
+        }
+    }
+    removes.sort_by_key(|&(p, _, i, _)| (p, std::cmp::Reverse(i)));
+    adds.sort_by_key(|&(p, _, i, _)| (p, i));
+    d.children = removes.into_iter().chain(adds).collect();
+    d
 }
 
 /// Langue annoncée au lecteur d'écran (`Locale`, `GetLocale`), au format
@@ -313,6 +453,76 @@ mod tests {
         assert_eq!(t.nodes[0].index_in_parent, -1);
         assert_eq!(Tree::path(0), ROOT_PATH);
         assert_eq!(Tree::path(3), "/org/a11y/atspi/accessible/3");
+    }
+
+    #[test]
+    fn difference_par_cle() {
+        let mut ids = Ids::default();
+        let dock = |apps: &[&str]| {
+            Node::new(Role::Application, "hyprdesk").child(
+                Node::new(Role::Frame, "Dock").key("dock:A").children(
+                    apps.iter()
+                        .map(|a| Node::new(Role::PushButton, *a).key(format!("pin:{a}"))),
+                ),
+            )
+        };
+        let a = Tree::flatten_with(&dock(&["Firefox", "Fichiers"]), &mut ids);
+        let b = Tree::flatten_with(&dock(&["Terminal", "Fichiers"]), &mut ids);
+        let id = |t: &Tree, name: &str| t.nodes.iter().find(|n| n.name == name).unwrap().id;
+        // Fichiers garde son objet malgré l'insertion devant lui.
+        assert_eq!(id(&a, "Fichiers"), id(&b, "Fichiers"));
+        let d = diff(&a, &b);
+        let frame = id(&a, "Dock");
+        assert_eq!(d.removed, [id(&a, "Firefox")]);
+        assert_eq!(d.added, [id(&b, "Terminal")]);
+        assert!(d.renamed.is_empty());
+        assert_eq!(
+            d.children,
+            [
+                (frame, false, 0, id(&a, "Firefox")),
+                (frame, true, 0, id(&b, "Terminal"))
+            ]
+        );
+        // Un nom qui change garde l'objet.
+        let c = Tree::flatten_with(
+            &Node::new(Role::Application, "hyprdesk")
+                .child(Node::new(Role::Frame, "Dock (2)").key("dock:A")),
+            &mut ids,
+        );
+        let d = diff(&b, &c);
+        assert_eq!(d.renamed, [frame]);
+        assert_eq!(d.removed.len(), 2, "les deux boutons");
+        assert_eq!(d.children.len(), 2, "un événement par bouton retiré");
+    }
+
+    #[test]
+    fn permutation_et_cles_en_double() {
+        let mut ids = Ids::default();
+        let row = |keys: &[&str]| {
+            Node::new(Role::Application, "hyprdesk").children(
+                keys.iter()
+                    .map(|k| Node::new(Role::PushButton, *k).key(k.to_string())),
+            )
+        };
+        let a = Tree::flatten_with(&row(&["a", "b"]), &mut ids);
+        let b = Tree::flatten_with(&row(&["b", "a"]), &mut ids);
+        let (ia, ib) = (a.nodes[1].id, a.nodes[2].id);
+        assert_eq!((b.nodes[1].id, b.nodes[2].id), (ib, ia), "objets gardés");
+        let d = diff(&a, &b);
+        assert!(d.added.is_empty() && d.removed.is_empty());
+        assert_eq!(
+            d.children,
+            [
+                (0, false, 1, ib),
+                (0, false, 0, ia),
+                (0, true, 0, ib),
+                (0, true, 1, ia)
+            ],
+            "rang changé : retrait (du plus haut) puis ajout"
+        );
+        // Deux frères de même clé : deux objets distincts.
+        let c = Tree::flatten_with(&row(&["x", "x"]), &mut ids);
+        assert_ne!(c.nodes[1].id, c.nodes[2].id);
     }
 
     #[test]

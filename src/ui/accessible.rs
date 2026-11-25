@@ -20,6 +20,7 @@ impl App {
                 .collect();
             bars.sort_unstable();
             for monitor in bars {
+                let frame = format!("bar:{monitor}");
                 // Écran vertical : la composition portrait, comme à l'écran.
                 let zones = if self.bar_vertical(monitor) {
                     def.portrait.as_ref().unwrap_or(&def.zones)
@@ -27,12 +28,13 @@ impl App {
                     &def.zones
                 };
                 out.push(
-                    Node::new(Role::Frame, tr("Barre des menus")).children(
-                        zones
-                            .iter()
-                            .flatten()
-                            .map(|item| button(self.bar_item_label(item))),
-                    ),
+                    Node::new(Role::Frame, tr("Barre des menus"))
+                        .key(frame)
+                        .children(zones.iter().flatten().map(|item| {
+                            button(self.bar_item_label(item)).key(
+                                crate::ui::plugins::bar::surface::bar_item_key(item).to_string(),
+                            )
+                        })),
                 );
             }
         }
@@ -47,15 +49,21 @@ impl App {
                 continue;
             };
             out.push(
-                Node::new(Role::Frame, tr("Dock")).children(
-                    self.dock_slots(m)
-                        .into_iter()
-                        .filter_map(|slot| match slot {
-                            Slot::Item(i) => Some(button(self.dock_item_name(&i.popup))),
-                            Slot::Label(ws) => Some(Node::new(Role::Label, ws)),
-                            Slot::Separator => None,
-                        }),
-                ),
+                Node::new(Role::Frame, tr("Dock"))
+                    .key(format!("dock:{monitor}"))
+                    .children(
+                        self.dock_slots(m)
+                            .into_iter()
+                            .filter_map(|slot| match slot {
+                                Slot::Item(i) => {
+                                    Some(button(self.dock_item_name(&i.popup)).key(i.key.clone()))
+                                }
+                                Slot::Label(ws) => {
+                                    Some(Node::new(Role::Label, ws.clone()).key(format!("ws:{ws}")))
+                                }
+                                Slot::Separator => None,
+                            }),
+                    ),
             );
         }
         out
