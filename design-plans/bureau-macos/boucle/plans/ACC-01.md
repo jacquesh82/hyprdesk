@@ -48,7 +48,7 @@ Voir « Étapes ».
 8. **Réglages et verrouillage** : pages, rangées et commandes des Réglages (`PageTab`, `PushButton`, `CheckBox` ; curseurs en `Slider` avec l'interface `Value` dans une étape à part si le temps manque), champ du mot de passe (`PasswordText`, nom « Mot de passe » ; sans l'interface `Text`, la frappe n'est pas annoncée : hors de ce plan, à dire au guide).
 9. **Documentation** : guides (FR, EN) — Orca lit les surfaces de hyprdesk, et ce qu'il ne lit pas encore ; `DESIGN.md` : toute commande nouvelle a un nom accessible ; l'écart passe `fait`.
 
-État : plan écrit et relu par un agent indépendant (corrigé : démarrage par `org.a11y.Status`, ordre racine puis `Embed`, `Id` en écriture, événements `StateChanged` et `Window:Activate` au lieu de `Focus`, `Action` complet, étapes 1 et 2 scindées, faux registre pour le test) ; prochaine : étape 1.
+État : plan écrit et relu par un agent indépendant (corrigé : démarrage par `org.a11y.Status`, ordre racine puis `Embed`, `Id` en écriture, événements `StateChanged` et `Window:Activate` au lieu de `Focus`, `Action` complet, étapes 1 et 2 scindées, faux registre pour le test). Étape 1 faite (`7e38706`, relue par un agent indépendant : la locale annoncée vient de `i18n::current()`, pas de `LANG`) ; prochaine : étape 2.
 
 ## Validation
 
