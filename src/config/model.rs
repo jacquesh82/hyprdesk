@@ -259,7 +259,8 @@ impl LauncherGroup {
 pub struct LockCfg {
     /// Fond flouté.
     pub blur: bool,
-    /// Assombrissement du fond (0..1).
+    /// Plancher d'assombrissement du fond (0..1) : le voile monte seul jusqu'au
+    /// contraste du texte (HIG ACC-02).
     pub dim: f32,
     /// Image propre au verrouillage ; sinon le fond du bureau de l'écran principal.
     pub image: Option<std::path::PathBuf>,
@@ -749,7 +750,10 @@ impl Place {
         Effect {
             opacity,
             blur: self.blurrable(),
-            adaptive: None,
+            // Barre et widgets sont posés sur le fond d'écran : ils se
+            // densifient jusqu'à ce plafond quand le fond rendrait leur texte
+            // illisible (HIG FON-01) ; le lanceur l'est toujours.
+            adaptive: matches!(self, Place::Bar | Place::Widgets).then_some(0.95),
         }
     }
 
@@ -866,6 +870,16 @@ pub enum MenuEntry {
     },
     Separator,
     Header(String),
+    /// Sous-menu d'un niveau (HIG MENU-03) : chevron après le libellé, ouvert
+    /// au survol. Ses entrées sont des `Item`, `Separator`, `Header`,
+    /// `Image` ; un sous-menu imbriqué n'y est jamais lu.
+    Submenu {
+        label: String,
+        icon: Option<String>,
+        /// Faux : ligne grisée, sa colonne ne s'ouvre pas.
+        enabled: bool,
+        children: Vec<MenuEntry>,
+    },
     /// Image (pochette d'album…) : un fichier local, en tête de menu.
     Image(std::path::PathBuf),
     /// Champ de saisie : Entrée appelle l'action avec le texte (mot de passe
@@ -1487,6 +1501,22 @@ pub struct Keys {
     pub overview: String,
     /// Ouvrir ou refermer LYRA, l'assistant IA (`hyprdesk assistant`).
     pub assistant: String,
+    /// Le clavier va à la barre de l'écran actif (`hyprdesk focus bar`).
+    pub focus_bar: String,
+    /// Le clavier va au dock de l'écran actif (`hyprdesk focus dock`).
+    pub focus_dock: String,
+    /// Le centre de notifications s'ouvre et prend le clavier
+    /// (`hyprdesk focus notifications`).
+    pub focus_notifications: String,
+    /// Le volet des Réglages s'ouvre s'il est fermé et prend le clavier
+    /// (`hyprdesk focus settings`).
+    pub focus_settings: String,
+    /// Forcer une application à quitter (`hyprdesk force-quit`) : la boîte qui
+    /// liste les applications et tue leurs fenêtres.
+    pub force_quit: String,
+    /// Basculer l'accès clavier complet (`hyprdesk keyboard-access`,
+    /// `general.keyboard_access`, HIG ENT-01).
+    pub keyboard_access: String,
     /// Raccourcis que hyprdesk prend à hyprland.lua : la combinaison y est
     /// déliée tant qu'elle figure ici, rendue (Hyprland relit sa config) sinon.
     pub take: Vec<String>,
@@ -1508,15 +1538,31 @@ impl Default for Keys {
         Keys {
             toggle: "SUPER + D".into(),
             launcher: "SUPER + ALT + D".into(),
-            switch: "ALT + Tab".into(),
+            // Raccourcis de macOS (HIG ENT-06, ENT-09, PAT-14 ; décision D2) :
+            // Commande-Tab, le commutateur ; Commande-Espace, le lanceur ;
+            // Contrôle-Flèche haut, Mission Control ; Commande-Virgule, les
+            // Réglages.
+            switch: "SUPER + Tab".into(),
             // Le lanceur de hyprdesk, dans tous les modes (apps_unified).
-            search: "SUPER + R".into(),
+            search: "SUPER + Space".into(),
             search_desktop: String::new(),
-            overview: "SUPER + Tab".into(),
+            overview: "CTRL + Up".into(),
             assistant: "SUPER + SHIFT + L".into(),
+            // Un raccourci par surface du shell (HIG ENT-02), sur le modèle
+            // de macOS : Control-F2, F3, F6 ; F8, libre, pour le centre.
+            focus_bar: "CTRL + F2".into(),
+            focus_dock: "CTRL + F3".into(),
+            focus_notifications: "CTRL + F8".into(),
+            focus_settings: "CTRL + F6".into(),
+            // Forcer une application à quitter (HIG ENT-10), sur le modèle de
+            // macOS : Option-Command-Esc. Les modificateurs dans l'ordre du dépôt.
+            force_quit: "ALT + SUPER + Escape".into(),
+            // Accès clavier complet (HIG ENT-01), sur le modèle de macOS :
+            // Control-F1.
+            keyboard_access: "CTRL + F1".into(),
             take: Vec::new(),
             hide: "SUPER + CTRL + D".into(),
-            settings: "SUPER + SHIFT + D".into(),
+            settings: "SUPER + comma".into(),
             // Vide : le verrouillage de hyprland.lua (SUPER + L, posé par
             // scripts/install.sh). Réglé, hyprdesk le remplace.
             lock: String::new(),
@@ -1601,6 +1647,9 @@ pub struct General {
     /// Mouvement réduit (MLG-271) : ouvertures en fondu court, sans échelle
     /// ni déplacement.
     pub reduced_motion: bool,
+    /// Accès clavier complet (HIG ENT-01) : Tab atteint chaque commande des
+    /// Réglages, pas seulement les champs de saisie.
+    pub keyboard_access: bool,
     /// Contraste renforcé (MLG-282) : texte à 7:1, repères à 4,5:1,
     /// surfaces plus denses et filets marqués.
     pub increase_contrast: bool,
@@ -1730,6 +1779,7 @@ impl Default for General {
             icon_double_click: true,
             reduced_transparency: false,
             reduced_motion: false,
+            keyboard_access: true,
             increase_contrast: false,
             text_scale: 1.0,
             advanced_settings: false,
@@ -1993,6 +2043,21 @@ pub struct WidgetDef {
     /// Écran du widget, et que faire si cet écran est débranché.
     pub screen: WidgetScreen,
     pub if_missing: IfMissing,
+    /// Taille du widget, couches d'information comprises (HIG SYS-15).
+    pub family: WidgetFamily,
+}
+
+impl WidgetKind {
+    /// Le widget a plusieurs tailles (`family`, HIG SYS-15).
+    pub fn has_family(&self) -> bool {
+        matches!(
+            self,
+            WidgetKind::Clock { .. }
+                | WidgetKind::Calendar
+                | WidgetKind::System { .. }
+                | WidgetKind::Media { .. }
+        )
+    }
 }
 
 impl WidgetDef {
@@ -2005,6 +2070,7 @@ impl WidgetDef {
             card: self.card,
             screen: self.screen.clone(),
             if_missing: self.if_missing,
+            family: self.family,
         }
     }
 
@@ -2032,6 +2098,7 @@ impl WidgetDef {
         self.card = p.card;
         self.screen = p.screen.clone();
         self.if_missing = p.if_missing;
+        self.family = p.family;
     }
 
     /// Même widget, en ignorant sa position : un déplacement ne doit pas
@@ -2042,6 +2109,8 @@ impl WidgetDef {
             && self.kind == o.kind
             && self.interval == o.interval
             && self.sel == o.sel
+            // La taille change ce que le widget relève (HIG SYS-15).
+            && self.family == o.family
     }
 }
 
@@ -2056,6 +2125,8 @@ pub struct Placement {
     pub card: bool,
     pub screen: WidgetScreen,
     pub if_missing: IfMissing,
+    /// Taille du widget (HIG SYS-15).
+    pub family: WidgetFamily,
 }
 
 /// Écran d'un widget du bureau (plusieurs écrans : un widget n'est pas
@@ -2085,6 +2156,39 @@ impl WidgetScreen {
             WidgetScreen::Primary => "primary",
             WidgetScreen::All => "all",
             WidgetScreen::Named(n) => n,
+        }
+    }
+}
+
+/// Taille d'un widget du bureau : chaque taille ajoute une couche
+/// d'information au lieu d'agrandir la précédente ; `Medium` est l'affichage
+/// historique (HIG SYS-15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WidgetFamily {
+    Small,
+    #[default]
+    Medium,
+    Large,
+    XLarge,
+}
+
+impl WidgetFamily {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s.trim() {
+            "small" | "petit" => WidgetFamily::Small,
+            "medium" | "moyen" => WidgetFamily::Medium,
+            "large" | "grand" => WidgetFamily::Large,
+            "xlarge" | "tres-grand" | "très-grand" => WidgetFamily::XLarge,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WidgetFamily::Small => "small",
+            WidgetFamily::Medium => "medium",
+            WidgetFamily::Large => "large",
+            WidgetFamily::XLarge => "xlarge",
         }
     }
 }
@@ -2309,5 +2413,21 @@ mod tests {
         );
         assert_eq!(SysItem::parse("cpu"), Some(SysItem::Cpu));
         assert_eq!(SysItem::parse("gpu"), None);
+    }
+
+    #[test]
+    fn barre_et_widgets_se_densifient_sur_le_fond_par_defaut() {
+        // HIG FON-01 : les surfaces posées sur le fond d'écran s'adaptent
+        // par défaut ; celles qui passent devant les fenêtres gardent une
+        // opacité fixe.
+        for p in [Place::Bar, Place::Widgets] {
+            assert_eq!(p.default_effect().adaptive, Some(0.95));
+        }
+        for p in [Place::Menus, Place::Launcher, Place::Settings] {
+            assert_eq!(p.default_effect().adaptive, None);
+        }
+        let theme = Theme::default();
+        assert_eq!(theme.effect(Place::Bar).adaptive, Some(0.95));
+        assert_eq!(theme.effect(Place::Widgets).adaptive, Some(0.95));
     }
 }

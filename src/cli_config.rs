@@ -213,7 +213,7 @@ fn combo(v: &str) -> Result<String, String> {
         .map(|_| v.to_string())
         .ok_or_else(|| {
             crate::tr!(
-                "« {v} » : raccourci illisible (ex. \"SUPER + SHIFT + D\")",
+                "« {v} » : raccourci illisible (ex. \"SHIFT + SUPER + D\")",
                 v = v
             )
         })
@@ -522,7 +522,7 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.hide.clone(),
         |s, v, c| { s.key_hide = Some(combo(v)?); Ok(()) },
         |s| s.key_hide = None;
-    "keys.settings", "keys", "raccourci | none — ouvrir ou fermer les réglages (SUPER + SHIFT + D)",
+    "keys.settings", "keys", "raccourci | none — ouvrir ou fermer les réglages (SUPER + comma)",
         |c| c.general.keys.settings.clone(),
         |s, v, c| { s.key_settings = Some(combo(v)?); Ok(()) },
         |s| s.key_settings = None;
@@ -530,11 +530,11 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.lock.clone(),
         |s, v, c| { s.key_lock = Some(combo(v)?); Ok(()) },
         |s| s.key_lock = None;
-    "keys.switch", "keys", "raccourci | none — sélecteur de fenêtres (Alt+Tab ; avec Maj : en arrière)",
+    "keys.switch", "keys", "raccourci | none — sélecteur de fenêtres (SUPER + Tab ; avec Maj : en arrière)",
         |c| c.general.keys.switch.clone(),
         |s, v, c| { s.key_switch = Some(combo(v)?); Ok(()) },
         |s| s.key_switch = None;
-    "keys.search", "keys", "raccourci | none — lanceur d'applications, dans tous les modes (SUPER + R)",
+    "keys.search", "keys", "raccourci | none — lanceur d'applications, dans tous les modes (SUPER + Space)",
         |c| c.general.keys.search.clone(),
         |s, v, c| { s.key_search = Some(combo(v)?); Ok(()) },
         |s| s.key_search = None;
@@ -551,7 +551,7 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| s.key_take = None;
-    "keys.overview", "keys", "raccourci | none — vue d'ensemble des fenêtres (hyprdesk overview)",
+    "keys.overview", "keys", "raccourci | none — vue d'ensemble des fenêtres (CTRL + Up, hyprdesk overview)",
         |c| c.general.keys.overview.clone(),
         |s, v, c| { s.key_overview = Some(combo(v)?); Ok(()) },
         |s| s.key_overview = None;
@@ -559,6 +559,34 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.assistant.clone(),
         |s, v, c| { s.key_assistant = Some(combo(v)?); Ok(()) },
         |s| s.key_assistant = None;
+    "keys.focus_bar", "keys", "raccourci | none — le clavier va à la barre de l'écran actif (CTRL + F2)",
+        |c| c.general.keys.focus_bar.clone(),
+        |s, v, c| { s.key_focus_bar = Some(combo(v)?); Ok(()) },
+        |s| s.key_focus_bar = None;
+    "keys.focus_dock", "keys", "raccourci | none — le clavier va au dock de l'écran actif (CTRL + F3)",
+        |c| c.general.keys.focus_dock.clone(),
+        |s, v, c| { s.key_focus_dock = Some(combo(v)?); Ok(()) },
+        |s| s.key_focus_dock = None;
+    "keys.focus_notifications", "keys", "raccourci | none — le centre de notifications s'ouvre et prend le clavier (CTRL + F8)",
+        |c| c.general.keys.focus_notifications.clone(),
+        |s, v, c| { s.key_focus_notifications = Some(combo(v)?); Ok(()) },
+        |s| s.key_focus_notifications = None;
+    "keys.focus_settings", "keys", "raccourci | none — le volet des Réglages s'ouvre et prend le clavier (CTRL + F6)",
+        |c| c.general.keys.focus_settings.clone(),
+        |s, v, c| { s.key_focus_settings = Some(combo(v)?); Ok(()) },
+        |s| s.key_focus_settings = None;
+    "keys.force_quit", "keys", "raccourci | none — forcer une application à quitter : la boîte qui liste les applications (ALT + SUPER + Escape)",
+        |c| c.general.keys.force_quit.clone(),
+        |s, v, c| { s.key_force_quit = Some(combo(v)?); Ok(()) },
+        |s| s.key_force_quit = None;
+    "keys.keyboard_access", "keys", "raccourci | none — basculer l'accès clavier complet (CTRL + F1)",
+        |c| c.general.keys.keyboard_access.clone(),
+        |s, v, c| { s.key_keyboard_access = Some(combo(v)?); Ok(()) },
+        |s| s.key_keyboard_access = None;
+    "keyboard_access", "input", "on | off — accès clavier complet : Tab atteint chaque commande des Réglages, pas seulement les champs de saisie",
+        |c| on_off(c.general.keyboard_access),
+        |s, v, c| { s.keyboard_access = Some(parse_bool(v)?); Ok(()) },
+        |s| s.keyboard_access = None;
     "overview_command", "keys", "commande | none — vue d'ensemble par un plugin de Hyprland (sinon le sélecteur de hyprdesk)",
         |c| if c.general.overview_command.is_empty() { "none".into() } else { c.general.overview_command.clone() },
         |s, v, c| { s.overview_command = Some(if v.trim() == "none" { String::new() } else { v.trim().to_string() }); Ok(()) },
@@ -672,7 +700,7 @@ pub static KEYS: &[Key] = keys![
         |c| on_off(c.general.lock.blur),
         |s, v, c| { s.lock_blur = Some(parse_bool(v)?); Ok(()) },
         |s| s.lock_blur = None;
-    "lock_dim", "lock", "0..0.9 — assombrissement du fond verrouillé",
+    "lock_dim", "lock", "0..0.9 — plancher d'assombrissement du fond verrouillé ; le voile monte seul jusqu'au contraste du texte",
         |c| format!("{}", c.general.lock.dim),
         |s, v, c| { s.lock_dim = Some(number(v, 0.0f32, 0.9)?); Ok(()) },
         |s| s.lock_dim = None;
@@ -1552,7 +1580,7 @@ pub static KEYS: &[Key] = keys![
         |c| format!("{}", c.general.text_scale),
         |s, v, c| { let x: f32 = v.trim().replace(',', ".").parse().map_err(|_| crate::tr!("« {v} » : nombre attendu", v = v))?; if !(0.75..=2.0).contains(&x) { return Err(crate::i18n::tr("échelle du texte attendue entre 0,75 et 2").to_string()); } s.text_scale = Some(x); Ok(()) },
         |s| s.text_scale = None;
-    "theme.reduced_motion", "theme", "on | off — mouvement réduit : ouvertures en fondu court, sans échelle ni déplacement",
+    "theme.reduced_motion", "theme", "on | off — mouvement réduit : ouvertures en fondu court, sans échelle ni déplacement, animations de Hyprland comprises",
         |c| on_off(c.general.reduced_motion),
         |s, v, c| { s.reduced_motion = Some(parse_bool(v)?); Ok(()) },
         |s| s.reduced_motion = None;
@@ -2834,6 +2862,25 @@ mod tests {
         );
         assert_eq!(run_s(&p, &["get", "assign.firefox"]).unwrap(), "2 silent");
         assert_eq!(run_s(&p, &["get", "widget.clock"]).unwrap(), "off");
+        // Un raccourci par surface du shell (HIG ENT-02) : lu, réglé, coupé.
+        assert_eq!(run_s(&p, &["get", "keys.focus_dock"]).unwrap(), "CTRL + F3");
+        run_s(&p, &["set", "keys.focus_dock", "CTRL", "+", "F5"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "keys.focus_dock"]).unwrap(), "CTRL + F5");
+        run_s(&p, &["set", "keys.focus_dock", "none"]).unwrap();
+        assert!(run_s(&p, &["get", "keys.focus_dock"]).unwrap().is_empty());
+        // Forcer une application à quitter (HIG ENT-10) : Option-Command-Esc.
+        assert_eq!(
+            run_s(&p, &["get", "keys.force_quit"]).unwrap(),
+            "ALT + SUPER + Escape"
+        );
+        // Accès clavier complet (HIG ENT-01) : Control-F1, activé par défaut.
+        assert_eq!(
+            run_s(&p, &["get", "keys.keyboard_access"]).unwrap(),
+            "CTRL + F1"
+        );
+        assert_eq!(run_s(&p, &["get", "keyboard_access"]).unwrap(), "on");
+        run_s(&p, &["set", "keyboard_access", "off"]).unwrap();
+        assert_eq!(run_s(&p, &["get", "keyboard_access"]).unwrap(), "off");
         // Valeurs refusées, clé inconnue, clé fixée par l'utilisateur.
         assert!(run_s(&p, &["set", "show_on", "partout"]).is_err());
         assert!(run_s(&p, &["set", "workspaces", "99"]).is_err());
@@ -3080,8 +3127,14 @@ mod tests {
     #[test]
     fn transparence_adaptative() {
         let p = tmp();
+        // La barre, posée sur le fond d'écran, se densifie par défaut
+        // (HIG FON-01) ; un menu, qui passe devant les fenêtres, non.
         assert_eq!(
             run_s(&p, &["get", "theme.effects.bar.adaptive"]).unwrap(),
+            "0.95"
+        );
+        assert_eq!(
+            run_s(&p, &["get", "theme.effects.menus.adaptive"]).unwrap(),
             "off"
         );
         run_s(&p, &["set", "theme.effects.bar.adaptive", "0.9"]).unwrap();

@@ -502,11 +502,11 @@ impl App {
             }
         };
         let mut col = column![
-            iced::widget::toggler(on)
+            self.focusable(self.toggle(on)
                 .label(crate::i18n::tr(
                     "Génération automatique (icônes validées d'office)"
                 ))
-                .on_toggle(|v| wrap(Msg::SmartAutoToggle(v))),
+                .on_toggle(|v| wrap(Msg::SmartAutoToggle(v)))),
             text(crate::tr!(
                 "Chaque nouvelle application du lanceur reçoit son icône : son nom, sa classe et son icône d'origine partent à {provider}. Coupée par défaut.",
                 provider = self.cfg.general.ai.for_consumer("smartui").label()
@@ -597,18 +597,21 @@ impl App {
                 .into()
         };
         let small_btn = |label: &'a str, msg: Option<UiMsg>, primary: bool| {
-            button(
-                text(label)
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0)),
+            self.focusable_when(
+                button(
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .style(if primary {
+                    button::primary
+                } else {
+                    button::secondary
+                })
+                .on_press_maybe(msg.clone()),
+                msg.is_some(),
             )
-            .padding([4, 10])
-            .style(if primary {
-                button::primary
-            } else {
-                button::secondary
-            })
-            .on_press_maybe(msg)
         };
         let mut list = column![].spacing(10);
         for r in &s.rows {
@@ -645,12 +648,12 @@ impl App {
                 .spacing(6)
                 .into()
             } else {
-                small_btn("Générer", Some(wrap(Msg::SmartGenerate(c))), false).into()
+                small_btn("Générer", Some(wrap(Msg::SmartGenerate(c))), false)
             };
             let mut info = column![
                 text(&r.name)
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 text(state)
                     .font(self.font)
@@ -671,7 +674,7 @@ impl App {
                     icon(None, r.original.as_ref()),
                     text("→")
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(dim),
                     icon(shown, None),
                     info.width(Length::Fill),
@@ -700,11 +703,13 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
-            iced::widget::toggler(l.smartui)
-                .label(crate::i18n::tr(
-                    "Utiliser le thème SmartUI (lanceur, bureau, SUPER+R, barre, notifications)"
-                ))
-                .on_toggle(|v| wrap(Msg::SmartToggle(v))),
+            self.focusable(
+                self.toggle(l.smartui)
+                    .label(crate::i18n::tr(
+                        "Utiliser le thème SmartUI (lanceur, bureau, SUPER+R, barre, notifications)"
+                    ))
+                    .on_toggle(|v| wrap(Msg::SmartToggle(v)))
+            ),
             text(crate::tr!(
                 "Fournisseur : {name} (Autres services IA → Utilisation)",
                 name = g.ai.for_consumer("smartui").label()
@@ -714,32 +719,37 @@ impl App {
             .color(accent),
             self.smartui_auto_line(),
             row![
-                button(
-                    text(crate::tr!(
-                        "Générer les icônes manquantes ({n})",
-                        n = missing.to_string()
-                    ))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 14])
-                .on_press_maybe((missing > 0).then(|| wrap(Msg::SmartGenerateMissing))),
-                button(
-                    text(if s.clear_armed {
-                        crate::i18n::tr("Vider le cache ?")
+                self.focusable_when(
+                    button(
+                        text(crate::tr!(
+                            "Générer les icônes manquantes ({n})",
+                            n = missing.to_string()
+                        ))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 14])
+                    .on_press_maybe((missing > 0).then(|| wrap(Msg::SmartGenerateMissing))),
+                    missing > 0
+                ),
+                self.focusable(
+                    button(
+                        text(if s.clear_armed {
+                            crate::i18n::tr("Vider le cache ?")
+                        } else {
+                            crate::i18n::tr("Vider le cache")
+                        })
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 14])
+                    .style(if s.clear_armed {
+                        button::danger
                     } else {
-                        crate::i18n::tr("Vider le cache")
+                        button::secondary
                     })
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 14])
-                .style(if s.clear_armed {
-                    button::danger
-                } else {
-                    button::secondary
-                })
-                .on_press(wrap(Msg::SmartClear)),
+                    .on_press(wrap(Msg::SmartClear))
+                ),
             ]
             .spacing(10),
             text(summary)
@@ -759,23 +769,31 @@ impl App {
                         .height(240)
                         .on_action(|a| wrap(Msg::SmartStyleEdit(a))),
                     row![
-                        button(
-                            text("Enregistrer le style")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0))
-                        )
-                        .padding([4, 10])
-                        .on_press_maybe(s.style_dirty.then(|| wrap(Msg::SmartStyleSave))),
-                        button(
-                            text("Style HyprDesk")
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0))
-                        )
-                        .padding([4, 10])
-                        .style(button::secondary)
-                        .on_press_maybe(
-                            (!l.smartui_style.is_empty() || s.style_dirty)
-                                .then(|| wrap(Msg::SmartStyleReset)),
+                        self.focusable_when(
+                            button(
+                                text("Enregistrer le style")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0))
+                            )
+                            .padding([4, 10])
+                            .on_press_maybe(s.style_dirty.then(|| wrap(Msg::SmartStyleSave))),
+                            (s.style_dirty.then(|| wrap(Msg::SmartStyleSave))).is_some()
+                        ),
+                        self.focusable_when(
+                            button(
+                                text("Style HyprDesk")
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0))
+                            )
+                            .padding([4, 10])
+                            .style(button::secondary)
+                            .on_press_maybe(
+                                (!l.smartui_style.is_empty() || s.style_dirty)
+                                    .then(|| wrap(Msg::SmartStyleReset)),
+                            ),
+                            ((!l.smartui_style.is_empty() || s.style_dirty)
+                                .then(|| wrap(Msg::SmartStyleReset)))
+                            .is_some()
                         ),
                         text(if s.style_dirty {
                             crate::i18n::tr("modifié, non enregistré")

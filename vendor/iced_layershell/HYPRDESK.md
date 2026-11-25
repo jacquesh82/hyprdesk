@@ -3,9 +3,10 @@
 Ajout : événements iced du glisser-déposer de fichiers, à partir de ceux
 ajoutés à layershellev (voir vendor/layershellev/HYPRDESK.md).
 
-- entrée : position, puis `window::Event::FileHovered` (chemin vide) ;
+- entrée : position, puis un `window::Event::FileHovered` par fichier de l'offre (chemin vide si elle n'en porte pas ou si la liste n'est pas encore lue ; redits quand elle arrive) ;
+- sortie sans dépôt : `window::Event::CursorLeft`, puis `FilesHoveredLeft` ;
 - mouvement : `CursorMoved` ; sortie : `FilesHoveredLeft` ;
-- dépôt : position, puis un `window::Event::FileDropped(chemin)` par fichier.
+- dépôt : position, puis un `window::Event::FileDropped(chemin)` par fichier, puis `FilesHoveredLeft` (même sans fichier : aucune cible ne reste allumée).
 
 Fichiers touchés : `src/event.rs`, `src/conversion.rs`, `src/multi_window.rs`.
 

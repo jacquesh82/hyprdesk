@@ -3,10 +3,10 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, radio, row, slider, text_input, toggler};
+use iced::widget::{button, column, pick_list, radio, row, text_input};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
-use super::super::panel::{Panel, PanelMsg};
+use super::super::panel::{Panel, PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::{IconScope, Origin};
@@ -85,19 +85,21 @@ impl App {
                 row![
                     text(name)
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
                     text(scope)
                         .font(self.font)
                         .size(crate::ui::tokens::ts(12.0))
                         .color(dim),
-                    button(
-                        text("Retirer")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                    )
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::RemoveIcon(i))),
+                    self.focusable(
+                        button(
+                            text("Retirer")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::RemoveIcon(i)))
+                    ),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -130,37 +132,41 @@ impl App {
             }
             for a in matches {
                 picker = picker.push(
-                    button(
-                        row![
-                            text(a.name.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0))
-                                .width(Length::Fill),
-                            text(a.id.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0))
-                                .color(dim)
-                        ]
-                        .spacing(8),
-                    )
-                    .width(Length::Fill)
-                    .padding([6, 10])
-                    .on_press(wrap(Msg::AddApp(a.id.clone())))
-                    .style(move |_, s| button::Style {
-                        background: matches!(s, button::Status::Hovered)
-                            .then(|| Background::Color(Color { a: 0.1, ..fg })),
-                        text_color: fg,
-                        border: Border::default().rounded(6),
-                        ..Default::default()
-                    }),
+                    self.focusable(
+                        button(
+                            row![
+                                text(a.name.clone())
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                                    .width(Length::Fill),
+                                text(a.id.clone())
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0))
+                                    .color(dim)
+                            ]
+                            .spacing(8),
+                        )
+                        .width(Length::Fill)
+                        .padding([6, 10])
+                        .on_press(wrap(Msg::AddApp(a.id.clone())))
+                        .style(move |_, s| button::Style {
+                            background: matches!(s, button::Status::Hovered)
+                                .then(|| Background::Color(Color { a: 0.1, ..fg })),
+                            text_color: fg,
+                            border: Border::default().rounded(6),
+                            ..Default::default()
+                        }),
+                    ),
                 );
             }
         }
         let scope_radio = |label: &'static str, v: IconScope| {
-            radio(crate::i18n::tr(label), v, Some(g.icon_scope), |v| {
-                wrap(Msg::Scope(v))
-            })
-            .font(self.font)
+            self.focusable(
+                radio(crate::i18n::tr(label), v, Some(g.icon_scope), |v| {
+                    wrap(Msg::Scope(v))
+                })
+                .font(self.font),
+            )
         };
         column![
             self.section("Comportement"),
@@ -183,7 +189,7 @@ impl App {
             self.field(
                 "Ouvrir d'un double clic (un clic sélectionne)",
                 "icon_double_click",
-                toggler(g.icon_double_click).on_toggle(|v| wrap(Msg::DoubleClick(v))),
+                self.focusable(self.toggle(g.icon_double_click).on_toggle(|v| wrap(Msg::DoubleClick(v)))),
             ),
             text(crate::i18n::tr(
                 "Clic droit sur une icône : ouvrir, épingler au dock, renommer, retirer du bureau… Échap retire la sélection, Entrée ouvre l'icône sélectionnée."
@@ -219,41 +225,37 @@ impl App {
             self.field(
                 "Taille des icônes",
                 "grid.icon_size",
-                row![
-                    slider(24..=128u16, g.grid.icon_size, |v| wrap(Msg::IconSize(v)))
-                        .on_release(UiMsg::Panel(PanelMsg::Commit))
-                        .width(260),
-                    text(format!("{} px", g.grid.icon_size))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+                self.slider(
+                    &SliderSpec::new("grid.icon_size", (24.0, 128.0), 1.0, |v| wrap(Msg::IconSize(v.round() as u16)), UiMsg::Panel(PanelMsg::Commit)),
+                    f64::from(g.grid.icon_size),
+                    |v| format!("{} px", v.round() as u16),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
+                ),
             ),
             self.field(
                 "Taille des cases",
                 "grid.cell",
-                row![
-                    slider(64..=192u16, g.grid.cell, |v| wrap(Msg::CellSize(v)))
-                        .on_release(UiMsg::Panel(PanelMsg::Commit))
-                        .width(260),
-                    text(format!("{} px", g.grid.cell)).font(self.font).size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+                self.slider(
+                    &SliderSpec::new("grid.cell", (64.0, 192.0), 1.0, |v| wrap(Msg::CellSize(v.round() as u16)), UiMsg::Panel(PanelMsg::Commit)),
+                    f64::from(g.grid.cell),
+                    |v| format!("{} px", v.round() as u16),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
+                ),
             ),
             self.field(
                 "Thème d'icônes",
                 "icon_theme",
-                pick_list(themes, g.icon_theme.clone(), |t| wrap(Msg::Theme(t)))
+                self.choosable(pick_list(themes, g.icon_theme.clone(), |t| wrap(Msg::Theme(t)))
                     .font(self.font)
                     .placeholder(crate::i18n::tr("Thème du système"))
-                    .width(300),
+                    .width(300)),
             ),
             self.field(
                 "Disposition de ce bureau",
                 "",
-                button(text("Réinitialiser les positions").font(self.font).size(crate::ui::tokens::ts(14.0)))
+                self.focusable(button(text("Réinitialiser les positions").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 12])
-                    .on_press(wrap(Msg::ResetLayout)),
+                    .on_press(wrap(Msg::ResetLayout))),
             ),
         ]
         .spacing(14)

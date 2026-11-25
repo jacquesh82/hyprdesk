@@ -6,12 +6,12 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, progress_bar, row, slider, toggler};
+use iced::widget::{button, column, pick_list, progress_bar, row};
 use iced::{Alignment, Color, Element, Task};
 
 use crate::lock::enroll::{self, Progress, Reader};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 
@@ -105,6 +105,16 @@ pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Lock(m)))
 }
 
+/// Valeur d'un délai de veille, en minutes ; zéro : jamais.
+fn en_minutes(v: f64) -> String {
+    let n = v.round() as u32;
+    if n == 0 {
+        crate::i18n::tr("jamais").to_string()
+    } else {
+        crate::tr!("{n} min", n = n)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Msg {
     Blur(bool),
@@ -193,37 +203,41 @@ impl App {
             self.field(
                 "Fond flouté",
                 "lock_blur",
-                toggler(l.blur).on_toggle(|v| wrap(Msg::Blur(v))),
+                self.focusable(self.toggle(l.blur).on_toggle(|v| wrap(Msg::Blur(v)))),
             ),
             self.field(
                 "Assombrissement",
                 "lock_dim",
-                row![
-                    slider(0.0..=0.9f32, l.dim, |v| wrap(Msg::Dim(v)))
-                        .step(0.05f32)
-                        .on_release(wrap(Msg::DimCommit))
-                        .width(260),
-                    text(format!("{:.0} %", l.dim * 100.0))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+                // En pour cent, comme la valeur affichée : le domaine du
+                // réglage (0 à 0,9) est celui du voile.
+                self.slider(
+                    &SliderSpec::new(
+                        "lock_screen_dim",
+                        (0.0, 90.0),
+                        5.0,
+                        |v| wrap(Msg::Dim((v / 100.0) as f32)),
+                        wrap(Msg::DimCommit),
+                    ),
+                    (f64::from(l.dim) * 100.0).round(),
+                    |v| format!("{:.0} %", v),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
+                ),
             ),
             text(origin).font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
             self.section("Contenus"),
             column![
-                toggler(l.show_user)
+                self.focusable(self.toggle(l.show_user)
                     .label(crate::i18n::tr(
                         "Nom et avatar (AccountsService, sinon ~/.face)"
                     ))
-                    .on_toggle(|v| wrap(Msg::ShowUser(v))),
-                toggler(l.show_battery)
+                    .on_toggle(|v| wrap(Msg::ShowUser(v)))),
+                self.focusable(self.toggle(l.show_battery)
                     .label(crate::i18n::tr("Batterie"))
-                    .on_toggle(|v| wrap(Msg::ShowBattery(v))),
-                toggler(l.show_media)
+                    .on_toggle(|v| wrap(Msg::ShowBattery(v)))),
+                self.focusable(self.toggle(l.show_media)
                     .label(crate::i18n::tr("Morceau en cours, lecture / pause"))
-                    .on_toggle(|v| wrap(Msg::ShowMedia(v))),
-                toggler(l.fingerprint && crate::policy::get().fingerprint_allowed())
+                    .on_toggle(|v| wrap(Msg::ShowMedia(v)))),
+                self.focusable_when(self.toggle(l.fingerprint && crate::policy::get().fingerprint_allowed())
                     .label(crate::i18n::tr(
                         "Empreinte digitale à la place du mot de passe (fprintd)"
                     ))
@@ -231,7 +245,9 @@ impl App {
                         crate::policy::get()
                             .fingerprint_allowed()
                             .then_some(|v| wrap(Msg::Fingerprint(v)))
-                    ),
+                    ), (crate::policy::get()
+                            .fingerprint_allowed()
+                            .then_some(|v| wrap(Msg::Fingerprint(v)))).is_some()),
                 text(if !crate::policy::get().fingerprint_allowed() {
                     crate::tr!(
                         "Empreinte interdite par l'administrateur ({p}).",
@@ -272,9 +288,9 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
-            button(text("Verrouiller maintenant").font(self.font).size(crate::ui::tokens::ts(13.0)))
+            self.focusable(button(text("Verrouiller maintenant").font(self.font).size(crate::ui::tokens::ts(13.0)))
                 .padding([6, 14])
-                .on_press(wrap(Msg::LockNow)),
+                .on_press(wrap(Msg::LockNow))),
         ]
         .spacing(14)
         .into()
@@ -346,15 +362,18 @@ impl App {
                 row![
                     text(enroll::finger_label(f))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(200),
-                    button(
-                        text("Supprimer")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([4, 10])
-                    .on_press_maybe(idle.then(|| wrap(Msg::FingerDelete(f.clone())))),
+                    self.focusable_when(
+                        button(
+                            text("Supprimer")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .on_press_maybe(idle.then(|| wrap(Msg::FingerDelete(f.clone())))),
+                        (idle.then(|| wrap(Msg::FingerDelete(f.clone())))).is_some()
+                    ),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -399,27 +418,33 @@ impl App {
                 col = col.push(note(h.clone(), warn));
             }
             col = col.push(
-                button(
-                    text("Annuler")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                )
-                .padding([6, 14])
-                .on_press(wrap(Msg::FingerCancel)),
+                self.focusable(
+                    button(
+                        text("Annuler")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([6, 14])
+                    .on_press(wrap(Msg::FingerCancel)),
+                ),
             );
         } else if let Some(target) = s.target() {
             col = col.push(
                 row![
-                    pick_list(s.free(), Some(target), |f| wrap(Msg::FingerChoice(f)))
-                        .font(self.font)
-                        .text_size(13),
-                    button(
-                        text("Enregistrer ce doigt")
+                    self.choosable(
+                        pick_list(s.free(), Some(target), |f| wrap(Msg::FingerChoice(f)))
                             .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                    )
-                    .padding([6, 14])
-                    .on_press(wrap(Msg::FingerEnroll)),
+                            .text_size(13)
+                    ),
+                    self.focusable(
+                        button(
+                            text("Enregistrer ce doigt")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([6, 14])
+                        .on_press(wrap(Msg::FingerEnroll))
+                    ),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
@@ -454,14 +479,14 @@ impl App {
             self.field(
                 "hyprdesk gère la veille",
                 "idle_manage",
-                toggler(i.manage).on_toggle(|v| wrap(Msg::IdleManage(v))),
+                self.focusable(self.toggle(i.manage).on_toggle(|v| wrap(Msg::IdleManage(v)))),
             ),
             // Veille des écrans (Panorama → Système, `hyprdesk screens-off`) :
             // indépendante de hypridle.
-            self.adv(self.field(
-                "Veille des écrans : un changement de volume rallume les écrans",
+            self.adv("Veille des écrans : un changement de volume rallume les écrans", || self.field(
+                "",
                 "idle_wake_volume",
-                toggler(i.wake_volume).on_toggle(|v| wrap(Msg::WakeVolume(v))),
+                self.focusable(self.toggle(i.wake_volume).on_toggle(|v| wrap(Msg::WakeVolume(v)))),
             )),
             text("Veille des écrans (Panorama → Système, ou hyprdesk screens-off) : les écrans s'éteignent, la machine reste allumée. La souris et le clavier les rallument selon les réglages de Hyprland (Réveil et verrouillage).")
                 .font(self.font)
@@ -525,26 +550,22 @@ impl App {
             ),
         ] {
             let minutes = secs.div_ceil(60);
-            let value = if minutes == 0 {
-                crate::i18n::tr("jamais").to_string()
-            } else {
-                crate::tr!("{n} min", n = minutes)
-            };
-            col = col.push(
-                self.field(
-                    label,
-                    key,
-                    row![
-                        slider(0..=120u32, minutes, move |m| wrap(Msg::IdleDelay(step, m)))
-                            .on_release(wrap(Msg::IdleCommit))
-                            .width(260),
-                        text(value)
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0)),
-                    ]
-                    .spacing(12),
+            col = col.push(self.field(
+                label,
+                key,
+                self.slider(
+                    &SliderSpec::new(
+                        key,
+                        (0.0, 120.0),
+                        1.0,
+                        move |v| wrap(Msg::IdleDelay(step, v.round() as u32)),
+                        wrap(Msg::IdleCommit),
+                    ),
+                    f64::from(minutes),
+                    en_minutes,
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
                 ),
-            );
+            ));
         }
         // Écran éteint avant le verrouillage : averti, délais gardés (MLG-140).
         if let Some(w) = crate::idle::exposure(&self.cfg.general.idle) {
@@ -604,9 +625,11 @@ impl App {
                 self.field(
                     label,
                     key,
-                    pick_list(LidAction::ALL, Some(cur), move |a| wrap(Msg::Lid(case, a)))
-                        .font(self.font)
-                        .text_size(13),
+                    self.choosable(
+                        pick_list(LidAction::ALL, Some(cur), move |a| wrap(Msg::Lid(case, a)))
+                            .font(self.font)
+                            .text_size(13),
+                    ),
                 ),
             );
         }

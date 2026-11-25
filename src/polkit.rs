@@ -56,6 +56,29 @@ pub enum Line {
 
 /// Inverse de `g_strescape` (comme `g_strcompress`) : `\n`, `\t`, `\\`,
 /// `\"`, octal `\NNN`…
+/// Échec d'une commande lancée par pkexec (HIG TYP-13). L'authentification
+/// annulée se dit telle ; la sortie d'erreur, quand il y en a une, est le
+/// message. Sans elle, jamais « Échec » seul : l'opération, le code de
+/// sortie et ce qu'on peut faire ensuite.
+pub fn pkexec_failure(op: &str, code: Option<i32>, stderr: &str) -> String {
+    let err = stderr.trim();
+    match code {
+        Some(126 | 127) if err.is_empty() => {
+            crate::i18n::tr("Authentification annulée.").to_string()
+        }
+        _ if !err.is_empty() => err.to_string(),
+        Some(c) => crate::tr!(
+            "{op} : échec sans explication (code de sortie {c}). Réessayez ; si l'échec revient, « hyprdesk doctor » fait le point, ou demandez à LYRA.",
+            op = op,
+            c = c
+        ),
+        None => crate::tr!(
+            "{op} : interrompu sans explication. Réessayez ; si l'échec revient, « hyprdesk doctor » fait le point, ou demandez à LYRA.",
+            op = op
+        ),
+    }
+}
+
 pub fn unescape(s: &str) -> String {
     let b = s.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(b.len());
@@ -729,6 +752,27 @@ pub fn tty_agent() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// HIG TYP-13 : un échec sans sortie d'erreur nomme l'opération, le code
+    /// et la suite à donner.
+    #[test]
+    fn un_echec_muet_dit_l_operation_le_code_et_la_suite() {
+        let m = pkexec_failure("Pilote", Some(3), "  ");
+        assert!(m.starts_with("Pilote"), "{m}");
+        assert!(
+            m.contains('3') && m.contains("hyprdesk doctor") && m.contains("LYRA"),
+            "{m}"
+        );
+        assert!(pkexec_failure("Pilote", None, "").contains("hyprdesk doctor"));
+        assert_eq!(
+            pkexec_failure("Pilote", Some(1), " disque plein \n"),
+            "disque plein"
+        );
+        assert_eq!(
+            pkexec_failure("Pilote", Some(126), ""),
+            crate::i18n::tr("Authentification annulée.")
+        );
+    }
 
     #[test]
     fn etat_partage_entre_processus() {

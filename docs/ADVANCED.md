@@ -106,7 +106,7 @@ make sure a workspace never shows a desktop, or always switches to one when
 you arrive.
 
 `special:hyprdesk` is never treated as a screen's workspace, nor as a place
-to return to. The Alt+Tab switcher filters it out too.
+to return to. The SUPER + Tab switcher filters it out too.
 
 ## Talking to Hyprland
 
@@ -194,7 +194,7 @@ to return to. The Alt+Tab switcher filters it out too.
   answers. Settings → Shortcuts → hyprdesk shortcuts lists conflicts first,
   with a LYRA button; `hyprdesk keys` prints the same report and exits with
   1 if there is a conflict.
-- **Alt+Tab on the full desktop** lists the windows floating on it. Picking
+- **SUPER + Tab on the full desktop** lists the windows floating on it. Picking
   a window from another workspace hides the desktop and focuses it. A window opened from the
   desktop takes focus without leaving it.
 - The submap gives control back to Hyprland *before* calling hyprdesk. If the
@@ -618,7 +618,7 @@ confirmations and memory.
 | `~/.config/hypr/hyprdesk.lua` | your configuration (`$HYPRDESK_CONFIG` overrides it) |
 | `~/.config/hypr/hyprdesk/settings.lua` | generated settings |
 | `~/.config/hypr/hyprdesk/widgets/` | your plugins |
-| `~/.config/hypr/hyprdesk/themes/` | "My themes" (theme archives) |
+| `~/.config/hypr/hyprdesk/themes/` | "Custom themes" (theme archives) |
 | `~/.config/hypr/hyprdesk/sauvegardes/<date>/` | copies made before a reset to defaults |
 | `~/.config/hypr/hyprdesk/.raccourcis-repondus` | answers to shortcut conflicts |
 | `~/.config/hypr/monitors.lua` | screen layout, written on **Keep** (`require("monitors")` in `hyprland.lua`) |
@@ -642,7 +642,7 @@ confirmations and memory.
 
 **Sharing a setup.** `hyprdesk export [file]` (or Settings → Sharing)
 writes a `.tar.gz` with a `manifest.json`. It carries the whole setup:
-`hyprdesk.lua`, `settings.lua`, third-party plugins, "My themes" and screen
+`hyprdesk.lua`, `settings.lua`, third-party plugins, "Custom themes" and screen
 calibrations; `hyprland.lua`, each local file it `require`s (followed in the
 text, nothing is run), the files hyprdesk holds (`binds.lua`, `inputs.lua`,
 `monitors.lua`, `autostart.lua`, `appearance.lua`…) and the files of the

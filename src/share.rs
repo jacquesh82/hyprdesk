@@ -4,7 +4,7 @@
 //!
 //! - **tout le setup** : tout ce que tiennent hyprdesk et Hyprland (MLG-203) :
 //!   - `hyprdesk.lua`, `hyprdesk/settings.lua`, les plugins tiers
-//!     (`hyprdesk/widgets/`), « Mes thèmes » (`hyprdesk/themes/`), les
+//!     (`hyprdesk/widgets/`), « Thèmes personnels » (`hyprdesk/themes/`), les
 //!     calibrations d'écran (`hyprdesk/calibration/`) ;
 //!   - la configuration de Hyprland (`hypr/`) : `hyprland.lua`, chacun de ses
 //!     `require` locaux (suivis dans le texte, sans rien exécuter), les
@@ -608,7 +608,7 @@ fn export_all(config_path: &Path, out: &Path) -> Result<Manifest, String> {
                 m.plugins.push(name);
             }
         }
-        // « Mes thèmes » et calibrations d'écran.
+        // « Thèmes personnels » et calibrations d'écran.
         for sub in ["themes", "calibration"] {
             let from = dir.join("hyprdesk").join(sub);
             for rel in files_under(&from) {

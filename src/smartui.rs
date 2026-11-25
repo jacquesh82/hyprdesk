@@ -50,27 +50,28 @@ fn home_dir(var: &str, fallback: &str, sub: &str) -> PathBuf {
 /// Style « HyprDesk », proposé tant que l'utilisateur n'a pas écrit le sien
 /// (façon icônes iOS / macOS). Adapté à une icône par application : le nom
 /// de l'application est dans la demande, et le logo d'origine est
-/// réinterprété, pas recopié.
+/// réinterprété, pas recopié. L'icône est un carré plein cadre, sans
+/// découpe, reflet ni ombre : la forme et la profondeur viennent du masque
+/// unique de hyprdesk (HIG ICO-05, ICO-04).
 pub const DEFAULT_STYLE: &str = r#"A modern app icon, in the style of Apple's iOS / macOS app icons.
 
 SHAPE
-- Square canvas 1024×1024 px, filled edge to edge, with a continuous-curvature rounded square (squircle, superellipse), not a plain rounded rectangle with circular corners. Corner radius ≈ 22.37% of the width.
+- Square canvas 1024×1024 px, the background filling the whole square edge to edge, with sharp square corners. Do not round, clip or mask the corners: the system applies its own rounded mask.
 - A single, bold, centered glyph with generous breathing room (about 15–20% margin around the symbol). Simple silhouette, readable at 29 px.
 - Geometry built on a strict grid: balanced proportions, optical centering, consistent stroke widths, softly rounded terminals.
 
 STYLE
 - Minimalist, polished, premium, friendly. One idea, one symbol, no text, no letters.
 - Smooth, subtle gradient background (top lighter, bottom more saturated), with a vibrant but harmonious color palette (max 2–3 hues).
-- Glyph in a clean flat or semi-flat style, with a very light inner highlight and a soft, diffuse drop shadow to create gentle depth, without heavy skeuomorphism.
-- A hint of translucency / frosted glass layering is allowed (Liquid Glass look): soft specular highlight along the top edge, subtle light refraction, delicate inner glow.
-- Soft, even, studio-like lighting coming from above. No harsh outlines, no noise, no texture, no bevel overload.
+- Glyph in a clean flat or semi-flat style. No drop shadow, no inner highlight, no specular highlight, no glow, no blur: the system adds depth and light effects itself.
+- No harsh outlines, no noise, no texture, no bevel.
 
 RENDER
-- Vector-crisp, ultra-clean edges, high resolution, flat front view, centered, isolated on a transparent background.
+- Vector-crisp, ultra-clean edges, high resolution, flat front view, centered. No clipPath, no mask, no filter in the SVG; the square background covers the full canvas.
 - Mood: calm, elegant, precise, "designed by Apple".
 
 NEGATIVE PROMPT
-text, letters, watermark, busy background, photo-realism, thick black outlines, harsh shadows, clutter, multiple objects, perspective/3D tilt, drop-shadow outside the icon, Apple logo, verbatim copies of existing app logos"#;
+text, letters, watermark, busy background, photo-realism, thick black outlines, shadows, specular highlights, glow, rounded or clipped corners, transparent corners, clutter, multiple objects, perspective/3D tilt, Apple logo, verbatim copies of existing app logos"#;
 
 /// Taille maximale d'un SVG accepté (proposition ou original envoyé).
 const MAX_SVG: usize = 256 * 1024;
@@ -446,6 +447,16 @@ pub fn generate(
 
 #[cfg(test)]
 mod tests {
+    /// Le style par défaut demande un carré plein cadre, sans découpe ni
+    /// effets : la forme vient du masque de hyprdesk (HIG ICO-05).
+    #[test]
+    fn style_par_defaut_plein_cadre() {
+        let s = super::DEFAULT_STYLE;
+        assert!(s.contains("edge to edge") && s.contains("sharp square corners"));
+        assert!(!s.contains("squircle") && !s.contains("22.37"));
+        assert!(!s.contains("soft, diffuse drop shadow"));
+    }
+
     use super::*;
 
     /// Thème : index, recherche par nom ou chemin, option coupée, migration.

@@ -10,7 +10,7 @@
 
 use crate::greeter_setup::{self, MonitorRule, Profile, Status, dm_label};
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, pick_list, row, toggler};
+use iced::widget::{Space, button, column, container, pick_list, row};
 use iced::{Alignment, Color, Element, Length, Task};
 use std::path::PathBuf;
 
@@ -163,6 +163,7 @@ impl App {
             monitors: st.screens.clone(),
             login_monitor: st.login_monitor.clone(),
             gnome_keyring: st.status.gnome_keyring,
+            text_scale: (self.cfg.general.text_scale != 1.0).then_some(self.cfg.general.text_scale),
         }
     }
 
@@ -195,14 +196,16 @@ impl App {
 
     fn login_button<'a>(&self, label: &'a str, msg: Option<Msg>) -> Element<'a, UiMsg> {
         let busy = self.panel.as_ref().is_some_and(|p| p.login.busy.is_some());
-        button(
-            text(label)
-                .font(self.font)
-                .size(crate::ui::tokens::ts(13.0)),
+        self.focusable_when(
+            button(
+                text(label)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0)),
+            )
+            .padding([6, 14])
+            .on_press_maybe(msg.clone().filter(|_| !busy).map(wrap)),
+            msg.is_some() && !busy,
         )
-        .padding([6, 14])
-        .on_press_maybe(msg.filter(|_| !busy).map(wrap))
-        .into()
     }
 
     pub(in crate::ui) fn login_page(&self) -> Element<'_, UiMsg> {
@@ -353,10 +356,12 @@ impl App {
                     text("Écran de la connexion")
                         .font(self.font)
                         .size(crate::ui::tokens::ts(13.0)),
-                    pick_list(names, current, |n| wrap(Msg::LoginMonitor(n)))
-                        .font(self.font)
-                        .text_size(13)
-                        .width(Length::Fill),
+                    self.choosable(
+                        pick_list(names, current, |n| wrap(Msg::LoginMonitor(n)))
+                            .font(self.font)
+                            .text_size(13)
+                            .width(Length::Fill)
+                    ),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -383,12 +388,14 @@ impl App {
                     text(label)
                         .font(self.font)
                         .size(crate::ui::tokens::ts(13.0)),
-                    pick_list(walls, Some(WallChoice(chosen.clone())), move |c| {
-                        wrap(Msg::Wallpaper(vertical, c))
-                    })
-                    .font(self.font)
-                    .text_size(13)
-                    .width(Length::Fill),
+                    self.choosable(
+                        pick_list(walls, Some(WallChoice(chosen.clone())), move |c| {
+                            wrap(Msg::Wallpaper(vertical, c))
+                        })
+                        .font(self.font)
+                        .text_size(13)
+                        .width(Length::Fill)
+                    ),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -440,33 +447,35 @@ impl App {
                 let i = r * 3 + c;
                 let on = st.anchor == i as usize;
                 line = line.push(
-                    button(
-                        Space::new()
-                            .width(Length::Fixed(18.0))
-                            .height(Length::Fixed(18.0)),
-                    )
-                    .padding(0)
-                    .style(move |_, status| button::Style {
-                        background: Some(
-                            Color {
-                                a: if on {
-                                    1.0
-                                } else if matches!(status, button::Status::Hovered) {
-                                    0.25
-                                } else {
-                                    0.12
-                                },
+                    self.focusable(
+                        button(
+                            Space::new()
+                                .width(Length::Fixed(18.0))
+                                .height(Length::Fixed(18.0)),
+                        )
+                        .padding(0)
+                        .style(move |_, status| button::Style {
+                            background: Some(
+                                Color {
+                                    a: if on {
+                                        1.0
+                                    } else if matches!(status, button::Status::Hovered) {
+                                        0.25
+                                    } else {
+                                        0.12
+                                    },
+                                    ..accent
+                                }
+                                .into(),
+                            ),
+                            border: iced::Border::default().rounded(6).width(1).color(Color {
+                                a: if on { 1.0 } else { 0.3 },
                                 ..accent
-                            }
-                            .into(),
-                        ),
-                        border: iced::Border::default().rounded(6).width(1).color(Color {
-                            a: if on { 1.0 } else { 0.3 },
-                            ..accent
-                        }),
-                        ..Default::default()
-                    })
-                    .on_press(wrap(Msg::Anchor(i))),
+                            }),
+                            ..Default::default()
+                        })
+                        .on_press(wrap(Msg::Anchor(i))),
+                    ),
                 );
             }
             grid = grid.push(line);
@@ -492,13 +501,16 @@ impl App {
             },
         ));
         col = col.push(
-            toggler(st.fingerprint)
-                .label(crate::i18n::tr(
-                    "Empreinte digitale à la connexion (fprintd)",
-                ))
-                .on_toggle_maybe(s.fprintd.then_some(|v| wrap(Msg::Fingerprint(v))))
-                .font(self.font)
-                .text_size(13),
+            self.focusable_when(
+                self.toggle(st.fingerprint)
+                    .label(crate::i18n::tr(
+                        "Empreinte digitale à la connexion (fprintd)",
+                    ))
+                    .on_toggle_maybe(s.fprintd.then_some(|v| wrap(Msg::Fingerprint(v))))
+                    .font(self.font)
+                    .text_size(13),
+                (s.fprintd.then_some(|v| wrap(Msg::Fingerprint(v)))).is_some(),
+            ),
         );
         col = col.push(small(
             if s.fprintd {

@@ -2,10 +2,13 @@
 //! mise à jour qui a échoué) : une fenêtre du thème montre le détail, avec un
 //! bouton pour le copier et, si LYRA est là, un bouton pour le lui confier.
 //! Rien ne part à l'assistant sans ce geste ; une demande explicite
-//! (`ProblemShow`, `Ask`) va droit à LYRA.
+//! (`ProblemShow`, `Ask`) va droit à LYRA. Son titre dit ce qui a échoué
+//! (HIG PRES-05), la marque de hyprdesk le précède (HIG PRES-14), et une
+//! case fait taire les signalements suivants de la même origine jusqu'à la
+//! fin de la session (HIG PRES-13).
 
 use crate::ui::tokens::Shown as _;
-use iced::widget::{button, column, container, row, scrollable, text};
+use iced::widget::{button, checkbox, column, container, row, scrollable, svg, text};
 use iced::window::Id;
 use iced::{Alignment, Border, Color, Element, Length, Shadow, Task, Vector};
 use iced_layershell::reexport::{
@@ -27,12 +30,23 @@ pub struct Problem {
     pub origin: String,
 }
 
+/// Titre de l'alerte : ce qui a échoué, d'après l'origine (HIG PRES-05).
+fn title(origin: &str) -> String {
+    if origin == "Mises à jour" || origin == crate::i18n::tr("Mises à jour") {
+        crate::i18n::tr("La mise à jour a échoué").to_string()
+    } else {
+        crate::tr!("{o} : un problème est survenu", o = origin)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum PrMsg {
     Copy,
     Copied,
     /// Confier le problème à LYRA (geste de l'utilisateur).
     Ask,
+    /// « Ne plus signaler ce problème pendant cette session » (HIG PRES-13).
+    Mute(bool),
     Close,
 }
 
@@ -54,6 +68,11 @@ impl App {
         // ligne possible) : la fenêtre propose de le lui confier.
         if show && let Some(t) = self.ask_assistant(text.clone(), origin, true) {
             return t;
+        }
+        // Signalement automatique d'une origine que l'utilisateur a fait
+        // taire : rien ne s'ouvre ; une demande explicite passe toujours.
+        if !show && self.problem.is_none() && self.problem_muted.contains(origin) {
+            return Task::none();
         }
         if let Some(p) = self.problem.as_mut() {
             p.text = text;
@@ -129,6 +148,16 @@ impl App {
                     None => close,
                 }
             }
+            PrMsg::Mute(on) => {
+                if let Some(p) = &self.problem {
+                    if on {
+                        self.problem_muted.insert(p.origin.clone());
+                    } else {
+                        self.problem_muted.remove(&p.origin);
+                    }
+                }
+                Task::none()
+            }
             PrMsg::Close => match self.problem.take() {
                 Some(p) => iced::window::close(p.win),
                 None => Task::none(),
@@ -165,18 +194,31 @@ impl App {
             border: Border::default().rounded(10),
             ..Default::default()
         });
+        // Marque de hyprdesk, dans ses couleurs (HIG PRES-14), puis ce qui a
+        // échoué.
+        let mark: Element<'_, Msg> = match crate::ui::icons::get("hyprdesk-start") {
+            Some(h) => svg(h).width(32).height(32).into(),
+            None => iced::widget::Space::new().into(),
+        };
+        let muted = self.problem_muted.contains(&p.origin);
         let col = column![
-            text(crate::i18n::tr("Un problème est survenu"))
-                .font(self.title_font())
-                .size(crate::ui::tokens::ts(20.0))
-                .color(fg),
-            text(crate::i18n::tr(
-                "Le détail ci-dessous peut être copié pour le chercher ou le confier à un assistant."
-            ))
-            .font(self.font)
-            .size(crate::ui::tokens::ts(12.0))
-            .color(dim),
+            row![
+                mark,
+                text(title(&p.origin))
+                    .font(self.title_font())
+                    .size(crate::ui::tokens::ts(22.0))
+                    .color(fg),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
             detail,
+            checkbox(muted)
+                .label(crate::i18n::tr(
+                    "Ne plus signaler ce problème pendant cette session"
+                ))
+                .font(self.font)
+                .text_size(crate::ui::tokens::ts(13.0))
+                .on_toggle(|on| Msg::Problem(PrMsg::Mute(on))),
             row![
                 text(if p.copied {
                     crate::i18n::tr("Copié dans le presse-papiers.")
@@ -187,19 +229,35 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(text(crate::i18n::tr("Fermer")).font(self.font).size(crate::ui::tokens::ts(14.0)))
-                    .padding([8, 16])
-                    .style(button::text)
-                    .on_press(Msg::Problem(PrMsg::Close)),
-                button(text(crate::i18n::tr("Copier")).font(self.font).size(crate::ui::tokens::ts(14.0)))
-                    .padding([8, 16])
-                    .style(if lyra { button::secondary } else { button::primary })
-                    .on_press(Msg::Problem(PrMsg::Copy)),
+                button(
+                    text(crate::i18n::tr("Fermer"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([8, 16])
+                .style(button::text)
+                .on_press(Msg::Problem(PrMsg::Close)),
+                button(
+                    text(crate::i18n::tr("Copier"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                )
+                .padding([8, 16])
+                .style(if lyra {
+                    button::secondary
+                } else {
+                    button::primary
+                })
+                .on_press(Msg::Problem(PrMsg::Copy)),
             ]
             .push(lyra.then(|| {
-                button(text(crate::i18n::tr("Demander à LYRA")).font(self.font).size(crate::ui::tokens::ts(14.0)))
-                    .padding([8, 16])
-                    .on_press(Msg::Problem(PrMsg::Ask))
+                button(
+                    text(crate::i18n::tr("Demander à LYRA"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([8, 16])
+                .on_press(Msg::Problem(PrMsg::Ask))
             }))
             .spacing(10)
             .align_y(Alignment::Center),
@@ -224,5 +282,55 @@ impl App {
                 ..Default::default()
             });
         container(card).padding(SHADOW).into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Échap ferme l'alerte, comme son bouton (HIG PRES-01).
+    #[test]
+    fn echap_ferme_l_alerte() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        let _ = app.show_problem_from("Mises à jour", "détail du problème".into(), false);
+        assert!(app.problem.is_some());
+        let _ = app.update_inner(Msg::Key(
+            Id::unique(),
+            iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+        ));
+        assert!(app.problem.is_none());
+    }
+
+    /// HIG PRES-05, PRES-13 : le titre dit ce qui a échoué ; une origine
+    /// tue n'ouvre plus l'alerte d'elle-même, une demande explicite passe.
+    #[test]
+    fn titre_et_signalements_tus() {
+        assert_eq!(title("Mises à jour"), "La mise à jour a échoué");
+        assert!(title("Pilote").starts_with("Pilote"));
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        let _ = app.show_problem_from("Mises à jour", "un".into(), false);
+        let _ = app.problem_update(PrMsg::Mute(true));
+        let _ = app.problem_update(PrMsg::Close);
+        let _ = app.show_problem_from("Mises à jour", "deux".into(), false);
+        assert!(app.problem.is_none());
+        let _ = app.show_problem_from("Autre", "trois".into(), false);
+        assert!(app.problem.is_some());
+        let _ = app.problem_update(PrMsg::Close);
+        let _ = app.show_problem_from("Mises à jour", "quatre".into(), true);
+        if !app.cfg.plugin_on("assistant") || crate::assistant::serve_command(&app.cfg).is_none() {
+            assert!(
+                app.problem.is_some(),
+                "une demande explicite ouvre l'alerte"
+            );
+        }
     }
 }

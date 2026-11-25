@@ -30,6 +30,9 @@ pub struct Picker {
     hover: Option<Point>,
     dragging: bool,
     hex: String,
+    /// La dernière valeur rendue par Entrée était illisible : le texte est
+    /// gardé et l'erreur se lit sous le champ (HIG SEL-07).
+    hex_error: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +57,7 @@ impl Picker {
             hover: None,
             dragging: false,
             hex: crate::settings::hex(c),
+            hex_error: false,
         }
     }
 
@@ -79,6 +83,7 @@ impl Picker {
             self.v = 0.85;
         }
         self.hex = crate::settings::hex(self.color());
+        self.hex_error = false;
     }
 
     pub fn update(&mut self, m: PickerMsg) {
@@ -99,6 +104,7 @@ impl Picker {
             PickerMsg::Value(v) => {
                 self.v = v.clamp(0.0, 1.0);
                 self.hex = crate::settings::hex(self.color());
+                self.hex_error = false;
             }
             PickerMsg::Hex(h) => {
                 // Saisie complète et lisible : appliquée tout de suite.
@@ -106,15 +112,19 @@ impl Picker {
                     && h.trim().trim_start_matches('#').len() == 6
                 {
                     self.set(c);
+                    self.hex_error = false;
                 }
                 self.hex = h;
             }
-            PickerMsg::HexSubmit => {
-                if let Some(c) = Rgba::parse(self.hex.trim()) {
+            PickerMsg::HexSubmit => match Rgba::parse(self.hex.trim()) {
+                Some(c) => {
                     self.set(c);
+                    self.hex = crate::settings::hex(self.color());
+                    self.hex_error = false;
                 }
-                self.hex = crate::settings::hex(self.color());
-            }
+                // Illisible : ni le texte ni la couleur ne changent.
+                None => self.hex_error = true,
+            },
         }
     }
 
@@ -124,6 +134,8 @@ impl Picker {
         &'a self,
         font: Font,
         fg: Color,
+        // Encre du texte secondaire (`ink().dim`), tenue à 4,5:1.
+        dim: Color,
         wrap: impl Fn(PickerMsg) -> M + Clone + 'a,
         apply: M,
         cancel: M,
@@ -179,18 +191,50 @@ impl Picker {
         .interaction(iced::mouse::Interaction::Crosshair);
         // Luminosité, sur un dégradé du noir à la teinte choisie.
         let bright = hsv_to_rgb(self.h, self.s, 1.0);
+        let echelle_h = super::panel::scale_line_h();
+        // Place de l'échelle sous le curseur : le libellé et la valeur la
+        // gardent sous eux pour rester sur la ligne du curseur.
+        let sous = iced::Padding {
+            bottom: super::panel::slider_band((0.0, 100.0), 1.0),
+            ..iced::Padding::ZERO
+        };
+        let borne = |t: &'static str| {
+            text(t)
+                .font(font)
+                .size(crate::ui::tokens::ts(11.0))
+                .line_height(iced::widget::text::LineHeight::Absolute(echelle_h.into()))
+                .color(dim)
+        };
         let lum = row![
-            text(crate::i18n::tr("Luminosité"))
-                .font(font)
-                .size(crate::ui::tokens::ts(12.0)),
-            slider(0..=100u32, (self.v * 100.0).round() as u32, move |v| {
-                w5(PickerMsg::Value(v as f32 / 100.0))
-            })
+            container(
+                text(crate::i18n::tr("Luminosité"))
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+            )
+            .padding(sous),
+            column![
+                slider(0..=100u32, (self.v * 100.0).round() as u32, move |v| {
+                    w5(PickerMsg::Value(v as f32 / 100.0))
+                })
+                .width(Length::Fill),
+                // L'échelle (HIG SEL-09) : les bornes sous le curseur.
+                row![
+                    borne("0 %"),
+                    Space::new().width(Length::Fill),
+                    borne("100 %")
+                ],
+            ]
+            .spacing(4)
             .width(Length::Fill),
-            text(format!("{} %", (self.v * 100.0).round() as i32))
-                .font(font)
-                .size(crate::ui::tokens::ts(12.0))
-                .width(40),
+            // La valeur garde sous elle la place de l'échelle : elle reste
+            // sur la ligne du curseur.
+            container(
+                text(format!("{} %", (self.v * 100.0).round() as i32))
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .width(40)
+            )
+            .padding(sous),
         ]
         .spacing(10)
         .align_y(Alignment::Center);
@@ -219,13 +263,13 @@ impl Picker {
                 text(crate::i18n::tr(label))
                     .font(font)
                     .size(crate::ui::tokens::ts(11.0))
-                    .color(Color { a: 0.6, ..fg }),
+                    .color(dim),
             ]
             .spacing(3)
             .align_x(Alignment::Center)
         };
         let (wh, ws) = (wrap.clone(), wrap);
-        let side = column![
+        let mut side = column![
             row![swatch(self.initial, "avant"), swatch(current, "après")].spacing(8),
             text_input("#rrggbb", &self.hex)
                 .font(font)
@@ -234,26 +278,41 @@ impl Picker {
                 .on_submit(ws(PickerMsg::HexSubmit))
                 .padding(6)
                 .width(120),
-            row![
-                button(
-                    text(crate::i18n::tr("Appliquer"))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .on_press(apply),
-                button(
-                    text(crate::i18n::tr("Annuler"))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press(cancel),
-            ]
-            .spacing(6),
-        ]
-        .spacing(10);
+        ];
+        // Illisible : le texte saisi reste, l'erreur se lit sous le champ (HIG SEL-07).
+        if self.hex_error {
+            side = side.push(
+                text(crate::tr!(
+                    "« {v} » : couleur illisible (#rrggbb)",
+                    v = self.hex.trim()
+                ))
+                .font(font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(crate::ui::tone::danger()),
+            );
+        }
+        let side = side
+            .push(
+                row![
+                    button(
+                        text(crate::i18n::tr("Appliquer"))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(apply),
+                    button(
+                        text(crate::i18n::tr("Annuler"))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(cancel),
+                ]
+                .spacing(6),
+            )
+            .spacing(10);
         let field: Element<'a, M> = tooltip(
             field,
             container(
@@ -281,6 +340,46 @@ impl Picker {
 
 fn color(c: Rgba) -> Color {
     Color::from_rgb8(c.0, c.1, c.2)
+}
+
+/// Puits de couleur (HIG SEL-02) : la pastille de la couleur en cours, en
+/// bouton qui ouvre le sélecteur. Tant que celui-ci est ouvert (`actif`),
+/// et dès le survol ou le pressage, un anneau le surligne.
+pub fn well<'a, M: Clone + 'a>(
+    c: Rgba,
+    size: f32,
+    active: bool,
+    ring: Color,
+    edge: Color,
+    on_press: M,
+) -> Element<'a, M> {
+    let fill = color(c);
+    button(Space::new().width(size).height(size))
+        .padding(0)
+        .style(move |_, status| well_style(fill, size, active, status, ring, edge))
+        .on_press(on_press)
+        .into()
+}
+
+/// Style du puits : cercle plein, contour discret au repos, anneau de 2 px
+/// quand il est surligné.
+fn well_style(
+    fill: Color,
+    size: f32,
+    active: bool,
+    status: button::Status,
+    ring: Color,
+    edge: Color,
+) -> button::Style {
+    let lit = active || !matches!(status, button::Status::Active);
+    button::Style {
+        background: Some(fill.into()),
+        border: Border::default()
+            .rounded(size / 2.0)
+            .width(if lit { 2.0 } else { 1.0 })
+            .color(if lit { ring } else { edge }),
+        ..Default::default()
+    }
 }
 
 /// Champ teinte × saturation, à pleine luminosité (calculé une fois).
@@ -358,6 +457,31 @@ mod tests {
         assert_eq!(hsv_to_rgb(120.0, 1.0, 1.0), Rgba(0, 0xff, 0, 0xff));
     }
 
+    /// HIG SEL-02 : le puits se surligne au survol, au pressage et tant que
+    /// son sélecteur est ouvert ; sinon son contour reste discret.
+    #[test]
+    fn puits_surligne() {
+        use button::Status;
+        let ring = Color::from_rgb8(1, 2, 3);
+        let edge = Color { a: 0.3, ..ring };
+        let fill = color(Rgba(9, 9, 9, 0xff));
+        let idle = well_style(fill, 22.0, false, Status::Active, ring, edge);
+        assert_eq!(idle.border.width, 1.0);
+        assert_eq!(idle.border.color, edge);
+        assert_eq!(idle.border.radius, 11.0.into());
+        assert_eq!(idle.background, Some(fill.into()));
+        for (active, status) in [
+            (false, Status::Hovered),
+            (false, Status::Pressed),
+            (true, Status::Active),
+            (true, Status::Hovered),
+        ] {
+            let s = well_style(fill, 22.0, active, status, ring, edge);
+            assert_eq!((s.border.width, s.border.color), (2.0, ring));
+            assert_eq!(s.background, Some(fill.into()));
+        }
+    }
+
     #[test]
     fn glisser_et_saisir() {
         let mut p = Picker::new(Rgba(0x1b, 0x1f, 0x33, 0xff));
@@ -379,9 +503,26 @@ mod tests {
         p.update(PickerMsg::Hex("#8aff80".into()));
         assert_eq!(p.color(), Rgba(0x8a, 0xff, 0x80, 0xff));
         assert_eq!(p.initial, Rgba(0x1b, 0x1f, 0x33, 0xff));
-        // Saisie illisible validée : on revient à la couleur en cours.
+        // Saisie illisible validée : la couleur ne bouge pas, le texte reste
+        // et l'erreur se lit sous le champ (HIG SEL-07).
         p.update(PickerMsg::Hex("bleu".into()));
         p.update(PickerMsg::HexSubmit);
         assert_eq!(p.color(), Rgba(0x8a, 0xff, 0x80, 0xff));
+        assert!(p.hex_error);
+        assert_eq!(p.hex, "bleu");
+        // Une couleur lisible, saisie ou validée, efface l'erreur.
+        p.update(PickerMsg::Hex("#8aff80".into()));
+        assert!(!p.hex_error);
+        p.update(PickerMsg::Hex("zz".into()));
+        p.update(PickerMsg::HexSubmit);
+        assert!(p.hex_error);
+        // La saisie corrigée efface l'erreur ; un autre choix (ici la valeur) aussi.
+        p.update(PickerMsg::Hex("#00ff00".into()));
+        assert!(!p.hex_error);
+        p.update(PickerMsg::Hex("zz".into()));
+        p.update(PickerMsg::HexSubmit);
+        assert!(p.hex_error);
+        p.update(PickerMsg::Value(0.5));
+        assert!(!p.hex_error);
     }
 }

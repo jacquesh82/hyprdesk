@@ -68,6 +68,9 @@ impl App {
         // Plein bureau : aussi les fenêtres que le bureau a mises de côté.
         let full = self.mode() == super::DesktopMode::FullDesktop;
         Task::batch([
+            // La boîte « Forcer à quitter » se referme (HIG ENT-10) : deux
+            // cartes à clavier exclusif ne se superposent pas.
+            self.close_force_quit(),
             Task::done(Msg::NewLayerShell {
                 settings: NewLayerShellSettings {
                     size: Some(((WIDTH + 2.0 * SHADOW) as u32, h as u32)),
@@ -205,7 +208,7 @@ impl App {
                         column![
                             text(w.title.clone())
                                 .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0))
+                                .size(crate::ui::tokens::ts(13.0))
                                 .color(fg),
                             text(if w.stashed {
                                 crate::tr!("{c} · cachée par le bureau", c = w.class)

@@ -424,6 +424,11 @@ pub fn plan(
                 // Action en fonction Lua : rien à écrire dans un fichier
                 // généré, la ligne reste dans hyprland.lua.
                 if c.computed || has_function(&body) {
+                    // Un geste gardé là-bas l'emporte sur les gestes par
+                    // défaut qu'il recouvre (HIG ENT-03).
+                    if c.func == "gesture" {
+                        crate::hyprset::yield_defaults(&mut hypr.gestures, &body);
+                    }
                     plan.left.push(crate::tr!(
                         "{f} ({w}) : valeur calculée",
                         f = c.func,
@@ -432,6 +437,9 @@ pub fn plan(
                     continue;
                 }
                 let (list, what) = if c.func == "gesture" {
+                    // Le geste repris remplace les défauts qu'il recouvre
+                    // (HIG ENT-03).
+                    crate::hyprset::yield_defaults(&mut hypr.gestures, &body);
                     (&mut hypr.gestures, crate::i18n::tr("geste").to_string())
                 } else {
                     let n = body
@@ -770,5 +778,34 @@ hl.permission("/usr/bin/grim", "screencopy", "allow")
             .eval()
             .unwrap();
         assert_eq!(&crate::hyprset::parse(&t).unwrap(), hypr);
+    }
+
+    /// Un geste de hyprland.lua, repris ou gardé là-bas, l'emporte sur les
+    /// gestes par défaut qu'il recouvre (HIG ENT-03).
+    #[test]
+    fn gestes_repris_avant_les_defauts() {
+        let text = r#"hl.gesture({ fingers = 3, direction = "vertical", action = "special", workspace_name = "x" })
+hl.gesture({ fingers = 4, direction = "pinch", action = function() end })
+"#;
+        let (_d, h) = setup("gestures-defauts");
+        std::fs::write(&h, text).unwrap();
+        let src = crate::hyprsrc::read_file(&h);
+        let mut cfg = Config::default();
+        crate::hyprset::seed_gestures(&mut cfg.general.hypr);
+        let p = plan(&h, text, &src, &Settings::default(), &cfg);
+        let actions: Vec<&str> = p
+            .settings
+            .hypr
+            .as_ref()
+            .unwrap()
+            .gestures
+            .iter()
+            .filter_map(|g| g["action"].as_str())
+            .collect();
+        assert_eq!(
+            actions,
+            ["hyprdesk:notifications", "special"],
+            "{actions:?}"
+        );
     }
 }

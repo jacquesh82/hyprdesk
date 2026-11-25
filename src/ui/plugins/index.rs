@@ -7,7 +7,7 @@
 
 use crate::i18n::text;
 use iced::futures::{SinkExt, Stream};
-use iced::widget::{button, column, row, text_input, toggler};
+use iced::widget::{button, column, row, text_input};
 use iced::{Alignment, Element, Task};
 
 use super::super::panel::PanelMsg;
@@ -265,13 +265,15 @@ impl App {
                         .color(dim),
                 );
                 col = col.push(
-                    button(
-                        text("Démarrer l'indexation")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    )
-                    .padding([6, 14])
-                    .on_press(wrap(Msg::Demarrer)),
+                    self.focusable(
+                        button(
+                            text("Démarrer l'indexation")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0)),
+                        )
+                        .padding([6, 14])
+                        .on_press(wrap(Msg::Demarrer)),
+                    ),
                 );
             }
             Some(st) if st.phase == "chargement" => {
@@ -333,13 +335,15 @@ impl App {
                     .color(dim),
                 );
                 col = col.push(
-                    button(
-                        text("Réindexer maintenant")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    )
-                    .padding([6, 14])
-                    .on_press(wrap(Msg::Reindexer)),
+                    self.focusable(
+                        button(
+                            text("Réindexer maintenant")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0)),
+                        )
+                        .padding([6, 14])
+                        .on_press(wrap(Msg::Reindexer)),
+                    ),
                 );
             }
         }
@@ -354,13 +358,15 @@ impl App {
                         .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                     iced::widget::Space::new().width(iced::Length::Fill),
-                    button(
-                        text("Retirer")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::RootRemove(i))),
+                    self.focusable(
+                        button(
+                            text("Retirer")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::RootRemove(i)))
+                    ),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -386,13 +392,16 @@ impl App {
                 .width(iced::Length::Fill)
                 .on_input(|v| wrap(Msg::RootDraft(v)))
                 .on_submit(wrap(Msg::RootAdd)),
-                button(
-                    text("Ajouter")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 14])
-                .on_press_maybe((!s.root_draft.trim().is_empty()).then(|| wrap(Msg::RootAdd)),),
+                self.focusable_when(
+                    button(
+                        text("Ajouter")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 14])
+                    .on_press_maybe((!s.root_draft.trim().is_empty()).then(|| wrap(Msg::RootAdd)),),
+                    !s.root_draft.trim().is_empty()
+                ),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -434,13 +443,15 @@ impl App {
                         .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                     iced::widget::Space::new().width(iced::Length::Fill),
-                    button(
-                        text("Retirer")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::RegexRemove(i))),
+                    self.focusable(
+                        button(
+                            text("Retirer")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .on_press(wrap(Msg::RegexRemove(i)))
+                    ),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -458,13 +469,18 @@ impl App {
                 .width(iced::Length::Fill)
                 .on_input(|v| wrap(Msg::RegexDraft(v)))
                 .on_submit(wrap(Msg::RegexAdd)),
-                button(
-                    text("Ajouter")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 14])
-                .on_press_maybe((!s.regex_draft.trim().is_empty()).then(|| wrap(Msg::RegexAdd)),),
+                self.focusable_when(
+                    button(
+                        text("Ajouter")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 14])
+                    .on_press_maybe(
+                        (!s.regex_draft.trim().is_empty()).then(|| wrap(Msg::RegexAdd)),
+                    ),
+                    !s.regex_draft.trim().is_empty()
+                ),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -489,26 +505,30 @@ impl App {
             let nom = (*label).to_lowercase();
             let actif = s.cats_excl.iter().any(|c| c == &nom);
             cats = cats.push(
-                button(
-                    text(*label)
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                        .color(fg),
-                )
-                .padding([4, 10])
-                .style(move |_, status| button::Style {
-                    background: (actif || matches!(status, button::Status::Hovered)).then(|| {
-                        iced::Color {
-                            a: if actif { 0.4 } else { 0.12 },
-                            ..ambre
-                        }
-                        .into()
-                    }),
-                    border: iced::Border::default().rounded(999),
-                    text_color: fg,
-                    ..Default::default()
-                })
-                .on_press(wrap(Msg::CatToggle(nom))),
+                self.focusable(
+                    button(
+                        text(*label)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(fg),
+                    )
+                    .padding([4, 10])
+                    .style(move |_, status| button::Style {
+                        background: (actif || matches!(status, button::Status::Hovered)).then(
+                            || {
+                                iced::Color {
+                                    a: if actif { 0.4 } else { 0.12 },
+                                    ..ambre
+                                }
+                                .into()
+                            },
+                        ),
+                        border: iced::Border::default().rounded(999),
+                        text_color: fg,
+                        ..Default::default()
+                    })
+                    .on_press(wrap(Msg::CatToggle(nom))),
+                ),
             );
         }
         fine = fine.push(cats.wrap());
@@ -542,34 +562,34 @@ impl App {
                     .on_input(|v| wrap(Msg::MaxText(v))),
             ),
         );
-        col = col.push(self.adv(fine));
+        col = col.push(self.adv("Exclusions et taille maximale", || fine));
 
         // — Démarrage —
         // Quand démarre le démon d'index : avancé.
-        col = col.push(
-            self.adv(
-                column![
-                    self.field(
-                        "Lancer l'index avec hyprdesk",
-                        "index_autostart",
-                        toggler(self.cfg.general.index_autostart)
-                            .on_toggle(|v| wrap(Msg::Autostart(v))),
+        col = col.push(self.adv("Lancer l'index avec hyprdesk", || {
+            column![
+                self.field(
+                    "",
+                    "index_autostart",
+                    self.focusable(
+                        self.toggle(self.cfg.general.index_autostart)
+                            .on_toggle(|v| wrap(Msg::Autostart(v)))
                     ),
-                    text("Désactivé : le démon démarre à la première recherche « :f ».")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                        .color(dim),
-                ]
-                .spacing(8),
-            ),
-        );
+                ),
+                text("Désactivé : le démon démarre à la première recherche « :f ».")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+            ]
+            .spacing(8)
+        }));
 
         // — Rescan —
         // Réglages fins : configuration avancée.
         let mut rescan = column![].spacing(10);
         rescan = rescan.push(
             self.field(
-                "Rescan de sûreté",
+                "",
                 "index_interval",
                 text_input("secondes (défaut 21600)", &s.interval_text)
                     .font(self.font)
@@ -585,7 +605,7 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
-        col = col.push(self.adv(rescan));
+        col = col.push(self.adv("Rescan de sûreté", || rescan));
 
         // — retour inline + Appliquer —
         if let Some(m) = &s.info {
@@ -605,13 +625,15 @@ impl App {
             );
         }
         col = col.push(
-            button(
-                text("Appliquer")
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0)),
-            )
-            .padding([6, 14])
-            .on_press(wrap(Msg::Appliquer)),
+            self.focusable(
+                button(
+                    text("Appliquer")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([6, 14])
+                .on_press(wrap(Msg::Appliquer)),
+            ),
         );
         col = col.push(
             text("Appliqué au prochain démarrage du démon (premier « :f » ou bouton « Démarrer ») : il est arrêté au passage pour reprendre les réglages.")

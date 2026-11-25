@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use iced::futures::{SinkExt, Stream};
 use plugins::launcher::grid as apps_grid;
+mod accessible;
 mod behind;
 mod chat;
 pub(crate) mod color_picker;
@@ -23,10 +24,12 @@ mod design;
 mod desk_layout;
 mod edit;
 mod engine;
+mod etats;
 mod glass;
 mod hyprlists;
 mod hyprset;
-mod icons;
+// Le jeu de glyphes sert aussi à l'écran de verrouillage (HIG ICO-07).
+pub(crate) mod icons;
 mod kinetic;
 mod lens;
 mod menu;
@@ -36,6 +39,8 @@ pub(crate) mod tokens;
 pub(crate) mod tone;
 pub use mymfa_fenetre::run as run_mymfa_fenetre;
 mod controls;
+mod focus;
+mod force_quit;
 mod key_conflict;
 mod osd;
 mod overview;
@@ -46,6 +51,7 @@ pub mod preview;
 mod problem;
 mod screens_off;
 mod search;
+mod selectable;
 mod settings_search;
 mod switcher;
 mod toasts;
@@ -100,7 +106,6 @@ const UI_ICONS: [&str; 10] = [
     "audio-volume-medium",
     "audio-volume-high",
 ];
-const ICON_SETTINGS: usize = 4;
 /// Décalage vertical du contenu au début d'une transition « glissement ».
 const SLIDE_PX: f32 = 48.0;
 
@@ -127,7 +132,8 @@ const BLUR_DOWNSCALE: u32 = 8;
 /// Glisser-déposer de fichiers sur une surface.
 #[derive(Debug, Clone)]
 pub enum DropEvent {
-    Hover,
+    /// Un fichier survole la surface (le compositeur dit lequel).
+    Hover(PathBuf),
     Left,
     File(PathBuf),
 }
@@ -180,6 +186,8 @@ pub enum Msg {
     BarReveal(Id, bool),
     /// Délai écoulé : montrer ou masquer la barre (génération du survol).
     BarRevealApply(Id, u64, bool),
+    /// La barre parue tient le clavier : son premier module prend le focus (HIG ENT-02).
+    BarFocusFirst(Id),
     /// Région de saisie de la capsule Island ; les côtés restent traversants.
     BarIslandInput(Id, iced::Rectangle),
     ControlToggle(String),
@@ -226,7 +234,8 @@ pub enum Msg {
     LauncherPopupShown(Id),
     LauncherLaunchExpired(String, Instant),
     LauncherResolved(String, Instant, String),
-    LauncherDispatched(String, Instant, bool),
+    /// La commande a été envoyée (`Ok`), ou Hyprland l'a refusée : la cause.
+    LauncherDispatched(String, Instant, Result<(), String>),
     /// Fin du délai de fermeture de la bulle (jeton du survol).
     LauncherPopupClose(u64),
     LauncherPopupHover(bool),
@@ -302,6 +311,11 @@ pub enum Msg {
     /// Clic droit sur une application de la grille du Lanceur (MLG-308).
     GridMenu(String),
     Switcher(switcher::SwMsg),
+    /// Boîte « Forcer à quitter » (HIG ENT-10).
+    ForceQuit(force_quit::FqMsg),
+    /// Répétition d'Entrée maintenue : sans effet dans la boîte « Forcer à
+    /// quitter », un appui ordinaire partout ailleurs.
+    EnterRepeat(Id),
     /// Écran « Espaces de travail » (organisation des fenêtres).
     Overview(overview::OMsg),
     /// Ouvre l'écran « Espaces de travail » depuis un menu de la barre.
@@ -327,6 +341,9 @@ pub enum Msg {
     IconPress(Id, usize),
     /// Clic sur un widget, réglages ouverts : sélection et début de glissé.
     WidgetPress(Id, String),
+    /// Clic sur le fond d'un widget, réglages fermés : son contenu lié
+    /// s'ouvre (HIG SYS-10).
+    WidgetOpen(String),
     IconHover(Option<(Id, usize)>),
     Hover(String, bool),
     Launch(usize),
@@ -336,6 +353,14 @@ pub enum Msg {
     /// Fenêtres flottantes retenues hors des tiroirs (`hypr::fit_drawer_floats`).
     DrawerFloats(hypr::FloatHeld),
     Noop,
+    /// Le lecteur d'écran active un nœud (`DoAction`, HIG ACC-01) : sa clé.
+    A11yAction(String),
+}
+
+/// Pulsation d'une action en cours, `secs` après son début : de 1 à 0,35 et
+/// retour, en 1,2 s ; une variation d'opacité, sans mouvement (HIG SYS-07).
+fn pulse(secs: f32) -> f32 {
+    0.675 + 0.325 * (secs * std::f32::consts::TAU / 1.2).cos()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -382,6 +407,41 @@ struct Rot {
     idx: usize,
     next: Instant,
 }
+
+/// Plus grande taille d'une icône d'application du lanceur (grille 60,
+/// suggestions 64), en pixels logiques (HIG ICO-01).
+const LAUNCHER_ICON_MAX: f32 = 64.0;
+
+/// Nom nu d'une icône que le jeu de hyprdesk dessine, quand `want_icon` la
+/// prend dans le jeu plutôt que dans le thème : symbolique ou propre à
+/// hyprdesk, même demandée comme icône d'application.
+fn builtin_glyph(name: &str) -> Option<&str> {
+    let bare = name.strip_prefix(APP_ICON_KEY).unwrap_or(name);
+    let symbolic = bare.ends_with("-symbolic") || bare.starts_with("hyprdesk-");
+    (symbolic && icons::get(bare).is_some()).then_some(bare)
+}
+
+/// Taille en pixels réels à chercher dans le thème : la taille affichée à
+/// l'échelle entière de l'écran (HIG ICO-01).
+fn icon_px(display: f32, scale: u16) -> u16 {
+    (display.max(1.0) * f32::from(scale.max(1)))
+        .ceil()
+        .min(1024.0) as u16
+}
+
+/// Échelle entière des icônes : la plus haute des écrans, arrondie au-dessus
+/// (1,6 donne 2), bornée à 1..=3.
+fn icon_scale_of(scales: impl Iterator<Item = f64>) -> u16 {
+    scales
+        .filter(|s| s.is_finite())
+        .fold(1.0_f64, f64::max)
+        .ceil()
+        .clamp(1.0, 3.0) as u16
+}
+
+/// Préfixe des icônes nommées demandées comme icônes d'application
+/// (`App::app_icon_key`, HIG ICO-04).
+const APP_ICON_KEY: &str = "app:";
 
 #[derive(Debug, Clone, Copy)]
 enum IconImg {
@@ -442,6 +502,19 @@ pub struct App {
     /// Voir `UI_ICONS`.
     ui_imgs: Vec<IconImg>,
     rasters: Vec<image::Handle>,
+    /// Images matricielles qui sont des icônes d'application : rendues au
+    /// masque unique (HIG ICO-04).
+    app_rasters: HashSet<usize>,
+    /// Échelle des icônes au dernier chargement : un écran d'une autre
+    /// échelle les fait relire (HIG ICO-01).
+    icon_scale_seen: u16,
+    /// Apparence des icônes d'application au dernier chargement : un
+    /// réglage, une variante ou un accent changés les font relire (HIG
+    /// ICO-10).
+    icon_appearance_seen: icons::Appearance,
+    /// Variante du pack actif (`dark` ou `light`), connue à la première
+    /// réponse du moteur de thème.
+    theme_variant: Option<String>,
     vectors: Vec<svg::Handle>,
     icons_gen: u64,
     values: HashMap<String, widgets::Value>,
@@ -467,10 +540,21 @@ pub struct App {
     chat_session: u64,
     /// Onglet choisi dans chaque paquet de réglages (retenu d'une ouverture à l'autre).
     subtabs: HashMap<&'static str, &'static str>,
+    /// Sections avancées dépliées dans les Réglages, par leur clé (HIG LAY-01).
+    adv_open: std::collections::HashSet<String>,
+    /// Dernier paquet consulté dans le tiroir des réglages : c'est sur lui
+    /// que le tiroir rouvre (HIG PAT-09).
+    panel_tab: &'static str,
     /// Surface survolée par un glisser-déposer de fichiers, et fichiers déjà
     /// posés pendant ce dépôt (pour les ranger côte à côte).
     drop_hover: Option<Id>,
     drop_count: u16,
+    /// Dock survolé par une application qu'il peut épingler (HIG DAT-04) :
+    /// sa surface et l'application.
+    dock_drop: Option<(Id, String)>,
+    /// Dernier retrait du bureau ou du dock, que sa bulle peut annuler (HIG
+    /// PAT-12).
+    shell_undo: Option<context::ShellUndo>,
     /// Applications installées (liste des raccourcis, icônes des fenêtres).
     apps: Arc<Vec<AppInfo>>,
     clients: Vec<Client>,
@@ -508,6 +592,8 @@ pub struct App {
     toasts: toasts::Toasts,
     /// Problème affiché (sans assistant pour le prendre).
     problem: Option<problem::Problem>,
+    /// Origines des problèmes tus jusqu'à la fin de la session (HIG PRES-13).
+    problem_muted: std::collections::HashSet<String>,
     /// Conflits de raccourcis en question (installation, remise à zéro).
     key_conflict: Option<key_conflict::KeyConflict>,
     /// « Plus tard » : la question ne revient qu'au prochain démarrage.
@@ -516,6 +602,8 @@ pub struct App {
     tour_win: Option<Id>,
     /// Assistant de configuration ouvert.
     wizard: Option<wizard::Wizard>,
+    /// Astuces (HIG DAT-07) : montrées, fonctions servies ; `None` en aperçu.
+    tips: Option<crate::tips::State>,
     /// Lanceur avec recherche ouvert.
     search: Option<search::Search>,
     /// État du démon d'index (loupe du dock : pastille et bulle).
@@ -524,6 +612,8 @@ pub struct App {
     cal_months: i32,
     /// Sélecteur de fenêtres (Alt+Tab) ouvert.
     switcher: Option<switcher::Switcher>,
+    /// Boîte « Forcer à quitter » ouverte (HIG ENT-10).
+    force_quit: Option<force_quit::ForceQuit>,
     /// Écran « Espaces de travail » ouvert (organisation des fenêtres).
     overview: Option<overview::Overview>,
     /// Menu contextuel d'une icône du bureau ouvert.
@@ -536,8 +626,13 @@ pub struct App {
     convex_runtime: convex::Runtime,
     bar_anchors: HashMap<(Id, String), iced::Rectangle>,
     control_actions: HashMap<String, Option<String>>,
+    /// Début de l'action en cours d'une commande à bascule : sa pulsation
+    /// en part (HIG SYS-07).
+    control_since: HashMap<String, Instant>,
     bar_hidden: HashMap<Id, Vec<usize>>,
     bar_full_width: HashMap<Id, u32>,
+    /// Barres recréées par-dessus un plein écran (HIG PAT-03).
+    bar_over_fullscreen: HashSet<Id>,
     /// Barres masquées hors survol : montrée, génération du dernier survol.
     bar_reveal: HashMap<Id, (bool, u64)>,
     /// Étendues mesurées des zones de chaque barre (voir `Msg::BarLayout`) :
@@ -549,12 +644,18 @@ pub struct App {
     /// Fenêtres avec géométrie : minimaps de l'écran d'organisation et des
     /// miniatures du sélecteur de la barre.
     ws_geos: Vec<hypr::WindowGeo>,
+    /// Workspaces où une fenêtre est en vrai plein écran (HIG PAT-01).
+    fullscreen_spaces: HashSet<String>,
     /// Dernière relecture de ces géométries (rappel périodique).
     ws_geos_at: Option<Instant>,
     /// Fenêtres marquées urgentes par Hyprland (adresses) ; une fenêtre
     /// redevient visible ou ferme, elle sort de là.
     urgent: HashSet<String>,
     active_window: Option<(String, String)>,
+    /// Arbre d'accessibilité de la page des Réglages (HIG ACC-01) : ouvert
+    /// le temps d'un dessin de la page pour l'arbre, ses primitives y
+    /// déposent leurs nœuds ; fermé (`None`) pendant le dessin de l'écran.
+    a11y_collect: std::cell::RefCell<Option<accessible::Collect>>,
     volume: Option<(f32, bool)>,
     /// Écrans éteints à la main (`hyprdesk screens-off`) : volume de départ
     /// (encore inconnu : `None`) ; un volume différent les rallume.
@@ -602,12 +703,12 @@ pub struct App {
     /// Surfaces du lanceur, une par écran où le bureau est affiché.
     launcher_surfaces: HashMap<Id, plugins::dock::LauncherSurface>,
     launcher_runtime: plugins::dock::Runtime,
+    /// Barre qui tient le clavier (raccourci `keys.focus_bar`, HIG ENT-02).
+    bar_keyboard: Option<Id>,
     /// Bulle du lanceur (nom d'une entrée, ou fenêtres d'une application).
     launcher_popup: Option<plugins::dock::Popup>,
     launcher_popup_token: u64,
     launcher_popup_hover: bool,
-    /// Lanceur regroupé par application : rang de la prochaine fenêtre, par classe.
-    launcher_cycle: HashMap<String, usize>,
     /// Écrans tels que Hyprland les voit, pour l'onglet Écrans.
     screens: Vec<crate::screens::Screen>,
     /// Changement d'écrans appliqué mais pas confirmé : disposition d'avant
@@ -632,6 +733,9 @@ pub struct App {
     opt_drafts: HashMap<String, String>,
     /// Saisies refusées : chemin → message.
     opt_errors: HashMap<String, String>,
+    /// Sélecteur de couleur ouvert : option (magasin, chemin) et rang de sa
+    /// couleur dans un dégradé (HIG SEL-02).
+    opt_picker: Option<(hyprset::Store, String, usize, color_picker::Picker)>,
     /// Valeurs en vigueur des options `hypr` (`hl.get_config`).
     hypr_current: std::collections::BTreeMap<String, String>,
     /// Ce que définit hyprland.lua (lignes, valeurs), relu à l'ouverture
@@ -973,6 +1077,13 @@ fn listen(event: Event, _status: iced::event::Status, id: Id) -> Option<Msg> {
     match event {
         Event::Mouse(mouse::Event::CursorMoved { position }) => Some(Msg::Cursor(id, position)),
         Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(Msg::Released),
+        // Entrée maintenue : sa répétition est mise à part, pour qu'elle ne
+        // confirme pas ce que le premier appui vient d'armer (HIG ENT-10).
+        Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(keyboard::key::Named::Enter),
+            repeat: true,
+            ..
+        }) => Some(Msg::EnterRepeat(id)),
         Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => Some(Msg::Key(id, key)),
         Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => Some(Msg::Modifiers(m)),
         Event::Window(iced::window::Event::Unfocused) => Some(Msg::KeyboardLeft(id)),
@@ -1012,6 +1123,10 @@ impl App {
             icon_imgs: Vec::new(),
             ui_imgs: Vec::new(),
             rasters: Vec::new(),
+            app_rasters: HashSet::new(),
+            icon_scale_seen: 1,
+            icon_appearance_seen: icons::Appearance::Default,
+            theme_variant: None,
             vectors: Vec::new(),
             icons_gen: 0,
             values: HashMap::new(),
@@ -1034,7 +1149,11 @@ impl App {
             chat: None,
             chat_session: 0,
             subtabs: HashMap::new(),
+            adv_open: Default::default(),
+            panel_tab: plugins::desktop::INFO.id,
             drop_hover: None,
+            dock_drop: None,
+            shell_undo: None,
             drop_count: 0,
             apps: Arc::new(Vec::new()),
             clients: Vec::new(),
@@ -1060,15 +1179,19 @@ impl App {
             mfa_greet: Some(std::time::Instant::now()),
             toasts: Default::default(),
             problem: None,
+            problem_muted: Default::default(),
             key_conflict: None,
             key_conflict_later: false,
             tour_win: None,
             wizard: None,
+            tips: (!preview).then(|| crate::tips::State::load(&crate::tips::state_path())),
             search: None,
             icon_menu: None,
             switcher: None,
+            force_quit: None,
             overview: None,
             ws_geos: Vec::new(),
+            fullscreen_spaces: Default::default(),
             ws_geos_at: None,
             cal_months: 0,
             desk_stamp: None,
@@ -1077,13 +1200,16 @@ impl App {
             convex_runtime: Default::default(),
             bar_anchors: HashMap::new(),
             control_actions: HashMap::new(),
+            control_since: HashMap::new(),
             bar_hidden: HashMap::new(),
             bar_full_width: HashMap::new(),
+            bar_over_fullscreen: HashSet::new(),
             bar_reveal: HashMap::new(),
             bar_zone_extents: HashMap::new(),
             bar_preview: None,
             workspaces: Vec::new(),
             active_window: None,
+            a11y_collect: Default::default(),
             volume: None,
             screens_off: None,
             light: bar::Light::default(),
@@ -1108,7 +1234,6 @@ impl App {
             fs_held: HashSet::new(),
             float_held: Default::default(),
             click_monitor: None,
-            launcher_cycle: HashMap::new(),
             lyra_rule: None,
             identify: Vec::new(),
             gamma: if preview {
@@ -1121,6 +1246,7 @@ impl App {
             identify_gen: 0,
             launcher_surfaces: HashMap::new(),
             launcher_runtime: plugins::dock::Runtime::default(),
+            bar_keyboard: None,
             launcher_popup: None,
             launcher_popup_token: 0,
             launcher_popup_hover: false,
@@ -1137,6 +1263,7 @@ impl App {
             locked: false,
             opt_drafts: HashMap::new(),
             opt_errors: HashMap::new(),
+            opt_picker: None,
             hypr_current: Default::default(),
             hypr_source: None,
             preview,
@@ -1153,10 +1280,11 @@ impl App {
         );
         let mut tasks = vec![app.load_config(), apps];
         if !preview && OPEN_WIZARD_AT_START.swap(false, std::sync::atomic::Ordering::Relaxed) {
-            // Écrans et configuration connus d'abord.
+            // Écrans et configuration connus d'abord ; la version courte
+            // (la personnalisation attend les Réglages, HIG DAT-01).
             tasks.push(Task::perform(
                 tokio::time::sleep(Duration::from_secs(2)),
-                |_| Msg::Control(control::Command::Wizard),
+                |_| Msg::Wizard(wizard::WMsg::OpenFirstRun),
             ));
         }
         let t = Task::batch(tasks);
@@ -1274,17 +1402,25 @@ impl App {
                 .any(|(a, b)| !a.same_content(b));
         if widgets_changed {
             self.values.clear();
+            // Plus de valeur : plus de fondu de bascule à suivre (HIG SYS-06).
+            self.hover_fades.retain(|k, _| !k.starts_with("toggle:"));
             self.last_poll.clear();
             if self.visible {
                 tasks.push(Task::done(Msg::Poll));
             }
         }
-        // La taille d'icône ne demande pas de nouvelle recherche : l'image est mise à l'échelle.
         // SmartUI design activé ou coupé : toutes les icônes sont relues.
+        // Taille d'icône du bureau ou du dock changée : relues à la nouvelle
+        // taille, une matricielle agrandie serait floue (HIG ICO-01).
         let icons_changed = old.icons != self.cfg.icons
             || o.icon_theme != n.icon_theme
+            || o.grid.icon_size != n.grid.icon_size
+            || o.launcher.size != n.launcher.size
+            || crate::design_options::num(o, "dock.magnify")
+                != crate::design_options::num(n, "dock.magnify")
             || o.terminal != n.terminal
             || o.launcher.smartui != n.launcher.smartui
+            || self.icon_appearance() != self.icon_appearance_seen
             || self.icons_gen == 0;
         if icons_changed {
             tasks.push(self.reload_icons());
@@ -1934,12 +2070,14 @@ impl App {
             || self.chat_shown()
             || self.search.is_some()
             || self.switcher.is_some()
+            || self.force_quit.is_some()
             || self.overview.is_some()
             || self.wizard.is_some()
             || self.mfa_dialog.is_some()
             || self.mfa_fenetre.is_some()
             || !self.launcher_surfaces.is_empty()
             || self.launcher_runtime.focus.is_some()
+            || self.bar_keyboard.is_some()
     }
 
     /// Mode du bureau, tel que l'utilisateur le nomme.
@@ -2350,21 +2488,98 @@ impl App {
         }
     }
 
-    /// `hyprdesk menu <type>` : ouvre le menu du premier module de ce type sur la
-    /// barre de l'écran actif (accès clavier, comme la barre de menus macOS).
-    fn open_menu_by_type(&mut self, kind: &str) -> Task<Msg> {
+    /// La barre où va le clavier : celle de l'écran actif, sinon la première.
+    fn focused_bar(&self) -> Option<Id> {
         let focused = self
             .monitors
             .iter()
             .find(|m| m.focused)
             .map(|m| m.name.clone());
-        let Some(bar_id) = self
-            .bar_surfaces
+        self.bar_surfaces
             .iter()
             .find(|(_, s)| Some(&s.monitor) == focused.as_ref())
             .or_else(|| self.bar_surfaces.iter().next())
             .map(|(id, _)| *id)
-        else {
+    }
+
+    /// Le centre de notifications s'ouvre sur la barre de l'écran actif et
+    /// prend le clavier (raccourci `keys.focus_notifications`, HIG ENT-02) ;
+    /// déjà ouvert, il reste. Sans barre (bureau masqué), rien à ouvrir : la
+    /// carte est ancrée à la barre.
+    fn focus_notifications(&mut self) -> Task<Msg> {
+        // Des bulles à l'écran : leur pile prend le clavier d'abord ; pressé
+        // encore, le raccourci la rend et ouvre le centre (HIG ENT-01).
+        if let Some(task) = self.toasts_focus() {
+            return task;
+        }
+        let release = self.toasts_release();
+        let Some(bar) = self.focused_bar() else {
+            return release;
+        };
+        Task::batch([
+            release,
+            self.open_popover(bar, "notifications".into(), popover::Kind::Notifications),
+        ])
+    }
+
+    /// Clé du module horloge de la barre (l'identifiant de son widget), pour
+    /// y ancrer la carte Calendrier (HIG SYS-10).
+    fn bar_clock_key(&self) -> Option<String> {
+        self.cfg
+            .bar
+            .iter()
+            .flat_map(|b| b.zones.iter().chain(b.portrait.iter().flatten()))
+            .flatten()
+            .find_map(|it| match it {
+                config::BarItem::Widget(id)
+                    if self
+                        .cfg
+                        .widgets
+                        .iter()
+                        .any(|w| &w.id == id && w.type_id == "clock") =>
+                {
+                    Some(id.clone())
+                }
+                _ => None,
+            })
+    }
+
+    /// Contenu lié d'un widget du bureau, ouvert d'un clic sur son fond
+    /// (HIG SYS-10) : horloge et calendrier, la carte Calendrier de la barre
+    /// active (ancrée à son horloge si elle en a une) ; système, Réglages ›
+    /// Performance ; média, le lecteur au premier plan.
+    fn widget_open(&mut self, id: &str) -> Task<Msg> {
+        let Some(w) = self.cfg.widgets.iter().find(|w| w.id == id) else {
+            return Task::none();
+        };
+        match &w.kind {
+            WidgetKind::Clock { .. } | WidgetKind::Calendar => {
+                // Ancrée à l'horloge de la barre active si elle en a une
+                // (clé du module : l'identifiant du widget), sinon au centre
+                // de la barre.
+                let Some(bar) = self.focused_bar() else {
+                    return Task::none();
+                };
+                let key = self.bar_clock_key().unwrap_or_else(|| "clock".into());
+                Task::done(Msg::OpenPopover(bar, key, popover::Request::Calendar))
+            }
+            WidgetKind::System { .. } => Task::done(Msg::Control(control::Command::Settings(
+                "performance".into(),
+            ))),
+            WidgetKind::Media { .. } => match self.values.get(id) {
+                Some(widgets::Value::Media(Some(mi))) => {
+                    Task::perform(widgets::media_raise(mi.bus.clone()), |_| Msg::Noop)
+                }
+                _ => Task::none(),
+            },
+            _ => Task::none(),
+        }
+    }
+
+    /// `hyprdesk menu <type>` : ouvre le menu du premier module de ce type sur la
+    /// barre de l'écran actif (accès clavier, comme la barre de menus macOS).
+    fn open_menu_by_type(&mut self, kind: &str) -> Task<Msg> {
+        let Some(bar_id) = self.focused_bar() else {
             return Task::none();
         };
         let items: Vec<config::BarItem> = self
@@ -2454,10 +2669,14 @@ impl App {
             return Task::none();
         }
         self.class_pending.extend(missing.iter().cloned());
-        let (apps, theme, gen_) = (
+        // Taille affichée la plus grande (dock grossi au survol), à l'échelle
+        // de l'écran (HIG ICO-01).
+        let px = self.class_icon_px();
+        let (apps, theme, gen_, look) = (
             self.apps.clone(),
             self.cfg.general.icon_theme.clone(),
             self.icons_gen,
+            self.icon_appearance(),
         );
         // SmartUI design : les nouvelles applications du lanceur reçoivent leur icône.
         let auto = self.smartui_auto(missing.clone());
@@ -2467,7 +2686,8 @@ impl App {
                     missing
                         .into_iter()
                         .map(|c| {
-                            let p = launch::icon_for_class(&c, &apps, theme.as_deref(), 48);
+                            let p = launch::icon_for_class(&c, &apps, theme.as_deref(), px);
+                            icons::prepare_app_raster(p.as_deref(), look);
                             (c, p)
                         })
                         .collect::<Vec<_>>()
@@ -2507,12 +2727,32 @@ impl App {
             .collect()
     }
 
+    /// Icône du bureau sélectionnée (clic ou flèches) quand c'est un fichier
+    /// ou un dossier : la cible de « Mettre à la corbeille » du menu
+    /// « hyprdesk » (HIG MENU-04).
+    fn selected_file(&self) -> Option<&IconDef> {
+        let (_, idx) = self.selected?;
+        self.cfg
+            .icons
+            .get(idx)
+            .filter(|d| matches!(d.kind, crate::config::IconKind::Path(_)))
+    }
+
     pub(super) fn reload_icons(&mut self) -> Task<Msg> {
         self.icons.clear();
         self.icon_imgs.clear();
         self.selected = None;
         self.icons_gen += 1;
-        let (gen_, cfg) = (self.icons_gen, self.cfg.clone());
+        self.icon_scale_seen = self.icon_scale();
+        self.icon_appearance_seen = self.icon_appearance();
+        // Les matricielles préparées sont relues, à la nouvelle apparence.
+        icons::forget_app_rasters();
+        let (gen_, cfg, scale, look) = (
+            self.icons_gen,
+            self.cfg.clone(),
+            self.icon_scale(),
+            self.icon_appearance_seen,
+        );
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
@@ -2521,17 +2761,30 @@ impl App {
                         .icons
                         .iter()
                         .map(|d| {
-                            launch::resolve(
+                            let r = launch::resolve(
                                 d,
                                 g.icon_theme.as_deref(),
-                                g.grid.icon_size,
+                                icon_px(f32::from(g.grid.icon_size), scale),
                                 &g.terminal,
-                            )
+                            );
+                            // Applications seulement : les autres icônes du
+                            // bureau se chargent telles quelles.
+                            if matches!(d.kind, crate::config::IconKind::App(_)) {
+                                icons::prepare_app_raster(r.image.as_deref(), look);
+                            }
+                            r
                         })
                         .collect::<Vec<_>>();
+                    // Jeu de hyprdesk d'abord, comme `want_icon` : le thème ne
+                    // sert qu'aux noms que le jeu ne dessine pas.
                     let media = UI_ICONS
                         .iter()
-                        .map(|n| launch::lookup_icon(n, g.icon_theme.as_deref(), 24))
+                        .map(|n| {
+                            icons::get(n)
+                                .is_none()
+                                .then(|| launch::lookup_icon(n, g.icon_theme.as_deref(), 24))
+                                .flatten()
+                        })
                         .collect::<Vec<_>>();
                     (icons, media)
                 })
@@ -2617,6 +2870,8 @@ impl App {
             // Jusqu'à ce que Frame solde le fondu (fermeture comprise).
             || self.panel_fade.is_some()
             || self.hover_fades.values().any(|f| !f.done(Instant::now()))
+            // Une commande à bascule pulse jusqu'à la fin de son action (HIG SYS-07).
+            || (!self.control_since.is_empty() && self.cfg.general.transition != Transition::None)
             || self
                 .popover
                 .as_ref()
@@ -2627,12 +2882,49 @@ impl App {
                 .is_some_and(|o| o.animating(Instant::now()))
     }
 
+    /// Millisecondes d'un fondu de survol ou de fermeture : celles réglées, dans
+    /// la limite de 220 ; 90 au plus en mouvement réduit, où il ne reste qu'un
+    /// fondu court (HIG FON-07).
+    fn motion_millis(fade_ms: u64, reduced: bool) -> u64 {
+        let ms = fade_ms.min(220);
+        if reduced { ms.min(90) } else { ms }
+    }
+
+    /// Durée d'un fondu de survol ou de fermeture : nulle sans transition,
+    /// courte en mouvement réduit (HIG FON-07).
     fn motion_duration(&self) -> Duration {
         if self.cfg.general.transition == Transition::None {
             Duration::ZERO
         } else {
-            Duration::from_millis(self.cfg.general.fade_ms.min(220))
+            Duration::from_millis(Self::motion_millis(
+                self.cfg.general.fade_ms,
+                crate::ui::tokens::motion().reduced,
+            ))
         }
+    }
+
+    /// Part « allumée » d'une commande à bascule, de 0 à 1 : suit le fondu
+    /// lancé quand son état change (HIG SYS-06).
+    pub(in crate::ui) fn toggle_progress(&self, id: &str, active: bool) -> f32 {
+        self.hover_fades
+            .get(&format!("toggle:{id}"))
+            .map(|f| f.value(Instant::now()))
+            .unwrap_or(if active { 1.0 } else { 0.0 })
+    }
+
+    /// Opacité d'une commande dont l'action est en cours : elle pulse sans
+    /// fin jusqu'à la réponse ; rien sans transition, où le libellé d'attente
+    /// reste (HIG SYS-07).
+    pub(in crate::ui) fn pending_pulse(&self, id: &str) -> Option<f32> {
+        if self.cfg.general.transition == Transition::None {
+            return None;
+        }
+        let since = self.control_since.get(id)?;
+        Some(pulse(
+            Instant::now()
+                .saturating_duration_since(*since)
+                .as_secs_f32(),
+        ))
     }
 
     fn hover_value(&self, key: &str) -> f32 {
@@ -2644,6 +2936,11 @@ impl App {
 
     fn close_panel(&mut self) -> Task<Msg> {
         self.bar_drag = None;
+        // La valeur d'un curseur en cours de saisie se referme avec le tiroir
+        // (HIG SEL-08).
+        if let Some(p) = self.panel.as_mut() {
+            p.slider = None;
+        }
         // Visite en cours : sa fenêtre part avec le tiroir (elle reste à voir).
         if let Some(w) = self.tour_win.take() {
             if let Some(p) = self.panel.as_mut() {
@@ -2846,6 +3143,13 @@ impl App {
         }
         let old = std::mem::replace(&mut self.monitors, list);
         let mut tasks = Vec::new();
+        // Échelle des icônes changée (écran branché, échelle réglée) : les
+        // icônes d'application sont relues à la bonne taille (HIG ICO-01).
+        // `reload_icons` vide toutes les poignées à son retour et redemande
+        // classes et icônes nommées.
+        if self.icon_scale() != self.icon_scale_seen {
+            tasks.push(self.reload_icons());
+        }
         // Un espace redevenu actif sur son écran montre ses fenêtres urgentes :
         // leur losange quitte la barre.
         if !self.urgent.is_empty() {
@@ -2971,6 +3275,15 @@ impl App {
         }
         // Chaque écran prend le mode du workspace qu'il affiche.
         tasks.push(self.sync_modes());
+        // Espace affiché en plein écran, ou qui ne l'est plus : le dock change
+        // de calque (HIG PAT-01).
+        if self.dock_cover_changed() {
+            tasks.push(self.sync_launchers());
+        }
+        // La barre aussi (HIG PAT-03).
+        if self.bar_cover_changed() {
+            tasks.push(self.sync_bars());
+        }
         if self.visible {
             tasks.push(Task::done(Msg::Poll));
         }
@@ -3166,6 +3479,17 @@ impl App {
             })
     }
 
+    /// Une fenêtre en vrai plein écran (pas seulement agrandie) couvre
+    /// l'espace affiché de l'écran `monitor` : les calques `top` passent
+    /// dessous (HIG PAT-01).
+    pub(in crate::ui) fn fullscreen_on(&self, monitor: &str) -> bool {
+        self.monitors.iter().any(|m| {
+            m.name == monitor
+                && (self.fullscreen_spaces.contains(&m.workspace)
+                    || (!m.base.is_empty() && self.fullscreen_spaces.contains(&m.base)))
+        })
+    }
+
     fn poll(&mut self) -> Task<Msg> {
         // Verrouillée ou écrans éteints : les relevés attendent (rien ne se
         // voit), seul l'état du verrou est suivi (MLG-136).
@@ -3304,7 +3628,8 @@ impl App {
                     | WidgetKind::Controls
                     | WidgetKind::Launcher => None,
                     WidgetKind::System { show } => {
-                        let show = show.clone();
+                        // Lignes selon la taille du widget (HIG SYS-15).
+                        let show = widgets::system_items(show, w.family);
                         Some(Task::perform(
                             async move {
                                 tokio::task::spawn_blocking(move || widgets::sample_system(&show))
@@ -3317,15 +3642,30 @@ impl App {
                     }
                     WidgetKind::Media { player } => {
                         let p = player.clone();
+                        // La position ne sert qu'aux grandes tailles (HIG SYS-15) :
+                        // ailleurs, elle changerait la valeur à chaque relevé et
+                        // redessinerait tout pendant la lecture.
+                        let progress = matches!(
+                            w.family,
+                            crate::config::WidgetFamily::Large
+                                | crate::config::WidgetFamily::XLarge
+                        );
                         Some(Task::perform(
                             async move {
-                                tokio::time::timeout(Duration::from_secs(3), widgets::media(&p))
-                                    .await
-                                    .unwrap_or_else(|_| {
-                                        widgets::Value::Error(
-                                            crate::i18n::tr("MPRIS : délai dépassé").into(),
-                                        )
-                                    })
+                                let mut v = tokio::time::timeout(
+                                    Duration::from_secs(3),
+                                    widgets::media(&p),
+                                )
+                                .await
+                                .unwrap_or_else(|_| {
+                                    widgets::Value::Error(
+                                        crate::i18n::tr("MPRIS : délai dépassé").into(),
+                                    )
+                                });
+                                if !progress && let widgets::Value::Media(Some(mi)) = &mut v {
+                                    mi.position = None;
+                                }
+                                v
                             },
                             move |v| Msg::WidgetValue(generation, wid.clone(), v),
                         ))
@@ -3421,10 +3761,63 @@ impl App {
         }
     }
 
+    /// Icône d'application (HIG ICO-04) : un SVG est découpé au masque
+    /// unique dans sa source, à l'apparence voulue (HIG ICO-10) ; une image
+    /// matricielle est marquée, et rendue arrondie par `icon_named` et
+    /// `img_element`.
+    fn app_handle_for(&mut self, p: Option<&std::path::Path>) -> IconImg {
+        let look = self.icon_appearance();
+        let masked = p
+            .filter(|p| p.extension().is_some_and(|e| e == "svg"))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|src| icons::app_svg(&src, icons::APP_ICON_MASK, look));
+        if let Some(src) = masked {
+            self.vectors
+                .push(svg::Handle::from_memory(src.into_bytes()));
+            return IconImg::Vector(self.vectors.len() - 1);
+        }
+        // Matricielle à une autre apparence que par défaut : ses pixels
+        // passés à la matrice, préparés hors du fil de l'interface (HIG
+        // ICO-10).
+        if let Some(h) = p
+            .filter(|p| icons::is_raster(p) && !crate::smartui::owns(p))
+            .and_then(|p| icons::app_raster(p, look))
+        {
+            self.rasters.push(h);
+            self.app_rasters.insert(self.rasters.len() - 1);
+            return IconImg::Raster(self.rasters.len() - 1);
+        }
+        let img = self.handle_for(p);
+        if let IconImg::Raster(i) = img {
+            self.app_rasters.insert(i);
+        }
+        img
+    }
+
+    /// Rayon d'une image matricielle de côté `size` : le masque unique si
+    /// c'est une icône d'application (HIG ICO-04).
+    fn raster_radius(&self, i: usize, size: f32) -> f32 {
+        if self.app_rasters.contains(&i) {
+            size * icons::APP_ICON_MASK
+        } else {
+            0.0
+        }
+    }
+
     /// Police de l'interface, à la graisse voulue.
-    /// Graisse de la barre et des titres : la version grasse de la police.
+    /// Graisse de la barre et des titres : celle des titres du pack,
+    /// semibold par défaut (HIG TYP-05).
     pub(super) fn title_font(&self) -> Font {
         self.ui_font(tokens::weight(tokens::design().typography.title_weight))
+    }
+
+    /// Police du titre de page : Bold, réservé à ce titre, que le reste des
+    /// titres soit en semibold (HIG TYP-05) ; un pack qui graisse davantage
+    /// ses titres garde sa graisse.
+    pub(super) fn page_title_font(&self) -> Font {
+        self.ui_font(tokens::weight(
+            tokens::design().typography.title_weight.max(700),
+        ))
     }
 
     pub(super) fn ui_font(&self, weight: iced::font::Weight) -> Font {
@@ -3444,7 +3837,8 @@ impl App {
     ) -> Option<Element<'a, Msg>> {
         match self.named_icons.get(name).copied()? {
             IconImg::Vector(i) => {
-                let symbolic = name.ends_with("-symbolic") || icons::get(name).is_some();
+                let bare = name.strip_prefix(APP_ICON_KEY).unwrap_or(name);
+                let symbolic = bare.ends_with("-symbolic") || icons::get(bare).is_some();
                 Some(
                     svg(self.vectors[i].clone())
                         .width(size)
@@ -3459,10 +3853,77 @@ impl App {
                 image(self.rasters[i].clone())
                     .width(size)
                     .height(size)
+                    .border_radius(self.raster_radius(i, size))
                     .into(),
             ),
             IconImg::None => None,
         }
+    }
+
+    /// `icon_named` à côté d'un texte de graisse `weight` (HIG ICO-12) : un
+    /// glyphe du jeu prend le trait de cette graisse, une icône du thème
+    /// reste telle quelle. Le glyphe résolu par `want_icon` reste la clé :
+    /// la variante, de contenu stable, est rastérisée une fois par iced.
+    pub(super) fn icon_named_weighted<'a>(
+        &self,
+        name: &str,
+        size: f32,
+        tint: Color,
+        weight: iced::font::Weight,
+    ) -> Option<Element<'a, Msg>> {
+        let builtin = builtin_glyph(name).filter(|_| {
+            weight != iced::font::Weight::Normal && self.named_icons.contains_key(name)
+        });
+        match builtin {
+            Some(bare) => icons::glyph_weighted(bare, size, tint, weight),
+            None => self.icon_named(name, size, tint),
+        }
+    }
+
+    /// Échelle entière des icônes d'après les écrans (HIG ICO-01).
+    pub(super) fn icon_scale(&self) -> u16 {
+        icon_scale_of(self.monitors.iter().map(|m| f64::from(m.scale)))
+    }
+
+    /// Apparence des icônes d'application (HIG ICO-10) : le réglage
+    /// `icons.appearance`, `auto` résolu par la variante du pack actif (à
+    /// défaut, la clarté du fond du thème, comme `mode_wallpaper`) ; la
+    /// teinte prend l'accent de la palette en place.
+    pub(super) fn icon_appearance(&self) -> icons::Appearance {
+        let g = &self.cfg.general;
+        let dark = match &self.theme_variant {
+            Some(v) => v == "dark",
+            None => crate::theme_engine::color::luminance(g.theme.bg) <= 0.4,
+        };
+        icons::Appearance::resolve(
+            &crate::design_options::choice(g, "icons.appearance"),
+            dark,
+            tone::rgba("accent"),
+        )
+    }
+
+    /// Relit les icônes d'application déjà chargées si leur apparence a
+    /// changé (variante du thème, accent) ; rien avant le premier chargement.
+    pub(super) fn refresh_icon_appearance(&mut self) -> Task<Msg> {
+        if self.icons_gen > 0 && self.icon_appearance() != self.icon_appearance_seen {
+            self.reload_icons()
+        } else {
+            Task::none()
+        }
+    }
+
+    /// Taille cherchée d'une icône de classe : la plus grande affichée (dock
+    /// grossi au survol, 48 au moins), à l'échelle (HIG ICO-01).
+    pub(super) fn class_icon_px(&self) -> u16 {
+        let dock = f32::from(self.cfg.general.launcher.size)
+            * (crate::design_options::num(&self.cfg.general, "dock.magnify") as f32).max(1.0);
+        icon_px(dock.max(48.0), self.icon_scale())
+    }
+
+    /// Clé d'une icône nommée demandée comme icône d'application : elle prend
+    /// le masque unique, le même nom demandé ailleurs non (HIG ICO-04).
+    pub(super) fn app_icon_key(name: &str) -> String {
+        format!("{APP_ICON_KEY}{name}")
     }
 
     /// Résout une icône par nom (une fois), hors du thread UI.
@@ -3471,35 +3932,68 @@ impl App {
             return Task::none();
         }
         // Icône d'interface : le jeu de hyprdesk d'abord (cohérence graphique),
-        // sans passer par le thème d'icônes.
-        let symbolic = name.ends_with("-symbolic") || name.starts_with("hyprdesk-");
-        if symbolic && icons::get(name).is_some() {
-            let img = self.builtin_icon(name);
+        // sans passer par le thème d'icônes ; jugée sur le nom nu, même
+        // demandée comme icône d'application (sans masque alors).
+        if let Some(bare) = builtin_glyph(name) {
+            let img = self.builtin_icon(bare);
             self.named_icons.insert(name.to_string(), img);
             return Task::none();
         }
         self.named_pending.insert(name.to_string());
-        let (n, theme, gen_) = (
+        // Taille en pixels réels (HIG ICO-01) : le lanceur affiche ses
+        // icônes jusqu'à 64, les autres icônes nommées vers 32.
+        let px = icon_px(
+            if name.starts_with(APP_ICON_KEY) {
+                LAUNCHER_ICON_MAX
+            } else {
+                32.0
+            },
+            self.icon_scale(),
+        );
+        let (key, n, theme, gen_) = (
             name.to_string(),
+            name.strip_prefix(APP_ICON_KEY).unwrap_or(name).to_string(),
             self.cfg.general.icon_theme.clone(),
             self.icons_gen,
         );
+        // Icône d'application : préparée à son apparence (HIG ICO-10).
+        let look = name
+            .starts_with(APP_ICON_KEY)
+            .then(|| self.icon_appearance());
         Task::perform(
             async move {
-                let n2 = n.clone();
+                let n2 = n;
                 let p = tokio::task::spawn_blocking(move || {
                     // Repli : le thème par défaut. Jamais la version en couleur
                     // d'une icône symbolique : elle détonnerait dans la barre.
-                    launch::lookup_icon(&n2, theme.as_deref(), 32)
-                        .or_else(|| launch::lookup_icon(&n2, Some("Adwaita"), 32))
+                    let p = launch::lookup_icon(&n2, theme.as_deref(), px)
+                        .or_else(|| launch::lookup_icon(&n2, Some("Adwaita"), px));
+                    if let Some(look) = look {
+                        icons::prepare_app_raster(p.as_deref(), look);
+                    }
+                    p
                 })
                 .await
                 .ok()
                 .flatten();
-                (n, p)
+                (key, p)
             },
             move |(n, p)| Msg::IconResolved(gen_, n, p),
         )
+    }
+
+    /// Icône d'interface de `UI_ICONS` (index `idx`) : le glyphe de hyprdesk,
+    /// teinté `tint` comme toute commande ; à défaut seulement, l'icône du
+    /// thème, sans teinte, fondue de `alpha`.
+    fn ui_icon(&self, idx: usize, size: f32, alpha: f32, tint: Color) -> Option<Element<'_, Msg>> {
+        match UI_ICONS.get(idx).filter(|n| icons::get(n).is_some()) {
+            Some(name) => icons::glyph(name, size, tint),
+            None => self.img_element(
+                self.ui_imgs.get(idx).copied().unwrap_or(IconImg::None),
+                size,
+                alpha,
+            ),
+        }
     }
 
     fn img_element(&self, img: IconImg, size: f32, alpha: f32) -> Option<Element<'_, Msg>> {
@@ -3509,6 +4003,7 @@ impl App {
                     .width(size)
                     .height(size)
                     .opacity(alpha)
+                    .border_radius(self.raster_radius(i, size))
                     .into(),
             ),
             IconImg::Vector(i) => Some(
@@ -3549,19 +4044,21 @@ impl App {
         &self,
         cmd: String,
         stays: bool,
-        then: impl FnOnce(bool) -> Msg + Send + 'static,
+        then: impl FnOnce(Result<(), String>) -> Msg + Send + 'static,
     ) -> Task<Msg> {
         self.run_from_desktop_on(cmd, stays, None, then)
     }
 
     /// `target` : écran du bureau d'où l'on lance (son workspace reçoit la
     /// fenêtre, sa taille la dimensionne) ; sinon l'écran qui a le focus.
+    /// `then` reçoit `Err` et la cause quand Hyprland refuse la commande,
+    /// pour qui doit l'annoncer (HIG PAT-08).
     pub(super) fn run_from_desktop_on(
         &self,
         cmd: String,
         stays: bool,
         target: Option<&Monitor>,
-        then: impl FnOnce(bool) -> Msg + Send + 'static,
+        then: impl FnOnce(Result<(), String>) -> Msg + Send + 'static,
     ) -> Task<Msg> {
         let screen = target.or_else(|| self.monitors.iter().find(|m| m.focused));
         let size = (stays && self.cfg.general.float_launched)
@@ -3587,13 +4084,13 @@ impl App {
                 match r {
                     Ok(Err(e)) => {
                         tracing::warn!("{}", crate::tr!("lancement : {e}", e = e));
-                        false
+                        Err(e.to_string())
                     }
                     Err(e) => {
                         tracing::warn!("{}", crate::tr!("lancement : {e}", e = e));
-                        false
+                        Err(e.to_string())
                     }
-                    Ok(Ok(())) => true,
+                    Ok(Ok(())) => Ok(()),
                 }
             },
             then,
@@ -3652,8 +4149,12 @@ impl App {
     /// devient une icône, posée dans la case sous le pointeur (puis les
     /// suivantes pour un dépôt de plusieurs fichiers).
     fn on_drop(&mut self, win: Id, ev: DropEvent) -> Task<Msg> {
+        // Le dock reçoit les siens : une application à épingler (HIG DAT-04).
+        if self.launcher_surfaces.contains_key(&win) {
+            return self.dock_drop_event(win, ev);
+        }
         match ev {
-            DropEvent::Hover => {
+            DropEvent::Hover(_) => {
                 self.drop_hover = Some(win);
                 self.drop_count = 0;
                 Task::none()
@@ -3751,15 +4252,24 @@ impl App {
         // savoir si un raccourci est arrivé jusqu'ici (MLG-206).
         if let Msg::Control(c) = &msg {
             tracing::debug!(command = c.as_str(), "commande reçue");
+            // Essai de la visite guidée (HIG DAT-11).
+            self.tour_note(c);
         }
         self.count_msg(&msg);
-        match self.damage_of(&msg) {
+        let damage = self.damage_of(&msg);
+        // Rien à redessiner, ou seulement des bureaux (trame vidéo) : l'arbre
+        // d'accessibilité, fait de la barre et du dock, n'a pas changé.
+        let still = !matches!(damage, Damage::All);
+        match damage {
             Damage::All => iced_layershell::damage::all(),
             Damage::None => iced_layershell::damage::none(),
             Damage::Only(ids) => iced_layershell::damage::only(ids),
         }
         let t = self.update_inner(msg);
         self.publish_status();
+        if !still {
+            self.a11y_publish();
+        }
         self.voice_publish();
         let t = Task::batch([t, self.sync_hyprbars()]);
         tracing::trace!(
@@ -3801,11 +4311,10 @@ impl App {
             }
             // Échéance des bulles : rien à redessiner si aucune n'expire.
             Msg::Toasts(toasts::TMsg::Tick)
-                if !self
-                    .toasts
-                    .list
-                    .iter()
-                    .any(|t| t.lifetime().is_some_and(|l| t.since.elapsed() >= l)) =>
+                if !self.toasts.list.iter().any(|t| {
+                    toasts::lifetime_for(&self.cfg.general, t)
+                        .is_some_and(|l| t.since.elapsed() >= l)
+                }) =>
             {
                 Damage::None
             }
@@ -3918,6 +4427,13 @@ impl App {
                         .chain(iced::exit())
                 }
                 control::Command::Status => Task::none(),
+                // `hyprdesk a11y dump` : l'arbre est calculé même sans
+                // lecteur d'écran, puis la commande est réveillée.
+                control::Command::A11yDump => {
+                    crate::a11y::publish(self.a11y_surfaces());
+                    crate::a11y::dumped().notify_waiters();
+                    Task::none()
+                }
                 control::Command::ScreensOff => self.screens_off(),
                 control::Command::ColorTest => {
                     self.colors_update(if self.color_test.wins.is_empty() {
@@ -3955,7 +4471,8 @@ impl App {
                 control::Command::Ask(origin, text) => self.show_problem_from(&origin, text, true),
                 control::Command::Notifications(a) => {
                     self.toasts.command(&a);
-                    Task::none()
+                    // Le résumé du Silence (HIG PAT-20) se pose par `dnd off` : la couche suit.
+                    self.sync_toasts()
                 }
                 control::Command::Overview => {
                     let cmd = self.cfg.general.overview_command.trim().to_string();
@@ -3976,6 +4493,10 @@ impl App {
                     }
                 }
                 control::Command::Switch(back) => self.switch_windows(back),
+                // Boîte « Forcer à quitter » (HIG ENT-10) : ouvre, ou referme.
+                control::Command::ForceQuit => self.force_quit_toggle(),
+                // Accès clavier complet (HIG ENT-01) : bascule, enregistre, annonce.
+                control::Command::KeyboardAccess => self.keyboard_access_toggle(),
                 control::Command::Wizard => self.open_wizard(),
                 control::Command::Tour => {
                     let o = self.open_panel();
@@ -3994,6 +4515,16 @@ impl App {
                 // Le raccourci fait comme le bouton de la barre : un second
                 // appui referme le tiroir.
                 control::Command::ToggleSettings => self.toggle_panel(),
+                // Le clavier va à une surface du shell (HIG ENT-02). Contrairement
+                // à `toggle-settings`, rien ne se referme et le mode du bureau ne
+                // bascule pas : la surface s'ouvre s'il le faut et prend le clavier.
+                control::Command::Focus(kind) => match kind.as_str() {
+                    "bar" => self.bar_focus(),
+                    "dock" => self.launcher_focus(),
+                    "notifications" => self.focus_notifications(),
+                    "settings" => self.focus_panel(),
+                    _ => Task::none(),
+                },
                 control::Command::Settings(tab) => {
                     let s = Task::none();
                     let o = self.open_panel();
@@ -4008,7 +4539,12 @@ impl App {
             },
             Msg::Hypr(hypr::Update::Monitors(list)) => self.set_monitors(list),
             Msg::Hypr(hypr::Update::Workspaces(list)) => {
+                // La vue d'ensemble garde sa carte choisie (HIG ENT-14).
+                let before = self.overview.is_some().then(|| self.overview_cards());
                 self.workspaces = list;
+                if let Some(before) = before {
+                    self.overview_follow(&before);
+                }
                 // Plein écran sur l'écran d'un tiroir : ramené hors du tiroir ;
                 // fenêtres retenues : relâchées dès qu'elles en sortent.
                 let drawer_fs = self
@@ -4147,9 +4683,10 @@ impl App {
                     Task::none()
                 }
             }
+            // Fin d'un lancement du dock ou de la grille : annoncée, jamais
+            // en silence (HIG PAT-08, STA-01).
             Msg::LauncherLaunchExpired(id, token) => {
-                self.launcher_launch_expired(&id, token);
-                Task::none()
+                self.launcher_launch_ended(&id, token, plugins::dock::LaunchEnd::NoWindow)
             }
             Msg::LauncherResolved(id, token, command) => {
                 if !self
@@ -4161,19 +4698,21 @@ impl App {
                     return Task::none();
                 }
                 if command.is_empty() {
-                    self.launcher_launch_expired(&id, token);
-                    return Task::none();
+                    return self.launcher_launch_ended(
+                        &id,
+                        token,
+                        plugins::dock::LaunchEnd::Unresolved,
+                    );
                 }
-                self.run_from_desktop_result(command, true, move |ok| {
-                    Msg::LauncherDispatched(id, token, ok)
+                self.run_from_desktop_result(command, true, move |sent| {
+                    Msg::LauncherDispatched(id, token, sent)
                 })
             }
-            Msg::LauncherDispatched(id, token, ok) => {
-                if !ok {
-                    self.launcher_launch_expired(&id, token);
-                }
-                Task::none()
+            Msg::LauncherDispatched(id, token, Err(cause)) => {
+                self.launcher_launch_ended(&id, token, plugins::dock::LaunchEnd::Refused(cause))
             }
+            // Commande partie : le lancement suit sa fenêtre jusqu'au délai.
+            Msg::LauncherDispatched(.., Ok(())) => Task::none(),
             Msg::LauncherPopupClose(token) => self.launcher_popup_timeout(token),
             Msg::LauncherPopupHover(on) => self.launcher_popup_hover(on),
             Msg::LauncherPick(address) => {
@@ -4288,6 +4827,18 @@ impl App {
             }
             Msg::Hypr(hypr::Update::Clients(list, geos)) => {
                 let mut tasks = Vec::new();
+                // Plein écran venu ou parti : le dock change de calque (HIG PAT-01).
+                self.fullscreen_spaces = geos
+                    .iter()
+                    .filter(|g| g.fullscreen)
+                    .map(|g| g.workspace.clone())
+                    .collect();
+                if self.dock_cover_changed() {
+                    tasks.push(self.sync_launchers());
+                }
+                if self.bar_cover_changed() {
+                    tasks.push(self.sync_bars());
+                }
                 // Bureau vide seulement : avec les fenêtres, une nouvelle fenêtre
                 // est une fenêtre ordinaire (mise de côté si on revient au bureau vide).
                 if self.visible {
@@ -4342,6 +4893,8 @@ impl App {
                 self.urgent.retain(|a| list.iter().any(|c| &c.address == a));
                 tasks.push(self.sync_submap());
                 let lyra_before = self.lyra_window_open();
+                // La boîte « Forcer à quitter » suit les fenêtres (HIG ENT-10).
+                self.force_quit_refresh(&list);
                 self.clients = list;
                 // Fenêtre de LYRA ouverte ou fermée : sa place dans les marges.
                 if self.lyra_window_open() != lyra_before {
@@ -4376,7 +4929,7 @@ impl App {
                 if gen_ == self.icons_gen {
                     for (class, p) in list {
                         self.class_pending.remove(&class);
-                        let img = self.handle_for(p.as_deref());
+                        let img = self.app_handle_for(p.as_deref());
                         self.class_imgs.insert(class, img);
                     }
                 }
@@ -4452,7 +5005,9 @@ impl App {
                 self.bar_zone_extents.clear();
                 self.bar_anchors.clear();
                 self.control_actions.clear();
+                self.control_since.clear();
                 self.values.clear();
+                self.hover_fades.retain(|k, _| !k.starts_with("toggle:"));
                 self.last_poll.clear();
                 self.menu_request += 1;
                 let close = self.destroy_popover();
@@ -4488,10 +5043,30 @@ impl App {
                     return Task::none();
                 }
                 self.rasters.clear();
+                self.app_rasters.clear();
                 self.vectors.clear();
+                // Une application du bureau prend le masque unique (HIG
+                // ICO-04) ; un fichier, un dossier, une commande non.
+                let apps: Vec<bool> = list
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| {
+                        self.cfg
+                            .icons
+                            .get(i)
+                            .is_some_and(|d| matches!(d.kind, config::IconKind::App(_)))
+                    })
+                    .collect();
                 self.icon_imgs = list
                     .iter()
-                    .map(|r| self.handle_for(r.image.as_deref()))
+                    .zip(apps)
+                    .map(|(r, app)| {
+                        if app {
+                            self.app_handle_for(r.image.as_deref())
+                        } else {
+                            self.handle_for(r.image.as_deref())
+                        }
+                    })
                     .collect();
                 self.ui_imgs = media
                     .iter()
@@ -4619,6 +5194,17 @@ impl App {
             Msg::DockMenu(monitor, key) => self.open_dock_menu(&monitor, &key),
             Msg::GridMenu(id) => self.open_grid_menu(id),
             Msg::Switcher(m) => self.switcher_update(m),
+            Msg::ForceQuit(m) => self.force_quit_update(m),
+            Msg::EnterRepeat(id) => {
+                if self.force_quit.as_ref().is_some_and(|f| f.win == id) {
+                    Task::none()
+                } else {
+                    self.update_inner(Msg::Key(
+                        id,
+                        keyboard::Key::Named(keyboard::key::Named::Enter),
+                    ))
+                }
+            }
             Msg::Overview(m) => self.overview_update(m),
             Msg::BarOrganize => Task::batch([self.close_popover(), self.open_overview()]),
             Msg::MenuRefreshed(key, new) => {
@@ -4631,6 +5217,27 @@ impl App {
                     && *entries != new
                 {
                     *entries = new;
+                    // Choix au clavier (HIG ACC-01) : oublié s'il ne désigne
+                    // plus une entrée qu'on choisit.
+                    if p.keyed.is_some_and(|i| {
+                        !entries.get(i).is_some_and(|e| popover::keyable(e, false))
+                    }) {
+                        p.keyed = None;
+                    }
+                    if p.keyed_sub.is_some_and(|(i, j)| {
+                        !matches!(entries.get(i), Some(config::MenuEntry::Submenu { children, .. })
+                            if children.get(j).is_some_and(|e| popover::keyable(e, true)))
+                    }) {
+                        p.keyed_sub = None;
+                    }
+                    // Colonne ouverte (HIG MENU-03) : refermée si sa ligne a disparu.
+                    if p.sub.is_some_and(|i| {
+                        !matches!(entries.get(i), Some(config::MenuEntry::Submenu { .. }))
+                    }) {
+                        p.sub = None;
+                        p.sub_timer = None;
+                        return self.refresh_popover_anchor();
+                    }
                 }
                 Task::none()
             }
@@ -4723,15 +5330,47 @@ impl App {
                         .unwrap_or_else(Task::none),
                     _ => Task::none(),
                 };
+                // Bascule : l'état passe en fondu d'un trait à l'autre (HIG SYS-06).
+                let was = match self.values.get(&id) {
+                    Some(widgets::Value::Rich(r)) => r.toggled,
+                    _ => None,
+                };
+                let now = match &v {
+                    widgets::Value::Rich(r) => r.toggled,
+                    _ => None,
+                };
+                let key = format!("toggle:{id}");
+                match (was, now) {
+                    (Some(was), Some(on)) if was != on => {
+                        let from = self.toggle_progress(&id, was);
+                        self.hover_fades.insert(
+                            key,
+                            Fade {
+                                from,
+                                to: if on { 1.0 } else { 0.0 },
+                                start: Instant::now(),
+                                dur: self.motion_duration(),
+                            },
+                        );
+                    }
+                    (_, None) | (None, _) => {
+                        self.hover_fades.remove(&key);
+                    }
+                    _ => {}
+                }
                 self.values.insert(id, v);
                 t
             }
             Msg::IconResolved(gen_, name, path) => {
                 if gen_ == self.icons_gen {
                     self.named_pending.remove(&name);
-                    let img = match path {
-                        Some(p) => self.handle_for(Some(&p)),
-                        None => self.builtin_icon(&name),
+                    // Icône demandée comme icône d'application (clé
+                    // `app_icon_key`) : le masque unique (HIG ICO-04) ; le même
+                    // nom demandé ailleurs (notification, statut) reste tel quel.
+                    let img = match (path, name.strip_prefix(APP_ICON_KEY)) {
+                        (Some(p), Some(_)) => self.app_handle_for(Some(&p)),
+                        (Some(p), None) => self.handle_for(Some(&p)),
+                        (None, bare) => self.builtin_icon(bare.unwrap_or(&name)),
                     };
                     self.named_icons.insert(name, img);
                 }
@@ -4813,6 +5452,47 @@ impl App {
                         key,
                         popover::Kind::Workspaces,
                     )),
+                    // Menu « hyprdesk » (HIG MENU-01) : rien à lire, le contenu
+                    // est fixe ; seule « Mettre à la corbeille » dépend de
+                    // l'icône du bureau sélectionnée (HIG MENU-04).
+                    popover::Request::Shell => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Menu {
+                            entries: plugins::bar::menus::entries(self.selected_file()),
+                            source: popover::MenuSource::Shell,
+                        },
+                    )),
+                    // Menu contextuel d'un module de barre (HIG ENT-07) : les
+                    // commandes du module, lues à l'ouverture ; hors d'un
+                    // module qui en a un, rien.
+                    popover::Request::ModuleMenu(module) => {
+                        let entries = plugins::bar::menus::module_entries(self, &module);
+                        if entries.is_empty() {
+                            return Task::none();
+                        }
+                        Task::done(Msg::PopoverReady(
+                            request,
+                            bar_id,
+                            key,
+                            popover::Kind::Menu {
+                                entries,
+                                source: popover::MenuSource::Module,
+                            },
+                        ))
+                    }
+                    // Menu « Aide » (HIG MENU-05) : contenu fixe ; « Documentation »
+                    // ne s'active que si le paquet a installé le guide.
+                    popover::Request::Help => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Menu {
+                            entries: plugins::bar::menus::help_entries(),
+                            source: popover::MenuSource::Shell,
+                        },
+                    )),
                     popover::Request::Brightness => Task::done(Msg::PopoverReady(
                         request,
                         bar_id,
@@ -4824,6 +5504,24 @@ impl App {
                         bar_id,
                         key,
                         popover::Kind::Calendar,
+                    )),
+                    // Vue étendue de la bulle de la pilule Island (HIG
+                    // SYS-13) : la notification cliquée, rien à lire.
+                    popover::Request::Activity { id } => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Activity(id),
+                    )),
+                    // Choix de la fin du Silence (HIG PAT-04) : la carte de menu.
+                    popover::Request::Silence => Task::done(Msg::PopoverReady(
+                        request,
+                        bar_id,
+                        key,
+                        popover::Kind::Menu {
+                            entries: toasts::silence_menu(),
+                            source: popover::MenuSource::Silence,
+                        },
                     )),
                     popover::Request::LuaMenu { widget, func } => {
                         let lua = self.lua.clone();
@@ -4975,7 +5673,17 @@ impl App {
                 Task::batch([resize, self.refresh_popover_anchor()])
             }
             Msg::BarReveal(id, hover) => self.bar_hover(id, hover),
-            Msg::BarRevealApply(id, generation, show) => self.bar_reveal_apply(id, generation, show),
+            Msg::BarRevealApply(id, generation, show) => {
+                let reveal = self.bar_reveal_apply(id, generation, show);
+                // Barre masquée hors survol à laquelle le raccourci a donné le
+                // clavier (HIG ENT-02) : parue, son premier module est choisi.
+                if show && self.bar_keyboard == Some(id) {
+                    // Au tour suivant : la barre est dessinée quand le focus se pose.
+                    return Task::batch([reveal, Task::done(Msg::BarFocusFirst(id))]);
+                }
+                reveal
+            }
+            Msg::BarFocusFirst(id) => self.bar_focus_first(id),
             Msg::BarIslandInput(id, bounds) => self.bar_input(id, Some(bounds)),
             Msg::ControlToggle(id) => {
                 if self.control_actions.get(&id).is_some_and(Option::is_none) {
@@ -4994,6 +5702,7 @@ impl App {
                 };
                 let (lua, func, generation) = (self.lua.clone(), *func, self.widget_generation);
                 self.control_actions.insert(id.clone(), None);
+                self.control_since.insert(id.clone(), Instant::now());
                 Task::perform(async move { lua.call(func, None).await }, move |r| {
                     Msg::ControlToggled(generation, id.clone(), r)
                 })
@@ -5002,6 +5711,9 @@ impl App {
                 if generation != self.widget_generation {
                     return Task::none();
                 }
+                // La pulsation s'arrête à la réponse (HIG SYS-07) ; une
+                // nouvelle configuration a déjà tout vidé.
+                self.control_since.remove(&id);
                 match result {
                     Ok(()) => {
                         self.control_actions.remove(&id);
@@ -5145,6 +5857,7 @@ impl App {
                 }
                 if self.toasts.win == Some(id) {
                     self.toasts.win = None;
+                    self.toasts.keyboard = false;
                     return Task::none();
                 }
                 if self.problem.as_ref().is_some_and(|p| p.win == id) {
@@ -5169,6 +5882,10 @@ impl App {
                 }
                 if self.switcher.as_ref().is_some_and(|s| s.win == id) {
                     self.switcher = None;
+                    return Task::none();
+                }
+                if self.force_quit.as_ref().is_some_and(|f| f.win == id) {
+                    self.force_quit = None;
                     return Task::none();
                 }
                 if self
@@ -5212,6 +5929,11 @@ impl App {
                 }
                 self.launcher_surfaces.remove(&id);
                 self.bar_surfaces.remove(&id);
+                self.bar_over_fullscreen.remove(&id);
+                // Barre disparue : elle ne tient plus le clavier.
+                if self.bar_keyboard == Some(id) {
+                    self.bar_keyboard = None;
+                }
                 self.convex_frames.remove(&id);
                 self.surfaces.remove(&id);
                 self.raised.remove(&id);
@@ -5253,12 +5975,33 @@ impl App {
             Msg::Released if self.wdrag.is_some() => {
                 let moved = self.wdrag.take().is_some_and(|d| d.moved);
                 if moved {
-                    self.panel_update(PanelMsg::Commit)
+                    // Le glisser d'un widget a servi : plus d'astuce (HIG DAT-07).
+                    if let Some(p) = self.panel.as_mut() {
+                        p.widgets.tip = None;
+                    }
+                    let used = self.tip_used("reglages-glisser-widget");
+                    Task::batch([used, self.panel_update(PanelMsg::Commit)])
                 } else {
                     Task::none()
                 }
             }
-            Msg::KeyboardLeft(id) => self.launcher_keyboard_left(id),
+            Msg::KeyboardLeft(id) => {
+                // Le volet des Réglages ne tient plus le clavier : une fenêtre
+                // l'a repris ; son raccourci le lui rendra (HIG ENT-02).
+                if let Some(p) = self.panel.as_mut().filter(|p| p.surface == id) {
+                    p.keyboard = false;
+                }
+                // La barre qui tient le clavier l'a laissé à autre chose que
+                // son menu (une fenêtre, un clic) : elle le rend.
+                let menu_of_bar = self
+                    .popover
+                    .as_ref()
+                    .is_some_and(|p| p.bar == id && !p.closing());
+                if self.bar_keyboard == Some(id) && !menu_of_bar {
+                    return self.bar_release(id);
+                }
+                self.launcher_keyboard_left(id)
+            }
             Msg::Released if self.bar_drag.is_some() => self.update_inner(Msg::BarDragEnd),
             Msg::Released => match self.drag.take() {
                 Some(d) if d.active => {
@@ -5287,8 +6030,34 @@ impl App {
                 }
             },
             Msg::Key(id, key) => {
-                // Menu ouvert : flèches, Entrée et Échap sont à lui (MLG-306).
-                if let Some(t) = self.icon_menu_key(&key) {
+                // Boîte « Forcer à quitter » (HIG ENT-10) : sa surface tient le
+                // clavier seule, ses touches lui reviennent d'abord — flèches haut
+                // et bas changent de ligne, Entrée arme puis tue, Échap recule.
+                if self.force_quit.as_ref().is_some_and(|f| f.win == id) {
+                    use keyboard::key::Named;
+                    return match key {
+                        keyboard::Key::Named(Named::Escape) => {
+                            self.force_quit_update(force_quit::FqMsg::Cancel)
+                        }
+                        keyboard::Key::Named(Named::Enter) => {
+                            self.force_quit_update(force_quit::FqMsg::Force)
+                        }
+                        keyboard::Key::Named(Named::ArrowDown) => {
+                            self.force_quit_update(force_quit::FqMsg::Move(true))
+                        }
+                        keyboard::Key::Named(Named::ArrowUp) => {
+                            self.force_quit_update(force_quit::FqMsg::Move(false))
+                        }
+                        _ => Task::none(),
+                    };
+                }
+                // Menu ouvert : flèches, Tab, Entrée et Échap sont à lui (MLG-306).
+                if let Some(t) = self.icon_menu_key(&key, self.mods.shift()) {
+                    return t;
+                }
+                // Menu de la barre : flèches, Tab, Entrée et Espace le
+                // parcourent (HIG ACC-01) ; Échap garde son chemin.
+                if let Some(t) = self.popover_menu_key(id, &key, self.mods.shift()) {
                     return t;
                 }
                 if self.bar_drag.is_some()
@@ -5334,9 +6103,10 @@ impl App {
                     return self.mfa_update(mymfa::MMsg::Tab);
                 }
                 // Écran « Espaces de travail » : Échap referme (ou annule le
-                // renommage), Entrée ouvre l'espace choisi, les flèches choisissent.
+                // renommage), Entrée ouvre l'espace choisi, les flèches et Tab
+                // choisissent.
                 if self.overview.is_some() {
-                    return self.overview_key(&key);
+                    return self.overview_key(&key, self.mods.shift());
                 }
                 // Sélecteur de fenêtres : Échap annule, Entrée valide, flèches et Tab.
                 if self.switcher.is_some() {
@@ -5373,6 +6143,16 @@ impl App {
                         _ => Task::none(),
                     };
                 }
+                // La pile des bulles tient le clavier (HIG ENT-01) : elle
+                // garde ses touches.
+                if self.toasts.keyboard && self.toasts.win == Some(id) {
+                    return self.toasts_key(&key);
+                }
+                // La barre tient le clavier (raccourci `keys.focus_bar`, HIG
+                // ENT-02) : elle garde ses touches.
+                if self.bar_keyboard == Some(id) {
+                    return self.bar_key(id, &key);
+                }
                 // Le dock tient le clavier : il garde ses touches.
                 if self.launcher_surfaces.contains_key(&id)
                     || (self.bar_surfaces.contains_key(&id)
@@ -5381,12 +6161,22 @@ impl App {
                     return self.launcher_key(id, &key);
                 }
                 if key == keyboard::Key::Named(keyboard::key::Named::Escape) {
+                    // Alerte d'un problème : au-dessus de tout, Échap la ferme
+                    // comme son bouton (HIG PRES-01).
+                    if self.problem.is_some() {
+                        return self.problem_update(problem::PrMsg::Close);
+                    }
                     if self.icon_menu.is_some() {
                         return self.close_icon_menu();
                     }
                     if self.popover.is_some() {
                         self.menu_request += 1;
                         return self.close_popover();
+                    }
+                    // La valeur d'un curseur se saisit (HIG SEL-08) : Échap
+                    // referme son champ avant le tiroir.
+                    if self.panel.as_ref().is_some_and(|p| p.slider.is_some()) {
+                        return self.panel_update(PanelMsg::SliderClose);
                     }
                     if self.panel.is_some() {
                         return self.close_panel();
@@ -5403,13 +6193,42 @@ impl App {
                     .as_ref()
                     .is_some_and(|p| p.win == id && p.dashboard.is_some())
                 {
-                    return popover::continuity::handle_key(&key, self.mods.shift());
+                    return popover::continuity::handle_key(
+                        &key,
+                        self.mods.shift(),
+                        self.mods.control(),
+                    );
+                }
+                // Carte Notifications et vue étendue d'une activité : Tab et
+                // Maj + Tab parcourent leurs commandes sans en sortir (HIG
+                // ENT-01).
+                if key == keyboard::Key::Named(keyboard::key::Named::Tab)
+                    && self.popover.as_ref().is_some_and(|p| {
+                        p.win == id
+                            && matches!(
+                                p.kind,
+                                popover::Kind::Notifications | popover::Kind::Activity(_)
+                            )
+                    })
+                {
+                    return focus::step(
+                        iced::advanced::widget::Id::new(toasts::POPOVER_SCOPE),
+                        self.mods.shift(),
+                    );
                 }
                 // Le panneau a ses propres champs de saisie : pas de navigation
                 // dessous ; Tab et Maj + Tab passent d'un champ à l'autre.
                 if self.panel.is_some() || self.chat_shown() {
                     if key == keyboard::Key::Named(keyboard::key::Named::Tab) {
-                        return if self.mods.shift() {
+                        // Le tiroir : Tab ne sort pas du volet et atteint ses
+                        // commandes enveloppées (HIG ENT-01) ; la conversation
+                        // seule garde le parcours de ses champs.
+                        let in_chat = self.chat.as_ref().is_some_and(|c| c.surface == Some(id));
+                        return if self.panel.is_some() && !in_chat && self.mods.control() {
+                            self.panel_focus_jump(self.mods.shift())
+                        } else if self.panel.is_some() && !in_chat {
+                            self.panel_focus_step(self.mods.shift())
+                        } else if self.mods.shift() {
                             iced::widget::operation::focus_previous()
                         } else {
                             iced::widget::operation::focus_next()
@@ -5436,6 +6255,7 @@ impl App {
                 });
                 Task::none()
             }
+            Msg::WidgetOpen(id) => self.widget_open(&id),
             Msg::WidgetPress(win, wid) => {
                 let Some(from) = self
                     .cfg
@@ -5451,6 +6271,7 @@ impl App {
                     p.select_widget(&wid);
                     // Son éditeur est dans l'onglet « Sur ce bureau ».
                     self.subtabs.insert(plugins::widgets::INFO.id, "bureau");
+                    self.panel_tab = plugins::widgets::INFO.id;
                 }
                 self.wdrag = Some(WidgetDrag {
                     win,
@@ -5522,6 +6343,7 @@ impl App {
                 Task::none()
             }
             Msg::Noop => Task::none(),
+            Msg::A11yAction(key) => self.a11y_action(&key),
             // Messages layer-shell : traités par iced_layershell.
             _ => Task::none(),
         }
@@ -5536,6 +6358,11 @@ impl App {
             Subscription::run(mymfa::stream).map(|e| Msg::Mymfa(mymfa::MMsg::Event(e))),
             // Démon de notifications (bulles) ; inactif si un autre tient le nom.
             Subscription::run(toasts::stream).map(|e| Msg::Toasts(toasts::TMsg::Event(e))),
+            // Pont d'accessibilité (AT-SPI) : servi seulement si un lecteur
+            // d'écran le demande (HIG ACC-01).
+            Subscription::run(crate::a11y::daemon::stream).map(|()| Msg::Noop),
+            // `DoAction` du pont : le clic du nœud désigné.
+            Subscription::run(crate::a11y::requests).map(Msg::A11yAction),
             Subscription::run(control::signal_stream).map(Msg::Control),
             Subscription::run(hypr::stream).map(Msg::Hypr),
             Subscription::run_with(self.config_path.clone(), |path: &PathBuf| {
@@ -5614,6 +6441,14 @@ impl App {
             subs.push(
                 iced::time::every(Duration::from_millis(500))
                     .map(|_| Msg::Toasts(toasts::TMsg::Tick)),
+            );
+        }
+        // Fin programmée du Silence (HIG PAT-04) : un message à l'échéance,
+        // et rien d'autre tant qu'elle n'est pas atteinte.
+        if let Some(until) = self.toasts.dnd.then_some(self.toasts.dnd_until).flatten() {
+            subs.push(
+                Subscription::run_with(until, |until: &i64| toasts::silence_ends(*until))
+                    .map(Msg::Toasts),
             );
         }
         if self.osd.is_some() {
@@ -5750,8 +6585,8 @@ impl App {
         // Glisser-déposer de fichiers : toujours écouté ; pendant un survol, la
         // position du pointeur est suivie pour savoir où déposer.
         subs.push(iced::event::listen_with(|e, _, id| match e {
-            Event::Window(iced::window::Event::FileHovered(_)) => {
-                Some(Msg::Drop(id, DropEvent::Hover))
+            Event::Window(iced::window::Event::FileHovered(p)) => {
+                Some(Msg::Drop(id, DropEvent::Hover(p)))
             }
             Event::Window(iced::window::Event::FilesHoveredLeft) => {
                 Some(Msg::Drop(id, DropEvent::Left))
@@ -5789,7 +6624,10 @@ impl App {
                 .into();
         }
         if self.bar_surfaces.contains_key(&id) {
-            return self.view_bar(id);
+            // Aux opérations, la barre se nomme : le focus y est borné (HIG ENT-02).
+            return container(self.view_bar(id))
+                .id(plugins::bar::keyboard::scope(id))
+                .into();
         }
         if self.panorama_owns(id) {
             return self.view_panorama(id);
@@ -5814,13 +6652,15 @@ impl App {
                 return Space::new().into();
             };
             // Dock masqué hors survol (MLG-279) : une fine bande au bord.
-            if self.dock_autohide() && !self.bar_revealed(id) {
-                return iced::widget::mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
-                    .on_enter(Msg::BarReveal(id, true))
-                    .into();
+            if self.dock_hides(id) && !self.bar_revealed(id) {
+                return iced::widget::mouse_area(
+                    Space::new().width(Length::Fill).height(Length::Fill),
+                )
+                .on_enter(Msg::BarReveal(id, true))
+                .into();
             }
             let dock = self.view_launcher(m, self.fade_value());
-            if self.dock_autohide() {
+            if self.dock_hides(id) {
                 return iced::widget::mouse_area(dock)
                     .on_enter(Msg::BarReveal(id, true))
                     .on_exit(Msg::BarReveal(id, false))
@@ -5860,6 +6700,9 @@ impl App {
         }
         if self.switcher.as_ref().is_some_and(|s| s.win == id) {
             return self.view_switcher();
+        }
+        if self.force_quit.as_ref().is_some_and(|f| f.win == id) {
+            return self.view_force_quit();
         }
         if self.overview.as_ref().is_some_and(|o| o.win == id) {
             return kinetic::probe(self.view_overview(), id);
@@ -5934,8 +6777,11 @@ impl App {
                     ));
                 }
             }
-            // Le lanceur a sa propre surface, au-dessus des fenêtres.
-            let shift = if self.cfg.general.transition == Transition::Slide {
+            // Le lanceur a sa propre surface, au-dessus des fenêtres. En
+            // mouvement réduit, la remontée devient un simple fondu (HIG FON-07).
+            let shift = if self.cfg.general.transition == Transition::Slide
+                && !crate::ui::tokens::motion().reduced
+            {
                 (1.0 - t) * SLIDE_PX
             } else {
                 0.0
@@ -6077,29 +6923,48 @@ impl App {
             alpha,
         ) {
             Some(e) => e,
-            None => {
-                let c = color(th.accent, alpha);
-                container(
-                    text(
-                        def.label
-                            .clone()
-                            .unwrap_or_default()
-                            .chars()
-                            .next()
-                            .unwrap_or('?')
-                            .to_string(),
+            None => icons::fallback_icon(
+                def.label.as_deref().unwrap_or_default(),
+                size,
+                color(th.accent, alpha),
+                Color {
+                    a: alpha,
+                    ..design::on_accent(color(th.accent, 1.0), color(th.fg, 1.0), color(th.bg, 1.0))
+                },
+                self.title_font(),
+            ),
+        };
+        // Fichier dont le thème n'a pas l'icône du type : l'icône de
+        // l'application qui l'ouvre, son extension en capsule sur le bas
+        // (HIG ICO-11). La capsule grossit et s'estompe avec l'image.
+        let img = match self.icons.get(idx).and_then(|r| r.badge.clone()) {
+            Some(badge) => {
+                let (bg, ink) = (color(th.bg, 0.85 * alpha), color(th.fg, alpha));
+                iced::widget::stack![
+                    img,
+                    container(
+                        container(
+                            text(badge)
+                                .font(self.ui_font(iced::font::Weight::Semibold))
+                                .size(crate::ui::tokens::ts(10.0))
+                                .color(ink)
+                                .wrapping(iced::widget::text::Wrapping::None),
+                        )
+                        .padding([1, 6])
+                        .style(move |_| container::Style {
+                            background: Some(bg.into()),
+                            border: Border::default().rounded(10),
+                            ..Default::default()
+                        }),
                     )
-                    .font(self.font)
-                    .size(size * 0.5),
-                )
-                .center(size)
-                .style(move |_| container::Style {
-                    background: Some(c.into()),
-                    border: Border::default().rounded(size / 4.0),
-                    ..Default::default()
-                })
+                    .width(size)
+                    .height(size)
+                    .align_x(Alignment::Center)
+                    .align_y(Alignment::End)
+                ]
                 .into()
             }
+            None => img,
         };
         let label = self
             .icons
@@ -6267,6 +7132,8 @@ fn msg_name(m: &Msg) -> &'static str {
         Msg::DockMenu(..) => "DockMenu",
         Msg::GridMenu(..) => "GridMenu",
         Msg::Switcher(..) => "Switcher",
+        Msg::ForceQuit(..) => "ForceQuit",
+        Msg::EnterRepeat(..) => "EnterRepeat",
         Msg::CalendarMonth(..) => "CalendarMonth",
         Msg::MenuRefreshed(..) => "MenuRefreshed",
         Msg::Modifiers(..) => "Modifiers",
@@ -6347,9 +7214,180 @@ pub fn check(path: &std::path::Path) -> Result<Config, String> {
 mod regression_tests {
     use super::*;
 
+    /// En mouvement réduit, les fondus de survol et de fermeture restent courts
+    /// (HIG FON-07).
+    #[test]
+    fn fondu_court_en_mouvement_reduit() {
+        assert_eq!(App::motion_millis(150, false), 150);
+        assert_eq!(App::motion_millis(150, true), 90);
+        assert_eq!(App::motion_millis(400, false), 220);
+        assert_eq!(App::motion_millis(50, true), 50, "déjà court : inchangé");
+    }
+
     fn app() -> App {
         App::boot_with(PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"), true).0
     }
+
+    /// Apparence des icônes : `auto` suit la variante du thème, les autres
+    /// valeurs s'imposent, la teinte prend l'accent (HIG ICO-10).
+    #[test]
+    fn apparence_des_icones() {
+        use icons::Appearance;
+        let accent = crate::config::Rgba(10, 132, 255, 255);
+        assert_eq!(Appearance::resolve("auto", true, accent), Appearance::Dark);
+        assert_eq!(
+            Appearance::resolve("auto", false, accent),
+            Appearance::Default
+        );
+        assert_eq!(
+            Appearance::resolve("default", true, accent),
+            Appearance::Default
+        );
+        assert_eq!(Appearance::resolve("dark", false, accent), Appearance::Dark);
+        assert_eq!(
+            Appearance::resolve("tinted", true, accent),
+            Appearance::Tinted(accent)
+        );
+        assert_eq!(Appearance::resolve("?", false, accent), Appearance::Default);
+        let mut a = app();
+        a.theme_variant = Some("dark".into());
+        assert_eq!(a.icon_appearance(), Appearance::Dark);
+        a.theme_variant = Some("light".into());
+        assert_eq!(a.icon_appearance(), Appearance::Default);
+    }
+
+    /// Une icône d'application matricielle prend l'apparence : ses pixels,
+    /// passés à la matrice, remplacent le chemin ; à l'apparence par défaut,
+    /// elle se charge telle quelle (HIG ICO-10).
+    #[test]
+    fn icones_matricielles_a_l_apparence() {
+        let mut a = app();
+        let dir = std::env::temp_dir().join(format!("hyprdesk-apparence-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("b.png");
+        ::image::RgbaImage::from_pixel(2, 2, ::image::Rgba([255, 255, 255, 255]))
+            .save(&png)
+            .unwrap();
+        a.theme_variant = Some("dark".into());
+        let IconImg::Raster(i) = a.app_handle_for(Some(&png)) else {
+            panic!("matricielle")
+        };
+        match &a.rasters[i] {
+            image::Handle::Rgba { pixels, .. } => assert_eq!(pixels[..4], [204, 204, 204, 255]),
+            h => panic!("pixels attendus : {h:?}"),
+        }
+        assert!(a.app_rasters.contains(&i), "masque unique");
+        a.theme_variant = Some("light".into());
+        let IconImg::Raster(j) = a.app_handle_for(Some(&png)) else {
+            panic!("matricielle")
+        };
+        assert!(
+            matches!(a.rasters[j], image::Handle::Path(..)),
+            "telle quelle"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Une variante changée relit les icônes d'application déjà chargées,
+    /// une variante identique non (HIG ICO-10).
+    #[test]
+    fn variante_changee_relit_les_icones() {
+        let mut a = app();
+        a.theme_variant = Some("light".into());
+        let _ = a.reload_icons();
+        let before = a.icons_gen;
+        let _ = a.refresh_icon_appearance();
+        assert_eq!(a.icons_gen, before, "rien n'a changé");
+        a.theme_variant = Some("dark".into());
+        let _ = a.refresh_icon_appearance();
+        assert_eq!(a.icons_gen, before + 1, "relues à la nouvelle variante");
+        assert_eq!(a.icon_appearance_seen, icons::Appearance::Dark);
+    }
+
+    /// Icônes cherchées à la taille affichée et à l'échelle entière de
+    /// l'écran (HIG ICO-01).
+    #[test]
+    fn taille_des_icones_a_l_echelle() {
+        let mut a = app();
+        Arc::make_mut(&mut a.cfg).general.launcher.size = 96;
+        let magnify = crate::design_options::num(&a.cfg.general, "dock.magnify").max(1.0);
+        assert_eq!(
+            a.class_icon_px(),
+            (96.0 * magnify as f32).ceil() as u16,
+            "dock grossi"
+        );
+        Arc::make_mut(&mut a.cfg).general.launcher.size = 24;
+        assert!(a.class_icon_px() >= 48, "48 au moins");
+        assert_eq!(icon_scale_of([1.0, 1.6].into_iter()), 2);
+        assert_eq!(icon_scale_of([1.0].into_iter()), 1);
+        assert_eq!(icon_scale_of(std::iter::empty()), 1);
+        assert_eq!(icon_scale_of([3.5, f64::NAN].into_iter()), 3);
+        assert_eq!(icon_px(60.0, 2), 120);
+        assert_eq!(icon_px(LAUNCHER_ICON_MAX, 1), 64);
+        assert_eq!(icon_px(0.0, 0), 1);
+    }
+
+    /// Icônes d'application au masque unique (HIG ICO-04) : un SVG est
+    /// découpé, une matricielle marquée ; la même image chargée hors
+    /// application ne l'est pas ; une icône symbolique demandée comme icône
+    /// d'application garde le glyphe de hyprdesk.
+    #[test]
+    fn icones_d_application_au_masque_unique() {
+        let mut app = app();
+        let dir = std::env::temp_dir().join(format!("hyprdesk-masque-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (svg_path, png) = (dir.join("a.svg"), dir.join("a.png"));
+        std::fs::write(
+            &svg_path,
+            r#"<svg viewBox="0 0 16 16"><rect width="16" height="16"/></svg>"#,
+        )
+        .unwrap();
+        std::fs::write(&png, b"").unwrap();
+        let before = app.vectors.len();
+        assert!(matches!(
+            app.app_handle_for(Some(&svg_path)),
+            IconImg::Vector(_)
+        ));
+        assert_eq!(app.vectors.len(), before + 1);
+        let IconImg::Raster(i) = app.app_handle_for(Some(&png)) else {
+            panic!("matricielle")
+        };
+        assert!((app.raster_radius(i, 48.0) - 48.0 * icons::APP_ICON_MASK).abs() < 0.01);
+        let IconImg::Raster(j) = app.handle_for(Some(&png)) else {
+            panic!("matricielle")
+        };
+        assert_eq!(app.raster_radius(j, 48.0), 0.0, "hors application");
+        let key = App::app_icon_key("system-file-manager-symbolic");
+        let _ = app.want_icon(&key);
+        assert!(app.named_icons.contains_key(&key), "glyphe aussitôt");
+        assert!(app.icon_named(&key, 16.0, Color::WHITE).is_some());
+        // HIG ICO-12 : la variante graissée d'un glyphe résolu ne crée aucune
+        // entrée ; un nom non résolu reste absent, quelle que soit la graisse.
+        let (n, v) = (app.named_icons.len(), app.vectors.len());
+        let semibold = iced::font::Weight::Semibold;
+        assert!(
+            app.icon_named_weighted(&key, 16.0, Color::WHITE, semibold)
+                .is_some()
+        );
+        assert_eq!((app.named_icons.len(), app.vectors.len()), (n, v));
+        assert!(
+            app.icon_named_weighted("go-up-symbolic", 16.0, Color::WHITE, semibold)
+                .is_none()
+        );
+        assert_eq!(builtin_glyph(&key), Some("system-file-manager-symbolic"));
+        assert_eq!(builtin_glyph("window-close"), None, "nom de thème");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Les commandes d'interface ont toutes leur glyphe au jeu de hyprdesk :
+    /// aucune ne vient du thème d'icônes, en couleur.
+    #[test]
+    fn icones_interface_du_jeu() {
+        for n in UI_ICONS {
+            assert!(icons::get(n).is_some(), "{n}");
+        }
+    }
+
     fn monitor(name: &str, focused: bool) -> Monitor {
         Monitor {
             dpms_off: false,
@@ -6751,6 +7789,147 @@ mod regression_tests {
         );
     }
 
+    /// Une bascule passe d'un état à l'autre en fondu, et pulse tant que son
+    /// action est en cours ; rien de tout cela sans transition (HIG SYS-06,
+    /// SYS-07).
+    #[test]
+    fn bascule_en_fondu_et_pulsation_pendant_l_action() {
+        assert!((pulse(0.0) - 1.0).abs() < 1e-6, "part de l'état plein");
+        assert!((pulse(0.6) - 0.35).abs() < 1e-4, "creux à mi-période");
+        let mut app = app();
+        Arc::make_mut(&mut app.cfg).general.transition = Transition::Fade;
+        Arc::make_mut(&mut app.cfg).widgets.push(config::WidgetDef {
+            family: Default::default(),
+            origin: config::Origin::User,
+            sel: config::Selector::default(),
+            id: "wifi".into(),
+            type_id: "network".into(),
+            kind: config::WidgetKind::Calendar,
+            anchor: config::Anchor::Right,
+            x: 0.0,
+            y: 0.0,
+            size: 0.0,
+            interval: Duration::from_secs(60),
+            card: false,
+            in_bar: true,
+            screen: Default::default(),
+            if_missing: Default::default(),
+        });
+        let toggled = |on| {
+            widgets::Value::Rich(config::Rendered {
+                toggled: Some(on),
+                ..Default::default()
+            })
+        };
+        let generation = app.widget_generation;
+        let _ = app.update_inner(Msg::WidgetValue(generation, "wifi".into(), toggled(false)));
+        assert_eq!(
+            app.toggle_progress("wifi", false),
+            0.0,
+            "premier état : pas de fondu"
+        );
+        let _ = app.update_inner(Msg::WidgetValue(generation, "wifi".into(), toggled(true)));
+        let fade = app.hover_fades["toggle:wifi"];
+        assert_eq!((fade.from, fade.to), (0.0, 1.0), "allumé en fondu");
+        assert!(!fade.dur.is_zero());
+        // Action en cours : pulsation, arrêtée par la réponse.
+        app.control_since.insert("wifi".into(), Instant::now());
+        assert!(app.pending_pulse("wifi").is_some());
+        assert!(app.animating(), "la pulsation demande des images");
+        Arc::make_mut(&mut app.cfg).general.transition = Transition::None;
+        assert_eq!(
+            app.pending_pulse("wifi"),
+            None,
+            "sans transition : le libellé reste"
+        );
+        let _ = app.update_inner(Msg::ControlToggled(
+            generation.wrapping_add(1),
+            "wifi".into(),
+            Ok(()),
+        ));
+        assert!(
+            !app.control_since.is_empty(),
+            "réponse d'une ancienne configuration : ignorée"
+        );
+        let _ = app.update_inner(Msg::ControlToggled(generation, "wifi".into(), Ok(())));
+        assert!(
+            app.control_since.is_empty(),
+            "la réponse arrête la pulsation"
+        );
+        // Valeur qui n'est plus une bascule : le fondu s'efface.
+        let _ = app.update_inner(Msg::WidgetValue(
+            generation,
+            "wifi".into(),
+            widgets::Value::Error("x".into()),
+        ));
+        assert!(!app.hover_fades.contains_key("toggle:wifi"));
+        assert_eq!(app.toggle_progress("wifi", false), 0.0);
+    }
+
+    /// Réglages fermés, le fond d'un widget qui a un contenu lié s'ouvre
+    /// d'un clic ; les autres restent inertes (HIG SYS-10).
+    #[test]
+    fn le_fond_d_un_widget_ouvre_son_contenu() {
+        let mut app = app();
+        let widget = |id: &str, kind| config::WidgetDef {
+            family: Default::default(),
+            origin: config::Origin::User,
+            sel: config::Selector::default(),
+            id: id.into(),
+            type_id: id.into(),
+            kind,
+            anchor: config::Anchor::Right,
+            x: 0.0,
+            y: 0.0,
+            size: 0.0,
+            interval: Duration::from_secs(60),
+            card: true,
+            in_bar: false,
+            screen: Default::default(),
+            if_missing: Default::default(),
+        };
+        let calendar = widget("calendar", config::WidgetKind::Calendar);
+        let controls = widget("controls", config::WidgetKind::Controls);
+        assert!(app.widget_link(&calendar));
+        assert!(!app.widget_link(&controls), "fait de commandes");
+        let media = widget(
+            "media",
+            config::WidgetKind::Media {
+                player: String::new(),
+            },
+        );
+        app.values
+            .insert("media".into(), widgets::Value::Media(None));
+        assert!(!app.widget_link(&media), "aucun lecteur : rien à ouvrir");
+        Arc::make_mut(&mut app.cfg).widgets.push(calendar);
+        // La carte Calendrier s'ancre à l'horloge de la barre, s'il y en a une.
+        {
+            let cfg = Arc::make_mut(&mut app.cfg);
+            cfg.widgets.retain(|w| w.type_id != "clock");
+            if let Some(bar) = cfg.bar.as_mut() {
+                for zone in bar.zones.iter_mut() {
+                    zone.retain(|it| !matches!(it, config::BarItem::Widget(_)));
+                }
+            }
+        }
+        assert_eq!(
+            app.bar_clock_key(),
+            None,
+            "pas d'horloge : centre de la barre"
+        );
+        if app.cfg.bar.is_some() {
+            let cfg = Arc::make_mut(&mut app.cfg);
+            let mut clock = widget("horloge", config::WidgetKind::Calendar);
+            clock.type_id = "clock".into();
+            cfg.widgets.push(clock);
+            cfg.bar.as_mut().unwrap().zones[0].push(config::BarItem::Widget("horloge".into()));
+            assert_eq!(app.bar_clock_key().as_deref(), Some("horloge"));
+        }
+        // Sans barre, le calendrier n'a nulle part où s'ouvrir.
+        let _ = app.update_inner(Msg::WidgetOpen("calendar".into()));
+        let _ = app.update_inner(Msg::WidgetOpen("inconnu".into()));
+    }
+
     #[test]
     fn an_old_result_cannot_repopulate_the_new_configuration() {
         let mut app = app();
@@ -6945,6 +8124,36 @@ mod regression_tests {
         assert!(app.panel_open(), "troisième appui : rouvert");
     }
 
+    /// HIG ENT-02 : le raccourci du volet ouvre les Réglages ou, déjà ouverts,
+    /// les laisse ouverts et leur rend le clavier ; le mode ne change pas.
+    #[test]
+    fn the_settings_shortcut_opens_the_drawer_and_never_closes_it() {
+        let mut app = app();
+        let a = Id::unique();
+        app.monitors = vec![monitor("A", true)];
+        app.surfaces.insert(a, "A".into());
+        app.sizes.insert(a, Size::new(1440.0, 900.0));
+        let mode = app.mode();
+        let focus = || Msg::Control(control::Command::Focus("settings".into()));
+        let _ = app.update_inner(focus());
+        assert!(app.panel_open(), "fermé : il s'ouvre");
+        let surface = app.panel.as_ref().unwrap().surface;
+        // Pressé deux fois : il tient le clavier, rien à refaire, il ne se referme pas.
+        let _ = app.update_inner(focus());
+        let p = app.panel.as_ref().unwrap();
+        assert!(app.panel_open() && p.keyboard);
+        assert_eq!(p.surface, surface);
+        // Une fenêtre a repris le clavier : le raccourci le rend au volet,
+        // qui renaît (une couche « à la demande » ne le prend qu'à son apparition).
+        let _ = app.update_inner(Msg::KeyboardLeft(surface));
+        assert!(!app.panel.as_ref().unwrap().keyboard);
+        let _ = app.update_inner(focus());
+        let p = app.panel.as_ref().unwrap();
+        assert!(app.panel_open() && p.keyboard);
+        assert_ne!(p.surface, surface);
+        assert_eq!(app.mode(), mode);
+    }
+
     #[test]
     fn windows_keep_clear_of_the_controls() {
         let mut app = app();
@@ -6955,6 +8164,7 @@ mod regression_tests {
         {
             let cfg = Arc::make_mut(&mut app.cfg);
             cfg.widgets.push(config::WidgetDef {
+                family: Default::default(),
                 origin: config::Origin::User,
                 sel: config::Selector::default(),
                 id: "calendar".into(),
@@ -7131,5 +8341,143 @@ mod regression_tests {
         let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(Vec::new(), Vec::new())));
         assert!(app.session_windows.is_empty());
         assert!(app.in_submap);
+    }
+
+    /// HIG ENT-01 : `hyprdesk keyboard-access` bascule l'accès clavier
+    /// complet, l'enregistre dans les réglages et l'annonce à l'écran, sans
+    /// jauge ; une seconde fois, il revient.
+    #[test]
+    fn bascule_de_l_acces_clavier() {
+        let mut app = app();
+        assert!(app.cfg.general.keyboard_access);
+        let _ = app.update_inner(Msg::Control(control::Command::KeyboardAccess));
+        assert!(!app.cfg.general.keyboard_access);
+        assert_eq!(app.settings.keyboard_access, Some(false));
+        let note = app.osd.as_ref().and_then(|o| o.note.clone());
+        assert_eq!(
+            note.map(|n| n.1),
+            Some(crate::i18n::tr("Accès clavier complet : désactivé").to_string())
+        );
+        let _ = app.update_inner(Msg::Control(control::Command::KeyboardAccess));
+        assert!(app.cfg.general.keyboard_access);
+        assert_eq!(app.settings.keyboard_access, Some(true));
+        assert!(app.osd.as_ref().is_some_and(|o| o.note.is_some()));
+    }
+
+    /// HIG ENT-10 : la boîte « Forcer à quitter » choisit l'application active,
+    /// referme le commutateur, se confirme en deux temps (Échap recule d'abord
+    /// sur la confirmation), suit les fenêtres et ne vise que les siennes.
+    #[test]
+    fn forcer_a_quitter() {
+        let client = |class: &str, address: &str| hypr::Client {
+            address: address.into(),
+            class: class.into(),
+            title: String::new(),
+            workspace: "1".into(),
+            monitor: "DP-1".into(),
+        };
+        let open = |app: &mut App| {
+            let _ = app.update_inner(Msg::Control(control::Command::ForceQuit));
+            app.force_quit
+                .as_ref()
+                .map(|f| f.win)
+                .expect("boîte ouverte")
+        };
+        let press = |app: &mut App, win: Id, key: keyboard::key::Named| {
+            let _ = app.update_inner(Msg::Key(win, keyboard::Key::Named(key)));
+        };
+
+        let mut app = app();
+        app.clients = vec![
+            client("foot", "0x1"),
+            client("firefox", "0x2"),
+            client("foot", "0x3"),
+        ];
+        app.active_window = Some(("firefox".into(), "Titre".into()));
+        app.switcher = Some(switcher::Switcher {
+            win: Id::unique(),
+            wins: Vec::new(),
+            selected: 0,
+            loading: false,
+            back: false,
+        });
+        let win = open(&mut app);
+        // Deux cartes à clavier exclusif ne se superposent pas.
+        assert!(app.switcher.is_none());
+        let f = app.force_quit.as_ref().unwrap();
+        assert_eq!((f.apps.len(), f.selected, f.confirm), (2, Some(0), false));
+        assert_eq!(f.apps[0].class, "firefox");
+        assert_eq!(force_quit::targets(&app.clients, "firefox"), vec!["0x2"]);
+
+        // Deux temps : Entrée arme, Échap désarme sans refermer.
+        press(&mut app, win, keyboard::key::Named::Enter);
+        assert!(app.force_quit.as_ref().unwrap().confirm);
+        // Entrée maintenue : sa répétition ne confirme pas.
+        let _ = app.update_inner(Msg::EnterRepeat(win));
+        assert!(app.force_quit.as_ref().is_some_and(|f| f.confirm));
+        press(&mut app, win, keyboard::key::Named::Escape);
+        assert!(!app.force_quit.as_ref().unwrap().confirm);
+        // Armer, puis changer de ligne : la confirmation ne tient plus.
+        press(&mut app, win, keyboard::key::Named::Enter);
+        press(&mut app, win, keyboard::key::Named::ArrowDown);
+        let f = app.force_quit.as_ref().unwrap();
+        assert_eq!(
+            (f.selected, f.confirm, f.apps[1].windows),
+            (Some(1), false, 2)
+        );
+        // Échap referme ; un second appel de la commande aussi.
+        press(&mut app, win, keyboard::key::Named::Escape);
+        assert!(app.force_quit.is_none());
+        open(&mut app);
+        let _ = app.update_inner(Msg::Control(control::Command::ForceQuit));
+        assert!(app.force_quit.is_none());
+
+        // La boîte suit les fenêtres : la ligne choisie reste sur son
+        // application, celle qui n'a plus de fenêtre disparaît.
+        let win = open(&mut app);
+        press(&mut app, win, keyboard::key::Named::ArrowDown);
+        assert_eq!(app.force_quit.as_ref().unwrap().selected, Some(1));
+        let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(
+            vec![client("foot", "0x1")],
+            Vec::new(),
+        )));
+        let f = app.force_quit.as_ref().expect("toujours ouverte");
+        assert_eq!(
+            (f.selected, f.apps.len(), f.apps[0].class.as_str()),
+            (Some(0), 1, "foot")
+        );
+        // Sans fenêtre : la boîte le dit, « Forcer à quitter » est sans effet.
+        let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(Vec::new(), Vec::new())));
+        assert!(app.force_quit.as_ref().unwrap().apps.is_empty());
+        press(&mut app, win, keyboard::key::Named::Enter);
+        assert!(!app.force_quit.as_ref().unwrap().confirm);
+        assert!(app.force_quit.as_ref().unwrap().selected.is_none());
+
+        // Confirmé : la boîte se referme (les fenêtres visées, les siennes
+        // seulement, sont celles de `targets`).
+        app.clients = vec![client("foot", "0x1"), client("firefox", "0x2")];
+        let _ = app.update_inner(Msg::Hypr(hypr::Update::Clients(
+            app.clients.clone(),
+            Vec::new(),
+        )));
+        let f = app.force_quit.as_ref().unwrap();
+        assert_eq!(f.apps.len(), 2);
+        let _ = app.update_inner(Msg::ForceQuit(force_quit::FqMsg::Pick(1)));
+        let _ = app.update_inner(Msg::ForceQuit(force_quit::FqMsg::Force));
+        assert_eq!(
+            app.force_quit.as_ref().map(|f| (f.selected, f.confirm)),
+            Some((Some(1), true))
+        );
+        let _ = app.update_inner(Msg::ForceQuit(force_quit::FqMsg::Force));
+        assert!(app.force_quit.is_none());
+        // Fermée par ailleurs (surface disparue) : plus d'état.
+        let _ = open(&mut app);
+        let w = app.force_quit.as_ref().unwrap().win;
+        let _ = app.update_inner(Msg::Closed(w));
+        assert!(app.force_quit.is_none());
+        // Le commutateur, ouvert ensuite, referme la boîte.
+        let _ = open(&mut app);
+        let _ = app.update_inner(Msg::Control(control::Command::Switch(false)));
+        assert!(app.force_quit.is_none() && app.switcher.is_some());
     }
 }

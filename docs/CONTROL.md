@@ -78,6 +78,10 @@ Les alias donnent la même commande.
 | `settings <paquet>[/<onglet>]` | ouvre les Réglages sur un paquet (`screens`, `fond`, `bureau/raccourcis`…) |
 | `settings ?<mots>` | ouvre les Réglages sur la recherche |
 | `toggle-settings` | ouvre les Réglages, ou les referme s'ils sont ouverts sur cet écran |
+| `focus <surface>` | donne le clavier à une surface du shell : `bar` (barre de l'écran actif), `dock`, `notifications` (centre), `settings` (volet des Réglages, sur son premier champ) ; rien ne se referme, le mode du bureau ne change pas (raccourcis `keys.focus_*`) |
+| `force-quit` | ouvre la boîte « Forcer à quitter » — une ligne par application, à confirmer en deux temps, puis ses fenêtres sont tuées —, ou la referme (raccourci `keys.force_quit`) |
+| `keyboard-access` | bascule l'accès clavier complet — Tab atteint chaque commande des Réglages, ou seulement les champs de saisie — et l'annonce à l'écran (raccourci `keys.keyboard_access`, réglage `keyboard_access`) |
+| `a11y dump` | rend l'arbre d'accessibilité des surfaces (barre, dock, lanceur, commutateur, menus, Réglages et le contenu de leur page, verrouillage), un nœud par ligne — `rôle « nom »` —, tel que le pont AT-SPI le sert à un lecteur d'écran (Orca) ; calculé à la demande, même sans lecteur |
 | `menu <module>` | ouvre le menu d'un module de la barre (`volume`, `clock`, `network`, `tray`, `session`… ; anciens noms admis : `reseau`, `batterie`…) |
 | `search` | lanceur avec recherche (ouvre ou referme) |
 | `files` | recherche de fichiers (`:f`) |
@@ -99,7 +103,7 @@ Les alias donnent la même commande.
 | `panorama <toggle\|show\|hide>` | affiche ou escamote le Panorama des écrans bandeau |
 | `panorama page <n\|id>` | va à une page |
 | `panorama detect` | relit les écrans et refait les propositions |
-| `notifications dnd [on\|off]` | Ne pas déranger |
+| `notifications dnd [on [1h\|soir] \| off]` | Ne pas déranger : jusqu'à désactivation, une heure (`1h`) ou jusqu'à ce soir, 18 h (`soir`, refusé le soir) |
 | `notifications clear` | efface les notifications |
 | `mymfa unlock` | carte de déverrouillage du trousseau myMFA (argument inconnu : même effet) |
 | `mymfa lock` | verrouille le trousseau |

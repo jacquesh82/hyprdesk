@@ -28,6 +28,15 @@ const GAP: f32 = 18.0;
 const MARGIN: f32 = 40.0;
 const TITLE_H: f32 = 72.0;
 const HINTS_H: f32 = 64.0;
+/// Rangée d'astuce au-dessus de l'aide (HIG DAT-07), réservée tant qu'elle est là.
+const TIP_H: f32 = 48.0;
+/// Distance au-delà de laquelle la fenêtre saisie suit le curseur en
+/// pastille (HIG DAT-19) ; le clic reste distingué au seuil commun
+/// (`super::DRAG_THRESHOLD`), au relâchement.
+const DRAG_IMAGE_THRESHOLD: f32 = 3.0;
+/// Opacité propre de la pastille glissée (HIG DAT-16) : translucide, le
+/// contenu dessous reste lisible.
+const DRAG_IMAGE_OPACITY: f32 = 0.72;
 
 /// Champ de saisie du renommage (un seul à la fois).
 const RENAME_ID: &str = "hyprdesk-overview-rename";
@@ -48,6 +57,21 @@ pub struct Overview {
     /// Dernier clic sur un titre (double-clic : renommer).
     last_title: Option<(usize, Instant)>,
     pub visibility: Fade,
+    /// Astuce de cette ouverture (HIG DAT-07).
+    pub tip: Option<&'static crate::tips::Tip>,
+    /// Dernier déplacement déposé, à annuler (HIG DAT-12) : il prend la
+    /// place de l'astuce au-dessus de l'aide.
+    pub undo: Option<MoveUndo>,
+}
+
+/// Fenêtre déposée sur un autre espace : de quoi la ramener.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MoveUndo {
+    pub address: String,
+    /// Nom affiché : titre de la fenêtre, sinon sa classe.
+    pub name: String,
+    pub from: String,
+    pub to: String,
 }
 
 /// Pressé dans une carte : fenêtre saisie (glisser-déposer d'un espace à
@@ -62,11 +86,18 @@ pub struct Press {
     pub title: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Win {
     pub address: String,
     pub class: String,
     pub title: String,
+}
+
+/// Ce que vise un clic droit dans une carte de l'aperçu.
+#[derive(Debug, PartialEq)]
+enum Aim {
+    Window(Win),
+    Space,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +107,12 @@ pub enum OMsg {
     Geos(Vec<crate::hypr::WindowGeo>),
     /// Pressé dans une carte : (carte, sur le titre).
     Grab(usize, bool),
+    /// Clic droit dans une carte : menu de la fenêtre sous le curseur (HIG
+    /// MENU-06), sinon de l'espace (HIG ENT-07).
+    Context(usize),
+    /// Clic droit sur le titre ou la marge d'une carte : menu de l'espace
+    /// (HIG ENT-07) ; une fenêtre sous le curseur rend la main à `Context`.
+    CardContext(usize),
     /// Une carte est cliquée : afficher ce workspace.
     Pick(String),
     /// Titre pressé deux fois : renommer l'espace.
@@ -88,6 +125,12 @@ pub enum OMsg {
     RenameFocus,
     /// Espace après le dernier existant.
     NewWorkspace,
+    /// Astuce refermée.
+    TipClose,
+    /// « Annuler » : la dernière fenêtre déposée revient à son espace.
+    Undo,
+    /// Bulle d'annulation refermée.
+    UndoClose,
 }
 
 /// Une carte, données tirées de l'état Hyprland courant.
@@ -115,6 +158,8 @@ impl Overview {
             press: None,
             last_title: None,
             visibility,
+            tip: None,
+            undo: None,
         }
     }
 }
@@ -141,12 +186,24 @@ impl App {
                 dur: self.bar_duration(180),
             },
         ));
+        // Astuce du glisser seulement s'il y a de quoi glisser : deux espaces
+        // au moins et une fenêtre (HIG DAT-07, éligibilité).
+        let utile = self.workspaces.len() >= 2 && self.workspaces.iter().any(|w| w.windows > 0);
+        let (tip, tip_saved) = if utile {
+            self.take_tip(crate::tips::Surface::Overview)
+        } else {
+            (None, Task::none())
+        };
+        if let Some(o) = self.overview.as_mut() {
+            o.tip = tip;
+        }
         let output = if monitor.is_empty() {
             OutputOption::Active
         } else {
             OutputOption::OutputName(monitor)
         };
         Task::batch([
+            tip_saved,
             Task::done(Msg::NewLayerShell {
                 settings: NewLayerShellSettings {
                     // Plein écran, par-dessus tout (calque overlay) : il
@@ -187,9 +244,20 @@ impl App {
     }
 
     pub(super) fn destroy_overview(&mut self) -> Task<Msg> {
+        // Le menu d'une de ses fenêtres part avec l'aperçu (HIG MENU-06).
+        let on_it = self
+            .overview
+            .as_ref()
+            .zip(self.icon_menu.as_ref())
+            .is_some_and(|(o, m)| m.desk == o.win);
+        let menu = if on_it {
+            self.close_icon_menu()
+        } else {
+            Task::none()
+        };
         match self.overview.take() {
-            Some(o) => iced::window::close(o.win),
-            None => Task::none(),
+            Some(o) => Task::batch([menu, iced::window::close(o.win)]),
+            None => menu,
         }
     }
 
@@ -225,6 +293,20 @@ impl App {
 
     /// Cartes avec leur rectangle à l'écran : une seule définition pour la
     /// vue et pour la détection du dépôt d'une fenêtre glissée.
+    /// Bas réservé : l'aide, plus l'astuce tant qu'elle est là.
+    fn overview_hints_h(&self) -> f32 {
+        HINTS_H
+            + if self
+                .overview
+                .as_ref()
+                .is_some_and(|o| o.tip.is_some() || o.undo.is_some())
+            {
+                TIP_H
+            } else {
+                0.0
+            }
+    }
+
     fn overview_layout(&self, surface: Size) -> Vec<(Rectangle, WsCard)> {
         let cards = self.overview_cards();
         let n = cards.len();
@@ -235,7 +317,8 @@ impl App {
         let rows = n.div_ceil(cols);
         let (top, bottom) = self.overview_insets();
         let avail_w = (surface.width - 2.0 * MARGIN).max(120.0);
-        let avail_h = (surface.height - top - bottom - TITLE_H - HINTS_H - 2.0 * MARGIN).max(120.0);
+        let hints_h = self.overview_hints_h();
+        let avail_h = (surface.height - top - bottom - TITLE_H - hints_h - 2.0 * MARGIN).max(120.0);
         let cw = ((avail_w - GAP * (cols as f32 - 1.0)) / cols as f32).min(CARD_MAX_W);
         let ch = ((avail_h - GAP * (rows as f32 - 1.0)) / rows as f32).min(CARD_MAX_H);
         let grid_w = cw * cols as f32 + GAP * (cols as f32 - 1.0);
@@ -243,7 +326,7 @@ impl App {
         let x0 = ((surface.width - grid_w) / 2.0).max(MARGIN);
         let y0 = top
             + TITLE_H
-            + ((surface.height - top - bottom - TITLE_H - HINTS_H - grid_h) / 2.0)
+            + ((surface.height - top - bottom - TITLE_H - hints_h - grid_h) / 2.0)
                 .max(MARGIN / 2.0);
         cards
             .into_iter()
@@ -354,8 +437,44 @@ impl App {
             })
     }
 
+    /// Ce que vise un clic droit en `at` dans la carte `card` (HIG MENU-06,
+    /// ENT-07) : la fenêtre de la minimap sous le curseur ; sinon l'espace —
+    /// fond de la minimap, titre, marge de la carte ; hors de la carte, rien.
+    fn overview_aim(&self, card: usize, at: Point) -> Option<Aim> {
+        if let Some(w) = self.overview_window_at(card, at) {
+            return Some(Aim::Window(w));
+        }
+        let surface = self
+            .overview
+            .as_ref()
+            .map(|o| self.overview_surface(o))
+            .unwrap_or_default();
+        self.overview_layout(surface)
+            .get(card)
+            .is_some_and(|(rect, _)| rect.contains(at))
+            .then_some(Aim::Space)
+    }
+
     pub(super) fn overview_update(&mut self, m: OMsg) -> Task<Msg> {
         match m {
+            OMsg::Undo => {
+                let Some(u) = self.overview.as_mut().and_then(|o| o.undo.take()) else {
+                    return Task::none();
+                };
+                move_task(u.address, u.from)
+            }
+            OMsg::UndoClose => {
+                if let Some(o) = self.overview.as_mut() {
+                    o.undo = None;
+                }
+                Task::none()
+            }
+            OMsg::TipClose => {
+                if let Some(o) = self.overview.as_mut() {
+                    o.tip = None;
+                }
+                Task::none()
+            }
             OMsg::Geos(list) => {
                 self.ws_geos = list;
                 Task::none()
@@ -382,6 +501,31 @@ impl App {
                     });
                 }
                 Task::none()
+            }
+            OMsg::Context(card) | OMsg::CardContext(card) => {
+                let Some(o) = self.overview.as_ref() else {
+                    return Task::none();
+                };
+                if o.renaming.is_some() {
+                    return Task::none();
+                }
+                let at = self.cursor.get(&o.win).copied().unwrap_or_default();
+                let (surface, monitor) = (o.win, o.monitor.clone());
+                match self.overview_aim(card, at) {
+                    // La fenêtre a pu fermer depuis la dernière lecture des
+                    // géométries : rien alors.
+                    Some(Aim::Window(win)) => {
+                        self.open_window_menu(surface, &monitor, &win.address)
+                    }
+                    Some(Aim::Space) => {
+                        let name = self.overview_cards().get(card).map(|c| c.name.clone());
+                        match name {
+                            Some(name) => self.open_space_menu(surface, &monitor, card, &name),
+                            None => Task::none(),
+                        }
+                    }
+                    None => Task::none(),
+                }
             }
             OMsg::Pick(name) => {
                 let close = self.close_overview();
@@ -444,13 +588,11 @@ impl App {
                     }
                 }
             }
-            OMsg::NewWorkspace => {
-                let next = self.workspaces.iter().map(|w| w.id).max().unwrap_or(0) + 1;
-                if next > MAX_WORKSPACES as i64 {
-                    return Task::none();
-                }
-                focus_task(next.to_string())
-            }
+            OMsg::NewWorkspace => match next_workspace(&self.workspaces) {
+                Some(next) => focus_task(next.to_string()),
+                // Le bouton est alors désactivé (HIG PAT-10).
+                None => Task::none(),
+            },
         }
     }
 
@@ -531,12 +673,38 @@ impl App {
         if same {
             return Task::none();
         }
-        move_task(w.address.clone(), card.name.clone())
+        // Le glisser a servi : son astuce ne revient plus (HIG DAT-07).
+        if let Some(o) = self.overview.as_mut()
+            && o.tip.is_some_and(|t| t.id == "apercu-glisser")
+        {
+            o.tip = None;
+        }
+        // Le déplacement se propose à l'annulation (HIG DAT-12).
+        let from = self
+            .ws_geos
+            .iter()
+            .find(|g| g.address == w.address)
+            .map(|g| g.workspace.clone());
+        if let Some(o) = self.overview.as_mut() {
+            o.undo = from.map(|from| MoveUndo {
+                address: w.address.clone(),
+                name: if w.title.trim().is_empty() {
+                    w.class.clone()
+                } else {
+                    w.title.clone()
+                },
+                from,
+                to: card.name.clone(),
+            });
+        }
+        let used = self.tip_used("apercu-glisser");
+        Task::batch([used, move_task(w.address.clone(), card.name.clone())])
     }
 
     /// Clavier de l'écran : Échap referme (annule d'abord le renommage),
-    /// Entrée ouvre l'espace choisi, les flèches déplacent le choix.
-    pub(super) fn overview_key(&mut self, key: &keyboard::Key) -> Task<Msg> {
+    /// Entrée ouvre l'espace choisi, les flèches déplacent le choix ; Tab
+    /// descend, Maj+Tab remonte comme la flèche haut (HIG ENT-05).
+    pub(super) fn overview_key(&mut self, key: &keyboard::Key, shift: bool) -> Task<Msg> {
         use keyboard::key::Named;
         // Renommage : Échap annule, la saisie garde le reste (Entrée soumet).
         if self.overview.as_ref().is_some_and(|o| o.renaming.is_some()) {
@@ -545,6 +713,17 @@ impl App {
             {
                 o.renaming = None;
             }
+            return Task::none();
+        }
+        // Fenêtre saisie : Échap interrompt le glisser, l'écran reste
+        // ouvert (HIG DAT-12) ; le relâché ne dépose plus rien.
+        if matches!(key, keyboard::Key::Named(Named::Escape))
+            && let Some(o) = self.overview.as_mut()
+            && o.press
+                .as_ref()
+                .is_some_and(|p| !p.title && p.window.is_some())
+        {
+            o.press = None;
             return Task::none();
         }
         let selected = match self.overview.as_ref() {
@@ -564,14 +743,16 @@ impl App {
                 };
                 self.overview_update(OMsg::Pick(card.name.clone()))
             }
-            keyboard::Key::Named(Named::ArrowDown | Named::Tab) => {
-                let cols = (n as f32).sqrt().ceil() as usize;
-                self.overview_select((selected + cols).min(n - 1));
+            keyboard::Key::Named(Named::Tab) => {
+                self.overview_select(row_step(selected, n, !shift));
+                Task::none()
+            }
+            keyboard::Key::Named(Named::ArrowDown) => {
+                self.overview_select(row_step(selected, n, true));
                 Task::none()
             }
             keyboard::Key::Named(Named::ArrowUp) => {
-                let cols = (n as f32).sqrt().ceil() as usize;
-                self.overview_select(selected.saturating_sub(cols.max(1)));
+                self.overview_select(row_step(selected, n, false));
                 Task::none()
             }
             keyboard::Key::Named(Named::ArrowLeft) => {
@@ -591,6 +772,47 @@ impl App {
             o.selected = i;
         }
     }
+
+    /// Les cartes ont changé (`before` : celles d'avant) : la sélection suit
+    /// sa carte ; partie, elle va à la voisine la plus proche (HIG ENT-14).
+    pub(super) fn overview_follow(&mut self, before: &[WsCard]) {
+        let after = self.overview_cards();
+        if let Some(o) = self.overview.as_mut() {
+            o.selected = follow(before, &after, o.selected);
+        }
+    }
+}
+
+/// Rang de la carte choisie après un changement des cartes : la même
+/// (par son identifiant, un renommage ne la perd pas) ; disparue, la
+/// suivante qui reste, sinon la précédente (HIG ENT-14).
+fn follow(before: &[WsCard], after: &[WsCard], selected: usize) -> usize {
+    let at = |c: &WsCard| after.iter().position(|a| a.id == c.id);
+    if let Some(i) = before.get(selected).and_then(at) {
+        return i;
+    }
+    let next = before.iter().skip(selected + 1).find_map(at);
+    let prev = || before.iter().take(selected).rev().find_map(at);
+    next.or_else(prev)
+        .unwrap_or_else(|| selected.min(after.len().saturating_sub(1)))
+}
+
+/// Carte d'un rang en dessous (ou au-dessus) parmi `n` cartes en grille
+/// presque carrée : même colonne ; aux extrémités, on reste.
+fn row_step(selected: usize, n: usize, down: bool) -> usize {
+    let cols = (n as f32).sqrt().ceil() as usize;
+    if down {
+        (selected + cols).min(n - 1)
+    } else {
+        selected.saturating_sub(cols.max(1))
+    }
+}
+
+/// Carte qui reçoit la fenêtre glissée : sous le curseur, et autre que celle
+/// d'où elle vient — y déposer ne fait rien, elle ne se montre donc pas comme
+/// une cible (HIG DAT-08).
+fn is_drop_target(dragging: Option<&Press>, card: usize, under: bool) -> bool {
+    under && dragging.is_some_and(|p| p.card != card)
 }
 
 /// Va au workspace (hors du fil de l'interface).
@@ -650,10 +872,9 @@ impl App {
         let th = &self.cfg.general.theme;
         let alpha = o.visibility.value(Instant::now());
         let fg = color(th.fg, alpha);
-        let dim = Color {
-            a: 0.62 * alpha,
-            ..fg
-        };
+        // Texte secondaire : celle du thème (4,5:1 sur son fond), à l'alpha du
+        // fondu (HIG LAY-08).
+        let dim = color(crate::theme::readable(th.fg, th.bg, th.accent).dim, alpha);
         let accent = color(th.accent, alpha);
         // Encre lisible sur l'accent, à l'alpha du fondu.
         let on_accent = {
@@ -668,7 +889,6 @@ impl App {
             }
         };
         let bg = color(th.bg, 0.66 * alpha);
-        let card_bg = color(th.bg, 0.94 * alpha);
         let surface = self.overview_surface(o);
         let cards = self.overview_layout(surface);
         let dragging = o
@@ -681,7 +901,7 @@ impl App {
                     .copied()
                     .unwrap_or(p.start)
                     .distance(p.start)
-                    > super::DRAG_THRESHOLD
+                    > DRAG_IMAGE_THRESHOLD
             })
             .cloned();
 
@@ -689,7 +909,7 @@ impl App {
         let title = container(
             text(crate::i18n::tr("Espaces de travail"))
                 .font(self.font)
-                .size(crate::ui::tokens::ts(20.0))
+                .size(crate::ui::tokens::ts(22.0))
                 .color(fg),
         )
         .height(TITLE_H)
@@ -724,40 +944,84 @@ impl App {
             )
         };
         let accent_soft = color(th.accent, alpha * 0.88);
+        // À la limite, le bouton se désactive et dit pourquoi (HIG PAT-10).
+        let can_add = next_workspace(&self.workspaces).is_some();
+        let (add_fg, add_off) = if can_add {
+            (on_accent, None)
+        } else {
+            (
+                dim,
+                Some(Color {
+                    a: 0.12 * alpha,
+                    ..fg
+                }),
+            )
+        };
+        let add = button(
+            row![
+                text("+")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(15.0))
+                    .color(add_fg),
+                text(crate::i18n::tr("Nouvel espace"))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(add_fg),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
+        )
+        .padding([6, 14])
+        .on_press_maybe(can_add.then_some(Msg::Overview(OMsg::NewWorkspace)))
+        .style(move |_, st| button::Style {
+            background: Some(
+                match (add_off, st) {
+                    (Some(off), _) => off,
+                    (None, button::Status::Hovered) => accent,
+                    (None, _) => accent_soft,
+                }
+                .into(),
+            ),
+            border: Border::default().rounded(super::design::SMALL_RADIUS),
+            text_color: add_fg,
+            ..Default::default()
+        });
+        let tip_bg = color(th.bg, 1.0);
+        let add: Element<'_, Msg> = if can_add {
+            add.into()
+        } else {
+            iced::widget::tooltip(
+                add,
+                text(crate::tr!(
+                    "{n} espaces au plus : fermez-en un pour en créer un autre",
+                    n = MAX_WORKSPACES
+                ))
+                .font(self.font)
+                .size(crate::ui::tokens::ts_tooltip(11.0))
+                .color(fg),
+                iced::widget::tooltip::Position::Top,
+            )
+            .style(move |_| container::Style {
+                text_color: Some(fg),
+                background: Some(tip_bg.into()),
+                border: Border::default().rounded(super::design::SMALL_RADIUS),
+                ..Default::default()
+            })
+            .into()
+        };
         let hints = row![
             hint("↑↓←→", "Naviguer"),
             hint("Entrée", "Ouvrir"),
-            hint("Échap", "Fermer"),
+            hint(
+                "Échap",
+                if dragging.is_some() {
+                    "Annuler le glisser"
+                } else {
+                    "Fermer"
+                },
+            ),
             Space::new().width(Length::Fill),
-            button(
-                row![
-                    text("+")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(15.0))
-                        .color(on_accent),
-                    text(crate::i18n::tr("Nouvel espace"))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .color(on_accent),
-                ]
-                .spacing(6)
-                .align_y(Alignment::Center)
-            )
-            .padding([6, 14])
-            .on_press(Msg::Overview(OMsg::NewWorkspace))
-            .style(move |_, st| button::Style {
-                background: Some(
-                    if matches!(st, button::Status::Hovered) {
-                        accent
-                    } else {
-                        accent_soft
-                    }
-                    .into()
-                ),
-                border: Border::default().rounded(super::design::SMALL_RADIUS),
-                text_color: on_accent,
-                ..Default::default()
-            }),
+            add,
         ]
         .spacing(18)
         .align_y(Alignment::Center)
@@ -765,7 +1029,52 @@ impl App {
         .height(HINTS_H);
 
         let (inset_top, inset_bottom) = self.overview_insets();
-        let content = column![title, Space::new().height(Length::Fill), hints]
+        // Astuce de cette ouverture (HIG DAT-07), au-dessus de l'aide ; un
+        // clic dessus ne passe pas au fond.
+        let tip: Element<'_, Msg> = match (&o.undo, o.tip) {
+            // Déplacement déposé : « Annuler » prend la place de l'astuce.
+            (Some(u), _) => container(
+                iced::widget::mouse_area(super::search::notice_row(
+                    self,
+                    "edit-undo",
+                    crate::tr!(
+                        "« {name} » déplacée vers l'espace {to}",
+                        name = crate::ui::plugins::bar::surface::truncate(&u.name, 40),
+                        to = u.to
+                    ),
+                    Some((
+                        crate::i18n::tr("Annuler le déplacement").to_string(),
+                        Msg::Overview(OMsg::Undo),
+                    )),
+                    fg,
+                    dim,
+                    Msg::Overview(OMsg::UndoClose),
+                    "Fermer",
+                ))
+                .on_press(Msg::Noop),
+            )
+            .max_width(560)
+            .height(TIP_H)
+            .center_y(TIP_H)
+            .into(),
+            (None, Some(t)) => container(
+                iced::widget::mouse_area(super::search::tip_row(
+                    self,
+                    t,
+                    fg,
+                    dim,
+                    Msg::Overview(OMsg::TipClose),
+                ))
+                .on_press(Msg::Noop),
+            )
+            .max_width(560)
+            .height(TIP_H)
+            .center_y(TIP_H)
+            .into(),
+            (None, None) => Space::new().into(),
+        };
+        let tip = container(tip).center_x(Length::Fill);
+        let content = column![title, Space::new().height(Length::Fill), tip, hints]
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(iced::Padding {
@@ -804,6 +1113,7 @@ impl App {
                 .copied()
                 .unwrap_or(IconImg::None);
             let label = win.map(|w| truncate(&w.title, 26)).unwrap_or_default();
+            let th_bg = th.bg;
             let chip = container(
                 row![
                     self.img_element(img, 18.0, alpha)
@@ -818,7 +1128,7 @@ impl App {
             )
             .padding([8, 12])
             .style(move |_| container::Style {
-                background: Some(card_bg.into()),
+                background: Some(color(th_bg, DRAG_IMAGE_OPACITY * alpha).into()),
                 border: Border::default()
                     .rounded(super::design::SMALL_RADIUS)
                     .width(1)
@@ -841,6 +1151,13 @@ impl App {
                         bottom: 0.0,
                     }),
             );
+            // Main fermée pendant tout le glisser (HIG DAT-17) : une couche
+            // au-dessus de tout, sans gestionnaire, qui ne prend que le
+            // curseur (le relâchement est global, `Msg::Released`).
+            layers = layers.push(
+                mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
+                    .interaction(iced::mouse::Interaction::Grabbing),
+            );
         }
         layers.into()
     }
@@ -859,21 +1176,22 @@ impl App {
     ) -> Element<'_, Msg> {
         let th = &self.cfg.general.theme;
         let fg = color(th.fg, alpha);
-        let dim = Color {
-            a: 0.6 * alpha,
-            ..fg
-        };
+        // Texte secondaire : celle du thème, sur le fond des cartes (HIG LAY-08).
+        let dim = color(crate::theme::readable(th.fg, th.bg, th.accent).dim, alpha);
         let accent = color(th.accent, alpha);
         let card_bg = color(th.bg, 0.94 * alpha);
         let i = index;
         let selected = o.selected == i;
-        // Cible du dépôt : la carte sous le curseur pendant un glisser.
-        let drop_target = dragging.is_some()
-            && self
-                .cursor
+        // Cible du dépôt : la carte sous le curseur pendant un glisser, sauf
+        // celle d'origine de la fenêtre glissée (HIG DAT-08).
+        let drop_target = is_drop_target(
+            dragging.as_ref(),
+            i,
+            self.cursor
                 .get(&o.win)
                 .copied()
-                .is_some_and(|p| rect.contains(p));
+                .is_some_and(|p| rect.contains(p)),
+        );
         let active = card.active;
 
         // Titre : renommage en cours, ou « Nom » (+ écran si plusieurs).
@@ -897,7 +1215,7 @@ impl App {
                     .on_input(|s| Msg::Overview(OMsg::RenameDraft(s)))
                     .on_submit(Msg::Overview(OMsg::RenameSubmit))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .padding(4)
                     .width(Length::Fill)
                     .style(move |theme, status| {
@@ -914,7 +1232,7 @@ impl App {
                 row![
                     text(card.name.clone())
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(16.0))
+                        .size(crate::ui::tokens::ts(15.0))
                         .color(if active { accent } else { fg }),
                     (multi && !card.monitor.is_empty()).then(|| {
                         text(card.monitor.clone())
@@ -942,6 +1260,8 @@ impl App {
                 .align_y(Alignment::Center),
             )
             .on_press(Msg::Overview(OMsg::Grab(i, true)))
+            // Clic droit sur le titre : menu de l'espace (HIG ENT-07).
+            .on_right_press(Msg::Overview(OMsg::CardContext(i)))
             .into()
         };
 
@@ -1015,9 +1335,11 @@ impl App {
                     }),
             );
         }
-        // Saisie dans la minimap : fenêtre (glisser) ou fond (ouvrir l'espace).
+        // Saisie dans la minimap : fenêtre (glisser) ou fond (ouvrir l'espace) ;
+        // clic droit sur une fenêtre : son menu (HIG MENU-06).
         let minimap = mouse_area(container(minimap).width(Length::Fill).height(Length::Fill))
-            .on_press(Msg::Overview(OMsg::Grab(i, false)));
+            .on_press(Msg::Overview(OMsg::Grab(i, false)))
+            .on_right_press(Msg::Overview(OMsg::Context(i)));
 
         let border = if drop_target {
             Border::default()
@@ -1038,7 +1360,7 @@ impl App {
                     ..fg
                 })
         };
-        container(
+        let card = container(
             column![
                 container(header)
                     .height(40.0)
@@ -1073,8 +1395,12 @@ impl App {
             },
             text_color: Some(fg),
             ..Default::default()
-        })
-        .into()
+        });
+        // Clic droit sur la marge de la carte : menu de l'espace (HIG ENT-07) ;
+        // le titre et la minimap gardent leur propre clic droit.
+        mouse_area(card)
+            .on_right_press(Msg::Overview(OMsg::CardContext(i)))
+            .into()
     }
 }
 
@@ -1124,10 +1450,34 @@ fn normalize_rects(rects: &[(i32, i32, i32, i32)]) -> Vec<(f32, f32, f32, f32)> 
         .collect()
 }
 
+/// Numéro du prochain espace, ou `None` à la limite (`MAX_WORKSPACES`).
+fn next_workspace(workspaces: &[crate::hypr::Workspace]) -> Option<i64> {
+    let next = workspaces.iter().map(|w| w.id).max().unwrap_or(0).max(0) + 1;
+    (next <= i64::from(MAX_WORKSPACES)).then_some(next)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::WsSelector;
+
+    /// « + Nouvel espace » s'arrête à la limite au lieu d'échouer en
+    /// silence (HIG PAT-10).
+    #[test]
+    fn nouvel_espace_jusqu_a_la_limite() {
+        let ws = |id: i64| crate::hypr::Workspace {
+            id,
+            name: id.to_string(),
+            monitor: String::new(),
+            windows: 0,
+            fullscreen: false,
+        };
+        assert_eq!(next_workspace(&[]), Some(1));
+        assert_eq!(next_workspace(&[ws(-98), ws(2)]), Some(3));
+        let max = i64::from(MAX_WORKSPACES);
+        assert_eq!(next_workspace(&[ws(max - 1)]), Some(max));
+        assert_eq!(next_workspace(&[ws(max)]), None);
+    }
 
     #[test]
     fn minimap_normalise_le_contenu() {
@@ -1156,5 +1506,334 @@ mod tests {
             assert_eq!(v.as_str(), s);
         }
         assert_eq!(WsSelector::parse("inconnu"), None);
+    }
+
+    /// Cinq espaces en grille de trois colonnes : Tab descend d'un rang,
+    /// Maj+Tab remonte comme la flèche haut (HIG ENT-05) ; aux bords, on reste.
+    #[test]
+    fn tab_et_maj_tab_changent_de_rang() {
+        assert_eq!(row_step(0, 5, true), 3);
+        assert_eq!(row_step(1, 5, true), 4);
+        assert_eq!(row_step(4, 5, true), 4);
+        assert_eq!(row_step(4, 5, false), 1);
+        assert_eq!(row_step(0, 5, false), 0);
+        assert_eq!(row_step(0, 1, false), 0);
+    }
+
+    /// Seule une carte autre que celle d'origine se montre comme cible du
+    /// dépôt, et seulement sous le curseur (HIG DAT-08).
+    #[test]
+    fn la_carte_d_origine_n_est_pas_une_cible() {
+        let presse = |card| {
+            Some(Press {
+                card,
+                window: None,
+                start: Point::ORIGIN,
+                title: false,
+            })
+        };
+        let glisse = presse(1);
+        let glisse = glisse.as_ref();
+        assert!(!is_drop_target(None, 2, true), "sans glisser");
+        assert!(is_drop_target(glisse, 2, true));
+        assert!(
+            !is_drop_target(glisse, 1, true),
+            "la carte d'où vient la fenêtre"
+        );
+        assert!(!is_drop_target(glisse, 2, false), "hors du curseur");
+    }
+
+    /// Clic droit dans une carte (HIG MENU-06, ENT-07) : sur une fenêtre de
+    /// la minimap, son menu ; sur le fond de la minimap, le titre ou la marge
+    /// de la carte, celui de l'espace ; hors de la carte, rien.
+    #[test]
+    fn le_clic_droit_vise_la_fenetre_ou_l_espace() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-apercu-tests/config.lua"),
+            true,
+        )
+        .0;
+        app.monitors = vec![crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 1440,
+            height: 900,
+            workspace: "Projet 1".into(),
+            base: String::new(),
+            focused: true,
+            scale: 1.0,
+            reserved: (0.0, 0.0, 0.0, 0.0),
+            x: 0.0,
+            y: 0.0,
+        }];
+        let win = Id::unique();
+        app.overview = Some(Overview::new(
+            win,
+            "A".into(),
+            Fade {
+                from: 1.0,
+                to: 1.0,
+                start: Instant::now(),
+                dur: std::time::Duration::ZERO,
+            },
+        ));
+        app.workspaces = (1..=2)
+            .map(|id| crate::hypr::Workspace {
+                id,
+                name: format!("Projet {id}"),
+                monitor: "A".into(),
+                windows: 1,
+                fullscreen: false,
+            })
+            .collect();
+        // Une seule fenêtre dans l'espace 1 : sa miniature couvre le centre
+        // de la minimap.
+        app.ws_geos = vec![crate::hypr::WindowGeo {
+            address: "0x6".into(),
+            class: "kitty".into(),
+            title: "zsh".into(),
+            workspace: "Projet 1".into(),
+            floating: false,
+            rect: (0, 0, 800, 600),
+            fullscreen: false,
+        }];
+        let cards = app.overview_layout(Size::new(1440.0, 900.0));
+        let (r0, _) = cards[0];
+        let (r1, _) = cards[1];
+        assert!(
+            matches!(app.overview_aim(0, r0.center()), Some(Aim::Window(_))),
+            "la fenêtre sous le curseur"
+        );
+        assert_eq!(
+            app.overview_aim(0, Point::new(r0.x + 20.0, r0.y + 20.0)),
+            Some(Aim::Space),
+            "le titre"
+        );
+        assert_eq!(
+            app.overview_aim(0, Point::new(r0.x + 4.0, r0.y + r0.height - 4.0)),
+            Some(Aim::Space),
+            "la marge de la carte"
+        );
+        assert_eq!(app.overview_aim(1, r1.center()), Some(Aim::Space));
+        assert_eq!(app.overview_aim(0, r1.center()), None, "hors de sa carte");
+        assert_eq!(app.overview_aim(7, r0.center()), None, "carte inconnue");
+    }
+
+    /// La pastille paraît avant que le geste cesse d'être un clic (HIG
+    /// DAT-19), et elle laisse voir ce qu'elle survole (HIG DAT-16).
+    #[test]
+    fn la_pastille_precede_le_clic_et_reste_translucide() {
+        const { assert!(DRAG_IMAGE_THRESHOLD < super::super::DRAG_THRESHOLD) };
+        const { assert!(DRAG_IMAGE_OPACITY > 0.5 && DRAG_IMAGE_OPACITY < 0.9) };
+    }
+
+    /// L'astuce de l'aperçu (HIG DAT-07) a sa place : les cartes remontent
+    /// tant qu'elle est là et retrouvent la leur quand elle est fermée.
+    #[test]
+    fn l_astuce_a_sa_place() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-apercu-tests/config.lua"),
+            true,
+        )
+        .0;
+        app.monitors = vec![crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 1440,
+            height: 900,
+            workspace: "Projet 1".into(),
+            base: String::new(),
+            focused: true,
+            scale: 1.0,
+            reserved: (0.0, 0.0, 0.0, 0.0),
+            x: 0.0,
+            y: 0.0,
+        }];
+        app.overview = Some(Overview::new(
+            Id::unique(),
+            "A".into(),
+            Fade {
+                from: 1.0,
+                to: 1.0,
+                start: Instant::now(),
+                dur: std::time::Duration::ZERO,
+            },
+        ));
+        app.workspaces = (1..=4)
+            .map(|id| crate::hypr::Workspace {
+                id,
+                name: format!("Projet {id}"),
+                monitor: "A".into(),
+                windows: 1,
+                fullscreen: false,
+            })
+            .collect();
+        let bas = |app: &App| {
+            app.overview_layout(Size::new(1440.0, 900.0))
+                .iter()
+                .map(|(r, _)| r.y + r.height)
+                .fold(0.0_f32, f32::max)
+        };
+        let libre = bas(&app);
+        let tip = crate::tips::TIPS
+            .iter()
+            .find(|t| t.id == "apercu-glisser")
+            .unwrap();
+        app.overview.as_mut().unwrap().tip = Some(tip);
+        assert!(bas(&app) < libre - 1.0, "les cartes laissent la place");
+        let _ = app.overview_update(OMsg::TipClose);
+        assert!(app.overview.as_ref().unwrap().tip.is_none());
+        assert!((bas(&app) - libre).abs() < 0.01);
+    }
+
+    /// La carte choisie disparaît : la sélection va à la voisine qui reste ;
+    /// une carte disparue avant elle ne la déplace pas (HIG ENT-14).
+    #[test]
+    fn la_selection_suit_sa_carte() {
+        let cards = |ids: &[i64]| -> Vec<WsCard> {
+            ids.iter()
+                .map(|&id| WsCard {
+                    name: id.to_string(),
+                    monitor: "A".into(),
+                    active: false,
+                    id,
+                })
+                .collect()
+        };
+        let avant = cards(&[1, 2, 3]);
+        // La carte 2 part : la 3, qui la suivait, est choisie.
+        assert_eq!(follow(&avant, &cards(&[1, 3]), 1), 1);
+        // La dernière part : la précédente.
+        assert_eq!(follow(&avant, &cards(&[1, 2]), 2), 1);
+        // La 1 part, la 3 était choisie : elle le reste, à son nouveau rang.
+        assert_eq!(follow(&avant, &cards(&[2, 3]), 2), 1);
+        // Une carte arrive devant : la choisie aussi.
+        assert_eq!(follow(&avant, &cards(&[0, 1, 2, 3]), 1), 2);
+        // Plus aucune carte.
+        assert_eq!(follow(&avant, &cards(&[]), 1), 0);
+
+        // Par l'application : les espaces relus après la fermeture du 3.
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-apercu-tests/config.lua"),
+            true,
+        )
+        .0;
+        app.overview = Some(Overview::new(
+            Id::unique(),
+            "A".into(),
+            Fade {
+                from: 1.0,
+                to: 1.0,
+                start: Instant::now(),
+                dur: std::time::Duration::ZERO,
+            },
+        ));
+        let ws = |id: i64| crate::hypr::Workspace {
+            id,
+            name: format!("Projet {id}"),
+            monitor: "A".into(),
+            windows: 1,
+            fullscreen: false,
+        };
+        app.workspaces = (1..=4).map(ws).collect();
+        app.overview.as_mut().unwrap().selected = 2;
+        let _ = app.update(Msg::Hypr(crate::hypr::Update::Workspaces(
+            [1, 2, 4].map(ws).to_vec(),
+        )));
+        assert_eq!(app.overview.as_ref().unwrap().selected, 2);
+        assert_eq!(app.overview_cards()[2].id, 4);
+    }
+
+    /// Un déplacement déposé se propose à l'annulation ; Échap interrompt
+    /// le glisser sans fermer l'écran (HIG DAT-12).
+    #[test]
+    fn le_depot_s_annule_et_echap_interrompt_le_glisser() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-apercu-tests/config.lua"),
+            true,
+        )
+        .0;
+        app.monitors = vec![crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 1440,
+            height: 900,
+            workspace: "Projet 1".into(),
+            base: String::new(),
+            focused: true,
+            scale: 1.0,
+            reserved: (0.0, 0.0, 0.0, 0.0),
+            x: 0.0,
+            y: 0.0,
+        }];
+        let win = Id::unique();
+        app.overview = Some(Overview::new(
+            win,
+            "A".into(),
+            Fade {
+                from: 1.0,
+                to: 1.0,
+                start: Instant::now(),
+                dur: std::time::Duration::ZERO,
+            },
+        ));
+        app.workspaces = (1..=2)
+            .map(|id| crate::hypr::Workspace {
+                id,
+                name: format!("Projet {id}"),
+                monitor: "A".into(),
+                windows: 1,
+                fullscreen: false,
+            })
+            .collect();
+        app.ws_geos = vec![crate::hypr::WindowGeo {
+            address: "0x6".into(),
+            class: "kitty".into(),
+            title: "zsh".into(),
+            workspace: "Projet 1".into(),
+            floating: false,
+            rect: (0, 0, 800, 600),
+            fullscreen: false,
+        }];
+        let surface = app.overview_surface(app.overview.as_ref().unwrap());
+        let cards = app.overview_layout(surface);
+        let (r0, _) = cards[0];
+        let (r1, _) = cards[1];
+        let press = Press {
+            card: 0,
+            window: Some(Win {
+                address: "0x6".into(),
+                class: "kitty".into(),
+                title: "zsh".into(),
+            }),
+            start: r0.center(),
+            title: false,
+        };
+        app.cursor.insert(win, r1.center());
+        // Échap pendant le glisser : le geste cesse, l'écran reste ouvert.
+        app.overview.as_mut().unwrap().press = Some(press.clone());
+        let _ = app.overview_key(&keyboard::Key::Named(keyboard::key::Named::Escape), false);
+        let o = app.overview.as_ref().unwrap();
+        assert!(o.press.is_none());
+        assert_eq!(o.visibility.to, 1.0, "l'écran reste ouvert");
+        let _ = app.overview_release();
+        assert!(
+            app.overview.as_ref().unwrap().undo.is_none(),
+            "rien de déposé"
+        );
+        // Déposée sur l'espace 2 : « Annuler » la ramène à l'espace 1.
+        app.overview.as_mut().unwrap().press = Some(press);
+        let _ = app.overview_release();
+        assert_eq!(
+            app.overview.as_ref().unwrap().undo,
+            Some(MoveUndo {
+                address: "0x6".into(),
+                name: "zsh".into(),
+                from: "Projet 1".into(),
+                to: "Projet 2".into(),
+            })
+        );
+        let _ = app.overview_update(OMsg::Undo);
+        assert!(app.overview.as_ref().unwrap().undo.is_none());
     }
 }

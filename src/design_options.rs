@@ -138,6 +138,15 @@ pub static OPTIONS: &[Opt] = &[
         "Largeur du panneau",
         "240..560 — largeur des réglages rapides (px)",
     ),
+    // Taille compacte des commandes : le symbole seul (HIG SYS-12).
+    opt(
+        "controls",
+        "compact",
+        Kind::Bool,
+        Def::Bool(false),
+        "Commandes compactes",
+        "on | off — commandes Wi-Fi et Bluetooth réduites à leur symbole, titre et état en infobulle",
+    ),
     // Notifications.
     opt(
         "notifications",
@@ -175,7 +184,7 @@ pub static OPTIONS: &[Opt] = &[
         Kind::Int(2, 60),
         Def::Num(6.0),
         "Durée d'affichage",
-        "2..60 — durée d'affichage (s) sans délai demandé par l'application",
+        "2..60 — durée d'affichage (s), au moins : une application peut allonger une bulle, pas la raccourcir",
     ),
     opt(
         "notifications",
@@ -184,6 +193,14 @@ pub static OPTIONS: &[Opt] = &[
         Def::Str("down"),
         "Empilement",
         "down | up — sens d'empilement",
+    ),
+    opt(
+        "notifications",
+        "hide_previews",
+        Kind::Bool,
+        Def::Bool(false),
+        "Masquer les aperçus",
+        "on | off — le corps des notifications est remplacé par un texte générique",
     ),
     // Monitoring.
     opt(
@@ -323,6 +340,15 @@ pub static OPTIONS: &[Opt] = &[
         Def::Str(""),
         "Fond en mode sombre",
         "<chemin> — image de fond quand le thème est sombre (vide : celle des règles)",
+    ),
+    // Icônes d'application (HIG ICO-10).
+    opt(
+        "icons",
+        "appearance",
+        Kind::Choice(&["auto", "default", "dark", "tinted"]),
+        Def::Str("auto"),
+        "Apparence des icônes",
+        "auto | default | dark | tinted — apparence des icônes d'application (auto : suit la variante du thème)",
     ),
     // Verrouillage et connexion.
     opt(
@@ -600,6 +626,15 @@ pub fn unset(s: &mut crate::settings::Settings, cfg: &Config, name: &str) {
 mod tests {
     use super::*;
 
+    /// Taille compacte des commandes : éteinte par défaut, se pose (HIG
+    /// SYS-12).
+    #[test]
+    fn commandes_compactes() {
+        let o = find("controls.compact").expect("option déclarée");
+        assert!(matches!(o.default, Def::Bool(false)));
+        assert!(!flag(&General::default(), "controls.compact"));
+    }
+
     #[test]
     fn registre_cohérent() {
         let mut seen = std::collections::BTreeSet::new();
@@ -615,6 +650,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{} : {e}", o.name()));
         }
         assert!(find("dock.spacing").is_some());
+        assert_eq!(choice(&General::default(), "icons.appearance"), "auto");
         assert!(find("dock.inconnu").is_none());
         assert!(find("dock.magnify").unwrap().parse("3").is_err());
         assert!(

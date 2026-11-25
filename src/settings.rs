@@ -224,6 +224,15 @@ pub struct Settings {
     pub key_search_desktop: Option<String>,
     pub key_overview: Option<String>,
     pub key_assistant: Option<String>,
+    /// Un raccourci par surface du shell (HIG ENT-02).
+    pub key_focus_bar: Option<String>,
+    pub key_focus_dock: Option<String>,
+    pub key_focus_notifications: Option<String>,
+    pub key_focus_settings: Option<String>,
+    /// Forcer une application à quitter (HIG ENT-10).
+    pub key_force_quit: Option<String>,
+    /// Basculer l'accès clavier complet (HIG ENT-01).
+    pub key_keyboard_access: Option<String>,
     pub key_take: Option<Vec<String>>,
     pub overview_command: Option<String>,
     pub key_leave: Option<String>,
@@ -256,6 +265,7 @@ pub struct Settings {
     pub icon_double_click: Option<bool>,
     pub reduced_transparency: Option<bool>,
     pub reduced_motion: Option<bool>,
+    pub keyboard_access: Option<bool>,
     pub increase_contrast: Option<bool>,
     pub text_scale: Option<f32>,
     pub advanced_settings: Option<bool>,
@@ -484,6 +494,14 @@ impl Settings {
             key_search_desktop: has("keys.search_desktop").then(|| g.keys.search_desktop.clone()),
             key_overview: has("keys.overview").then(|| g.keys.overview.clone()),
             key_assistant: has("keys.assistant").then(|| g.keys.assistant.clone()),
+            key_focus_bar: has("keys.focus_bar").then(|| g.keys.focus_bar.clone()),
+            key_focus_dock: has("keys.focus_dock").then(|| g.keys.focus_dock.clone()),
+            key_focus_notifications: has("keys.focus_notifications")
+                .then(|| g.keys.focus_notifications.clone()),
+            key_focus_settings: has("keys.focus_settings").then(|| g.keys.focus_settings.clone()),
+            key_force_quit: has("keys.force_quit").then(|| g.keys.force_quit.clone()),
+            key_keyboard_access: has("keys.keyboard_access")
+                .then(|| g.keys.keyboard_access.clone()),
             key_take: has("keys.take").then(|| g.keys.take.clone()),
             overview_command: has("overview_command").then(|| g.overview_command.clone()),
             key_leave: has("keys.leave").then(|| g.keys.leave.clone()),
@@ -515,6 +533,7 @@ impl Settings {
             icon_double_click: has("icon_double_click").then_some(g.icon_double_click),
             reduced_transparency: has("reduced_transparency").then_some(g.reduced_transparency),
             reduced_motion: has("reduced_motion").then_some(g.reduced_motion),
+            keyboard_access: has("keyboard_access").then_some(g.keyboard_access),
             increase_contrast: has("increase_contrast").then_some(g.increase_contrast),
             text_scale: has("text_scale").then_some(g.text_scale),
             advanced_settings: has("advanced_settings").then_some(g.advanced_settings),
@@ -722,6 +741,7 @@ impl Settings {
             n += 1;
         }
         self.widgets.push(WidgetDef {
+            family: Default::default(),
             origin: Origin::Settings,
             sel: Selector::default(),
             id: id.clone(),
@@ -787,6 +807,24 @@ impl Settings {
         );
         set!(key_overview, "keys.overview", g.keys.overview);
         set!(key_assistant, "keys.assistant", g.keys.assistant);
+        set!(key_focus_bar, "keys.focus_bar", g.keys.focus_bar);
+        set!(key_focus_dock, "keys.focus_dock", g.keys.focus_dock);
+        set!(
+            key_focus_notifications,
+            "keys.focus_notifications",
+            g.keys.focus_notifications
+        );
+        set!(
+            key_focus_settings,
+            "keys.focus_settings",
+            g.keys.focus_settings
+        );
+        set!(key_force_quit, "keys.force_quit", g.keys.force_quit);
+        set!(
+            key_keyboard_access,
+            "keys.keyboard_access",
+            g.keys.keyboard_access
+        );
         set!(key_take, "keys.take", g.keys.take);
         set!(overview_command, "overview_command", g.overview_command);
         set!(key_leave, "keys.leave", g.keys.leave);
@@ -842,6 +880,7 @@ impl Settings {
             g.reduced_transparency
         );
         set!(reduced_motion, "reduced_motion", g.reduced_motion);
+        set!(keyboard_access, "keyboard_access", g.keyboard_access);
         set!(increase_contrast, "increase_contrast", g.increase_contrast);
         set!(text_scale, "text_scale", g.text_scale);
         set!(advanced_settings, "advanced_settings", g.advanced_settings);
@@ -1255,6 +1294,12 @@ impl Settings {
             ("search_desktop", &self.key_search_desktop),
             ("overview", &self.key_overview),
             ("assistant", &self.key_assistant),
+            ("focus_bar", &self.key_focus_bar),
+            ("focus_dock", &self.key_focus_dock),
+            ("focus_notifications", &self.key_focus_notifications),
+            ("focus_settings", &self.key_focus_settings),
+            ("force_quit", &self.key_force_quit),
+            ("keyboard_access", &self.key_keyboard_access),
             ("leave", &self.key_leave),
         ] {
             if let Some(k) = v {
@@ -1362,6 +1407,9 @@ impl Settings {
         }
         if let Some(v) = self.reduced_motion {
             cfg.push(format!("reduced_motion = {v}"));
+        }
+        if let Some(v) = self.keyboard_access {
+            cfg.push(format!("keyboard_access = {v}"));
         }
         if let Some(v) = self.increase_contrast {
             cfg.push(format!("increase_contrast = {v}"));
@@ -1583,14 +1631,20 @@ impl Settings {
                 .effects
                 .iter()
                 .map(|(p, e)| {
+                    // `adaptive` s'écrit dès qu'il diffère du défaut : un
+                    // plafond, ou `false` là où le défaut en a un (barre et
+                    // widgets, HIG FON-01) — absent, il serait hérité.
+                    let adaptive = match e.adaptive {
+                        m if m == p.default_effect().adaptive => String::new(),
+                        Some(m) => format!(", adaptive = {}", num(m)),
+                        None => ", adaptive = false".to_string(),
+                    };
                     format!(
                         "{} = {{ opacity = {}, blur = {}{} }}",
                         p.as_str(),
                         num(e.opacity),
                         e.blur,
-                        e.adaptive
-                            .map(|m| format!(", adaptive = {}", num(m)))
-                            .unwrap_or_default()
+                        adaptive
                     )
                 })
                 .collect();
@@ -1938,6 +1992,10 @@ fn placement_fields(p: &Placement) -> Vec<String> {
     }
     if p.if_missing != crate::config::IfMissing::Primary {
         f.push(format!("if_missing = {}", q(p.if_missing.as_str())));
+    }
+    // Taille : écrite seulement si elle n'est pas la moyenne (HIG SYS-15).
+    if p.family != crate::config::WidgetFamily::Medium {
+        f.push(format!("family = {}", q(p.family.as_str())));
     }
     f
 }
@@ -2291,6 +2349,87 @@ mod tests {
         assert_eq!(clock2.screen, WidgetScreen::All);
     }
 
+    /// Taille d'un widget (`family`) : moyenne par défaut, lue dans
+    /// hyprdesk.lua, refusée si inconnue, refusée hors des widgets qui
+    /// l'admettent, et posée par les réglages (hd.place) (HIG SYS-15).
+    #[test]
+    fn taille_des_widgets() {
+        use crate::config::WidgetFamily;
+        let load = |chunks: &[(String, &str, Origin)]| {
+            let c: Vec<(String, String, Origin)> = chunks
+                .iter()
+                .map(|(l, n, o)| (l.clone(), n.to_string(), *o))
+                .collect();
+            load_chunks(&c, Path::new("/cfg"))
+        };
+        let user = r#"hd.widget("clock") hd.widget("system", { family = "large" })"#;
+        let cfg = load(&[(user.into(), "hyprdesk.lua", Origin::User)])
+            .unwrap()
+            .config;
+        let clock = cfg.widgets.iter().find(|w| w.type_id == "clock").unwrap();
+        let system = cfg.widgets.iter().find(|w| w.type_id == "system").unwrap();
+        assert_eq!(
+            clock.family,
+            WidgetFamily::Medium,
+            "défaut : l'affichage actuel"
+        );
+        assert_eq!(system.family, WidgetFamily::Large);
+        assert!(
+            load(&[(
+                r#"hd.widget("clock", { family = "géant" })"#.into(),
+                "hyprdesk.lua",
+                Origin::User
+            )])
+            .is_err(),
+            "taille inconnue"
+        );
+        assert!(
+            load(&[(
+                r#"hd.widget("command", { exec = "true", family = "large" })"#.into(),
+                "hyprdesk.lua",
+                Origin::User
+            )])
+            .is_err(),
+            "le widget commande n'a qu'une taille"
+        );
+        // Réglages : l'horloge passe en petit → hd.place, relu.
+        let mut s = Settings::from_config(&cfg);
+        let mut p = clock.placement();
+        p.family = WidgetFamily::Small;
+        s.place_widget(&clock.id, p);
+        let lua = s.to_lua();
+        assert!(lua.contains("family = \"small\""), "{lua}");
+        let again = load(&[
+            (lua, "settings.lua", Origin::Settings),
+            (user.into(), "hyprdesk.lua", Origin::User),
+        ])
+        .unwrap()
+        .config;
+        let clock2 = again.widgets.iter().find(|w| w.type_id == "clock").unwrap();
+        assert_eq!(clock2.family, WidgetFamily::Small);
+        // Taille moyenne : rien d'écrit.
+        let mut s = Settings::from_config(&cfg);
+        s.place_widget(&clock.id, clock.placement());
+        assert!(!s.to_lua().contains("family"), "{}", s.to_lua());
+        // Widget des réglages : la taille fait l'aller-retour par hd.widget.
+        let mine = r#"hd.widget("calendar", { family = "xlarge" })"#;
+        let cfg = load(&[(mine.into(), "settings.lua", Origin::Settings)])
+            .unwrap()
+            .config;
+        let lua = Settings::from_config(&cfg).to_lua();
+        assert!(lua.contains("family = \"xlarge\""), "{lua}");
+        let back = load(&[(lua, "settings.lua", Origin::Settings)])
+            .unwrap()
+            .config;
+        assert_eq!(back.widgets[0].family, WidgetFamily::XLarge);
+        // hd.place ne pose pas de taille sur un widget qui n'en a qu'une.
+        let cmd = r#"hd.widget("command", { id = "c", exec = "true" }) hd.place("c", { family = "large" })"#;
+        let cfg = load(&[(cmd.into(), "hyprdesk.lua", Origin::User)])
+            .unwrap()
+            .config;
+        assert_eq!(cfg.widgets[0].family, WidgetFamily::Medium);
+    }
+
     #[test]
     fn aller_retour_lua() {
         let mut s = Settings {
@@ -2441,6 +2580,22 @@ mod tests {
         );
         let lua = s.to_lua();
         assert!(lua.contains("adaptive = 0.92"), "{lua}");
+        // Un plafond coupé là où le défaut en a un s'écrit `false` : absent,
+        // il serait hérité (HIG FON-01).
+        s.effects.insert(
+            crate::config::Place::Widgets,
+            crate::config::Effect {
+                opacity: 0.8,
+                blur: false,
+                adaptive: None,
+            },
+        );
+        let lua = s.to_lua();
+        assert!(
+            lua.contains("widgets = { opacity = 0.8, blur = false, adaptive = false }"),
+            "{lua}"
+        );
+        assert!(lua.contains("adaptive = 0.92"), "{lua}");
         assert!(lua.contains("accent = \"active\""), "{lua}");
         assert!(lua.contains("\"#1c2028/#f5f7fa\""), "{lua}");
         assert!(lua.contains("opacity = 0.35"), "{lua}");
@@ -2530,6 +2685,7 @@ mod tests {
         s.place_widget(
             "calendar",
             Placement {
+                family: Default::default(),
                 anchor: Anchor::Center,
                 x: 12.0,
                 y: -40.0,
@@ -2542,6 +2698,7 @@ mod tests {
         s.place_widget(
             "clock#0",
             Placement {
+                family: Default::default(),
                 anchor: Anchor::Top,
                 x: 0.0,
                 y: 8.0,
@@ -2576,6 +2733,7 @@ mod tests {
         moved.place_widget(
             "clock#0",
             Placement {
+                family: Default::default(),
                 anchor: Anchor::BottomLeft,
                 x: 4.0,
                 y: 4.0,

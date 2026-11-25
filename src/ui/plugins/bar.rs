@@ -3,30 +3,32 @@
 //!
 //! - `surface` : la barre posée sur chaque écran (zones, modules, actions) ;
 //! - `layout` : mesure des modules, centrage et débordement ;
+//! - `menus` : menus du shell, toujours en tête de la barre ;
 //! - `motion` : mouvement local pendant le geste ;
 //! - `style` : rendus complets choisis par `hd.bar({ style = … })` ;
 //! - `popover` : menus déroulants qui descendent sous un module ;
+//! - `keyboard` : la barre au clavier, quand un raccourci lui donne (HIG ENT-02) ;
 //! - ce fichier : manifeste et page de Réglages.
 //!
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
+pub(in crate::ui) mod keyboard;
 pub(in crate::ui) mod layout;
+pub(in crate::ui) mod menus;
 pub(in crate::ui) mod motion;
 pub(in crate::ui) mod popover;
 pub(in crate::ui) mod style;
-pub(in crate::ui) mod window;
 pub(crate) mod surface;
+pub(in crate::ui) mod window;
 
 use crate::i18n::text;
-use iced::widget::{
-    Space, button, column, container, mouse_area, pick_list, radio, row, slider, toggler, tooltip,
-};
+use iced::widget::{Space, button, column, container, mouse_area, pick_list, radio, row, tooltip};
 use iced::{Alignment, Border, Color, Element, Length, Task, mouse};
 
 use crate::config::{BAR_COLOR_SLOTS, Rgba};
-use crate::ui::color_picker::{Picker, PickerMsg};
+use crate::ui::color_picker::{Picker, PickerMsg, well};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec, beside_slider};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 
@@ -48,6 +50,49 @@ pub const TABS: &[super::SubTab] = &[
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Bar(m)))
+}
+
+/// Valeur d'un curseur de la barre en pixels, en millisecondes, en pour cent.
+fn en_px(v: f64) -> String {
+    format!("{} px", v.round() as u16)
+}
+
+fn en_ms(v: f64) -> String {
+    format!("{} ms", v.round() as u16)
+}
+
+fn en_pour_cent(v: f64) -> String {
+    format!("{} %", v.round() as i32)
+}
+
+/// Les curseurs de la forme de la barre (HIG SEL-08) : leur pose emporte la
+/// forme du rendu, modifiée d'un champ, comme son glissé.
+pub(in crate::ui) fn side_margin_spec(shape: crate::config::BarShape) -> SliderSpec {
+    SliderSpec::new(
+        "bar_side_margin",
+        (0.0, 200.0),
+        1.0,
+        move |v| {
+            let mut s = shape;
+            s.side_margin = v.round() as u16;
+            wrap(Msg::Shape(s, false))
+        },
+        wrap(Msg::Commit),
+    )
+}
+
+pub(in crate::ui) fn radius_spec(shape: crate::config::BarShape) -> SliderSpec {
+    SliderSpec::new(
+        "bar_radius",
+        (0.0, 32.0),
+        1.0,
+        move |v| {
+            let mut s = shape;
+            s.radius = Some(v.round() as u16);
+            wrap(Msg::Shape(s, false))
+        },
+        wrap(Msg::Commit),
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -144,12 +189,13 @@ impl App {
         ];
         let current = lengths.iter().position(|(l, _)| *l == shape.length);
         let length = row(lengths.into_iter().enumerate().map(|(i, (l, label))| {
-            radio(crate::i18n::tr(label), i, current, move |_| {
-                set(&|s: &mut crate::config::BarShape| s.length = l, true)
-            })
-            .font(font)
-            .size(crate::ui::tokens::ts(15.0))
-            .into()
+            self.focusable(
+                radio(crate::i18n::tr(label), i, current, move |_| {
+                    set(&|s: &mut crate::config::BarShape| s.length = l, true)
+                })
+                .font(font)
+                .size(crate::ui::tokens::ts(15.0)),
+            )
         }))
         .spacing(14)
         .wrap();
@@ -165,84 +211,79 @@ impl App {
                     "Alignement",
                     "",
                     row(aligns.into_iter().map(|(a, label)| {
-                        radio(crate::i18n::tr(label), a, Some(shape.alignment), move |v| {
-                            set(&|s: &mut crate::config::BarShape| s.alignment = v, true)
-                        })
-                        .font(font)
-                        .size(crate::ui::tokens::ts(15.0))
-                        .into()
+                        self.focusable(
+                            radio(crate::i18n::tr(label), a, Some(shape.alignment), move |v| {
+                                set(&|s: &mut crate::config::BarShape| s.alignment = v, true)
+                            })
+                            .font(font)
+                            .size(crate::ui::tokens::ts(15.0)),
+                        )
                     }))
                     .spacing(14),
                 ),
             );
         }
-        col = col.push(
-            self.field(
-                "Marges sur les côtés",
-                crate::i18n::tr("0 = d'un bord à l'autre ; au-delà, la barre flotte"),
-                row![
-                    slider(0..=200u16, shape.side_margin.min(200), move |v| {
-                        set(&|s: &mut crate::config::BarShape| s.side_margin = v, false)
-                    })
-                    .on_release(wrap(Msg::Commit))
-                    .width(260),
-                    text(format!("{} px", shape.side_margin))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                ]
-                .spacing(12),
+        col = col.push(self.field(
+            "Marges sur les côtés",
+            crate::i18n::tr("0 = d'un bord à l'autre ; au-delà, la barre flotte"),
+            self.slider(
+                &side_margin_spec(shape),
+                f64::from(shape.side_margin.min(200)),
+                en_px,
+                SliderLook::fixed(13.0, 260, Alignment::Start),
             ),
-        );
-        col = col.push(
-            self.field(
-                "Rayon des coins",
-                "",
-                row![
-                    slider(0..=32u16, shape.radius.unwrap_or(11).min(32), move |v| {
-                        set(&|s: &mut crate::config::BarShape| s.radius = Some(v), false)
-                    })
-                    .on_release(wrap(Msg::Commit))
-                    .width(260),
-                    text(format!("{} px", shape.radius.unwrap_or(11)))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                ]
-                .spacing(12),
+        ));
+        col = col.push(self.field(
+            "Rayon des coins",
+            "",
+            self.slider(
+                &radius_spec(shape),
+                f64::from(shape.radius.unwrap_or(11).min(32)),
+                en_px,
+                SliderLook::fixed(13.0, 260, Alignment::Start),
             ),
-        );
+        ));
         let mut toggles = column![
-            toggler(shape.visibility == BarVisibility::AutoHide)
-                .label(crate::i18n::tr(
-                    "Masquer hors survol (un contact du bord la fait revenir)"
-                ))
-                .font(font)
-                .on_toggle(move |v| set(
-                    &|s: &mut crate::config::BarShape| {
-                        s.visibility = if v {
-                            BarVisibility::AutoHide
-                        } else {
-                            BarVisibility::Always
-                        }
-                    },
-                    true
-                )),
-            toggler(shape.reserve_space)
-                .label(crate::i18n::tr(
-                    "Les fenêtres laissent la place de la barre"
-                ))
-                .font(font)
-                .on_toggle(move |v| set(
-                    &|s: &mut crate::config::BarShape| s.reserve_space = v,
-                    true
-                )),
+            self.focusable(
+                self.toggle(shape.visibility == BarVisibility::AutoHide)
+                    .label(crate::i18n::tr(
+                        "Masquer hors survol (un contact du bord la fait revenir)"
+                    ))
+                    .font(font)
+                    .on_toggle(move |v| set(
+                        &|s: &mut crate::config::BarShape| {
+                            s.visibility = if v {
+                                BarVisibility::AutoHide
+                            } else {
+                                BarVisibility::Always
+                            }
+                        },
+                        true
+                    ))
+            ),
+            self.focusable(
+                self.toggle(shape.reserve_space)
+                    .label(crate::i18n::tr(
+                        "Les fenêtres laissent la place de la barre"
+                    ))
+                    .font(font)
+                    .on_toggle(move |v| set(
+                        &|s: &mut crate::config::BarShape| s.reserve_space = v,
+                        true
+                    ))
+            ),
         ]
         .spacing(10);
         if style == crate::config::BarStyle::Continuite {
             toggles = toggles.push(
-                toggler(shape.groups)
-                    .label(crate::i18n::tr("Groupes détachés (sans lame continue)"))
-                    .font(font)
-                    .on_toggle(move |v| set(&|s: &mut crate::config::BarShape| s.groups = v, true)),
+                self.focusable(
+                    self.toggle(shape.groups)
+                        .label(crate::i18n::tr("Groupes détachés (sans lame continue)"))
+                        .font(font)
+                        .on_toggle(move |v| {
+                            set(&|s: &mut crate::config::BarShape| s.groups = v, true)
+                        }),
+                ),
             );
         }
         col = col.push(self.field("Comportement", "", toggles));
@@ -256,12 +297,13 @@ impl App {
                 "Couche",
                 "",
                 row(layers.into_iter().map(|(l, label)| {
-                    radio(crate::i18n::tr(label), l, Some(shape.layer), move |v| {
-                        set(&|s: &mut crate::config::BarShape| s.layer = v, true)
-                    })
-                    .font(font)
-                    .size(crate::ui::tokens::ts(15.0))
-                    .into()
+                    self.focusable(
+                        radio(crate::i18n::tr(label), l, Some(shape.layer), move |v| {
+                            set(&|s: &mut crate::config::BarShape| s.layer = v, true)
+                        })
+                        .font(font)
+                        .size(crate::ui::tokens::ts(15.0)),
+                    )
                 }))
                 .spacing(14)
                 .wrap(),
@@ -338,7 +380,7 @@ impl App {
             column![
                 self.section("Barre de hyprdesk"),
                 text("Au-dessus des fenêtres, avec sa zone réservée : les fenêtres et la grille du bureau se rangent à côté. Ses modules sont des widgets.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
-                self.field("Afficher la barre", "bar", toggler(b.enabled).on_toggle(|v| wrap(Msg::Enable(v)))),
+                self.field("Afficher la barre", "bar", self.focusable(self.toggle(b.enabled).on_toggle(|v| wrap(Msg::Enable(v))))),
             ]
         } else {
             column![self.section("Modules de la barre")]
@@ -361,13 +403,15 @@ impl App {
             return col.into();
         }
         let small = |label: &'static str, msg: UiMsg| {
-            button(
-                text(label)
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0)),
+            self.focusable(
+                button(
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([2, 8])
+                .on_press(msg),
             )
-            .padding([2, 8])
-            .on_press(msg)
         };
         if general {
             col = col
@@ -376,35 +420,35 @@ impl App {
                         "Position",
                         "",
                         row![
-                            radio(
+                            self.focusable(radio(
                                 crate::i18n::tr("En haut"),
                                 BarPosition::Top,
                                 Some(b.position),
                                 |v| { wrap(Msg::Pos(v)) }
                             )
-                            .font(self.font),
-                            radio(
+                            .font(self.font)),
+                            self.focusable(radio(
                                 crate::i18n::tr("En bas"),
                                 BarPosition::Bottom,
                                 Some(b.position),
                                 |v| { wrap(Msg::Pos(v)) }
                             )
-                            .font(self.font),
+                            .font(self.font)),
                             // Barre verticale (MLG-277).
-                            radio(
+                            self.focusable(radio(
                                 crate::i18n::tr("À gauche"),
                                 BarPosition::Left,
                                 Some(b.position),
                                 |v| { wrap(Msg::Pos(v)) }
                             )
-                            .font(self.font),
-                            radio(
+                            .font(self.font)),
+                            self.focusable(radio(
                                 crate::i18n::tr("À droite"),
                                 BarPosition::Right,
                                 Some(b.position),
                                 |v| { wrap(Msg::Pos(v)) }
                             )
-                            .font(self.font),
+                            .font(self.font)),
                         ]
                         .spacing(16)
                         .wrap(),
@@ -414,26 +458,24 @@ impl App {
                     self.field(
                         "Hauteur",
                         "",
-                        row![
-                            slider(24..=64u16, b.height.clamp(24, 64), |v| wrap(Msg::Height(v)))
-                                .on_release(wrap(Msg::Commit))
-                                .width(260),
-                            text(format!("{} px", b.height)).font(self.font).size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12),
+                        self.slider(
+                            &SliderSpec::new("bar_height", (24.0, 64.0), 1.0, |v| wrap(Msg::Height(v.round() as u16)), wrap(Msg::Commit)),
+                            f64::from(b.height.clamp(24, 64)),
+                            |v| format!("{} px", v.round() as u16),
+                            SliderLook::fixed(13.0, 260, Alignment::Start),
+                        ),
                     ),
                 )
                 .push(
                     self.field(
                         "Marge au bord de l'écran",
                         crate::i18n::tr("0 = collée au bord"),
-                        row![
-                            slider(0..=24u16, b.margin.min(24), |v| wrap(Msg::Margin(v)))
-                                .on_release(wrap(Msg::Commit))
-                                .width(260),
-                            text(format!("{} px", b.margin)).font(self.font).size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12),
+                        self.slider(
+                            &SliderSpec::new("bar_margin", (0.0, 24.0), 1.0, |v| wrap(Msg::Margin(v.round() as u16)), wrap(Msg::Commit)),
+                            f64::from(b.margin.min(24)),
+                            |v| format!("{} px", v.round() as u16),
+                            SliderLook::fixed(13.0, 260, Alignment::Start),
+                        ),
                     ),
                 )
                 .push(self.bar_shape_fields(b.shape, b.style))
@@ -460,14 +502,13 @@ impl App {
                             BAR_STYLES
                                 .iter()
                                 .map(|&(style, _, label)| {
-                                    radio(
+                                    self.focusable(radio(
                                         crate::i18n::tr(label),
                                         style,
                                         Some(b.style),
                                         |v| { wrap(Msg::Style(v)) }
                                     )
-                                    .font(self.font)
-                                    .into()
+                                    .font(self.font))
                                 })
                                 .collect::<Vec<_>>(),
                         )
@@ -491,81 +532,94 @@ impl App {
                         })
                     };
                     row![
-                        radio(crate::i18n::tr("Tous"), 0u8, Some(which), pick).font(self.font),
-                        radio(crate::i18n::tr("Écran principal"), 1u8, Some(which), pick)
-                            .font(self.font),
-                        radio(
+                        self.focusable(radio(crate::i18n::tr("Tous"), 0u8, Some(which), pick).font(self.font)),
+                        self.focusable(radio(crate::i18n::tr("Écran principal"), 1u8, Some(which), pick)
+                            .font(self.font)),
+                        self.focusable(radio(
                             crate::tr!("Seulement {mon}", mon = mon),
                             2u8,
                             Some(which),
                             pick
                         )
-                        .font(self.font),
+                        .font(self.font)),
                     ]
                     .spacing(16)
                     .wrap()
                     .vertical_spacing(8)
                 }));
             if b.style == crate::config::BarStyle::Convexe {
-                for (label, value, max, message, unit) in [
+                for (key, label, value, max, message, affiche) in [
                     (
+                        "bar_convex_frame",
                         "Épaisseur du cadre",
                         b.convex.frame_width,
                         20,
                         Msg::ConvexFrame as fn(u16) -> Msg,
-                        "px",
+                        en_px as fn(f64) -> String,
                     ),
                     (
+                        "bar_convex_radius",
                         "Arrondi intérieur",
                         b.convex.radius,
                         96,
                         Msg::ConvexRadius as fn(u16) -> Msg,
-                        "px",
+                        en_px as fn(f64) -> String,
                     ),
                     (
+                        "bar_convex_duration",
                         "Durée d'ouverture des panneaux",
                         b.convex.duration,
                         800,
                         Msg::ConvexDuration as fn(u16) -> Msg,
-                        "ms",
+                        en_ms as fn(f64) -> String,
                     ),
                 ] {
-                    col = col.push(
-                        self.field(
-                            label,
-                            "",
-                            row![
-                                container(
-                                    slider(0..=max, value.min(max), move |v| wrap(message(v)))
-                                        .on_release(wrap(Msg::Commit))
-                                )
-                                .width(Length::Fill)
-                                .max_width(260),
-                                text(format!("{value} {unit}"))
-                                    .font(self.font)
-                                    .size(crate::ui::tokens::ts(13.0)),
-                            ]
-                            .spacing(12),
+                    col = col.push(self.field(
+                        label,
+                        "",
+                        self.slider(
+                            &SliderSpec::new(
+                                key,
+                                (0.0, f64::from(max)),
+                                1.0,
+                                move |v| wrap(message(v.round() as u16)),
+                                wrap(Msg::Commit),
+                            ),
+                            f64::from(value.min(max)),
+                            affiche,
+                            SliderLook::fixed(13.0, 260, Alignment::Start),
                         ),
-                    );
+                    ));
                 }
-                col = col.push(self.field(
-                    "Masquer automatiquement le dock",
-                    "",
-                    toggler(b.convex.auto_hide).on_toggle(|v| wrap(Msg::ConvexAutoHide(v))),
-                ));
-                col = col.push(self.field(
-                    "Panneaux rattachés au cadre",
-                    "",
-                    toggler(b.convex.attached_panels).on_toggle(|v| wrap(Msg::ConvexAttached(v))),
-                ));
+                col = col.push(
+                    self.field(
+                        "Masquer automatiquement le dock",
+                        "",
+                        self.focusable(
+                            self.toggle(b.convex.auto_hide)
+                                .on_toggle(|v| wrap(Msg::ConvexAutoHide(v))),
+                        ),
+                    ),
+                );
+                col = col.push(
+                    self.field(
+                        "Panneaux rattachés au cadre",
+                        "",
+                        self.focusable(
+                            self.toggle(b.convex.attached_panels)
+                                .on_toggle(|v| wrap(Msg::ConvexAttached(v))),
+                        ),
+                    ),
+                );
             }
             use crate::config::BarCompact;
             let compact = |label: &'static str, v: BarCompact| {
-                radio(crate::i18n::tr(label), v, Some(b.compact), |v| {
-                    wrap(Msg::Compact(v))
-                })
-                .font(self.font)
+                self.focusable(
+                    radio(crate::i18n::tr(label), v, Some(b.compact), |v| {
+                        wrap(Msg::Compact(v))
+                    })
+                    .font(self.font),
+                )
             };
             col = col.push(
                 self.field(
@@ -588,36 +642,42 @@ impl App {
         }
         let portrait = self.panel.as_ref().is_some_and(|p| p.bar.portrait);
         let mut which = row![
-            radio(
-                crate::i18n::tr("Écrans horizontaux"),
-                false,
-                Some(portrait),
-                |v| wrap(Msg::EditPortrait(v))
-            )
-            .font(self.font),
-            radio(
-                crate::i18n::tr("Écrans verticaux"),
-                true,
-                Some(portrait),
-                |v| wrap(Msg::EditPortrait(v))
-            )
-            .font(self.font),
+            self.focusable(
+                radio(
+                    crate::i18n::tr("Écrans horizontaux"),
+                    false,
+                    Some(portrait),
+                    |v| wrap(Msg::EditPortrait(v))
+                )
+                .font(self.font)
+            ),
+            self.focusable(
+                radio(
+                    crate::i18n::tr("Écrans verticaux"),
+                    true,
+                    Some(portrait),
+                    |v| wrap(Msg::EditPortrait(v))
+                )
+                .font(self.font)
+            ),
         ]
         .spacing(16)
         .align_y(Alignment::Center);
         if portrait && b.portrait.is_some() {
             which = which.push(
-                button(
-                    text("Mêmes modules que les autres écrans")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0)),
-                )
-                .padding([3, 10])
-                .style(button::secondary)
-                .on_press(wrap(Msg::PortraitReset)),
+                self.focusable(
+                    button(
+                        text("Mêmes modules que les autres écrans")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([3, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::PortraitReset)),
+                ),
             );
         }
-        col = col.push(self.adv(self.field("Modules", "", which)));
+        col = col.push(self.adv("Modules par type d'écran", || self.field("", "", which)));
         if portrait && b.portrait.is_none() {
             col = col.push(
                 text(
@@ -692,7 +752,7 @@ impl App {
                 let dragged = self.bar_drag.is_some_and(|(from, _)| from == (z, i));
                 let label = text(label_of(&e.type_id))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0));
+                    .size(crate::ui::tokens::ts(13.0));
                 let label: Element<'_, UiMsg> = if draggable {
                     let grip = iced::widget::svg(
                         super::super::icons::get("grip-vertical").expect("drag grip"),
@@ -736,7 +796,21 @@ impl App {
                     r = r.push(small("→", wrap(Msg::Zone(z, i, 1))));
                 }
                 if draggable {
-                    r = r.push(small("×", wrap(Msg::Remove(z, i))));
+                    // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07).
+                    r = r.push(
+                        self.focusable(
+                            button(
+                                crate::ui::icons::glyph(
+                                    "window-close",
+                                    crate::ui::tokens::ts(12.0),
+                                    self.ink().fg,
+                                )
+                                .expect("glyphe de fermeture"),
+                            )
+                            .padding([4, 8])
+                            .on_press(wrap(Msg::Remove(z, i))),
+                        ),
+                    );
                 }
                 group = group.push(marker(i));
                 let item = container(r)
@@ -1144,10 +1218,12 @@ impl App {
             let mut chips = row(proposals.iter().map(|&(c, l)| {
                 let k = key.clone();
                 tooltip(
-                    button(dot(c, 20.0, value == Some(ColorRef::Fixed(c))))
-                        .padding(0)
-                        .style(|_, _| button::Style::default())
-                        .on_press(wrap(Msg::SetColor(k, Some(ColorRef::Fixed(c))))),
+                    self.focusable(
+                        button(dot(c, 20.0, value == Some(ColorRef::Fixed(c))))
+                            .padding(0)
+                            .style(|_, _| button::Style::default())
+                            .on_press(wrap(Msg::SetColor(k, Some(ColorRef::Fixed(c))))),
+                    ),
                     container(
                         text(format!(
                             "{} — {}",
@@ -1177,23 +1253,25 @@ impl App {
                 let selected = matches!(&value, Some(ColorRef::Slot(s)) if s == name);
                 chips = chips.push(
                     tooltip(
-                        button(
-                            row![
-                                dot(*c, 16.0, selected),
-                                text(name.clone())
-                                    .font(font)
-                                    .size(crate::ui::tokens::ts(11.0))
-                                    .color(if selected { fg } else { dim }),
-                            ]
-                            .spacing(4)
-                            .align_y(Alignment::Center),
-                        )
-                        .padding([1, 4])
-                        .style(|_, _| button::Style::default())
-                        .on_press(wrap(Msg::SetColor(
-                            key.clone(),
-                            Some(ColorRef::Slot(name.clone())),
-                        ))),
+                        self.focusable(
+                            button(
+                                row![
+                                    dot(*c, 16.0, selected),
+                                    text(name.clone())
+                                        .font(font)
+                                        .size(crate::ui::tokens::ts(11.0))
+                                        .color(if selected { fg } else { dim }),
+                                ]
+                                .spacing(4)
+                                .align_y(Alignment::Center),
+                            )
+                            .padding([1, 4])
+                            .style(|_, _| button::Style::default())
+                            .on_press(wrap(Msg::SetColor(
+                                key.clone(),
+                                Some(ColorRef::Slot(name.clone())),
+                            ))),
+                        ),
                         container(
                             text(crate::tr!(
                                 "Slot « {name} » du thème — suit le mode clair/sombre",
@@ -1212,7 +1290,12 @@ impl App {
             let is_open = open.is_some_and(|(k, _)| *k == key);
             let by_mode = matches!(value, Some(ColorRef::Pair { .. }));
             let mode_btn = tooltip(
-                button(text(crate::i18n::tr("Selon le mode")).font(font).size(crate::ui::tokens::ts(12.0)))
+                self.focusable(
+                    button(
+                        text(crate::i18n::tr("Selon le mode"))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
                     .padding([3, 8])
                     .style(if by_mode {
                         button::primary
@@ -1220,9 +1303,12 @@ impl App {
                         button::secondary
                     })
                     .on_press(wrap(Msg::ToggleByMode(key.clone()))),
+                ),
                 container(
+                    // Une phrase de 75 caractères au plus, qui commence par
+                    // un verbe (HIG DAT-20).
                     text(crate::i18n::tr(
-                        "Une couleur en sombre, une autre en clair : « Choisir… » règle celle du mode en cours.",
+                        "Donne une couleur au mode sombre, une autre au mode clair.",
                     ))
                     .font(font)
                     .size(crate::ui::tokens::ts(12.0)),
@@ -1238,14 +1324,15 @@ impl App {
                 None => crate::settings::hex(shown),
             };
             let reset: Element<'_, UiMsg> = if value.is_some() {
-                button(
-                    text(crate::i18n::tr("Thème"))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(12.0)),
+                self.focusable(
+                    button(
+                        text(crate::i18n::tr("Thème"))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([3, 8])
+                    .on_press(wrap(Msg::SetColor(key.clone(), None))),
                 )
-                .padding([3, 8])
-                .on_press(wrap(Msg::SetColor(key.clone(), None)))
-                .into()
             } else {
                 text(crate::i18n::tr("thème"))
                     .font(font)
@@ -1258,28 +1345,38 @@ impl App {
                 row![
                     chips,
                     Space::new().width(Length::Fill),
-                    dot(shown, 22.0, false),
+                    // Puits de couleur (HIG SEL-02) : ouvre le sélecteur.
+                    well(
+                        shown,
+                        22.0,
+                        is_open,
+                        fg,
+                        edge,
+                        wrap(Msg::OpenPicker(key.clone())),
+                    ),
                     text(label)
                         .font(font)
                         .size(crate::ui::tokens::ts(12.0))
                         .color(if value.is_some() { fg } else { dim })
                         .width(if by_mode { 120 } else { 64 }),
-                    button(
-                        text(crate::i18n::tr(if is_open {
-                            "Fermer"
+                    self.focusable(
+                        button(
+                            text(crate::i18n::tr(if is_open {
+                                "Fermer"
+                            } else {
+                                "Choisir…"
+                            }))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([3, 8])
+                        .style(if is_open {
+                            button::primary
                         } else {
-                            "Choisir…"
-                        }))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([3, 8])
-                    .style(if is_open {
-                        button::primary
-                    } else {
-                        button::secondary
-                    })
-                    .on_press(wrap(Msg::OpenPicker(key.clone()))),
+                            button::secondary
+                        })
+                        .on_press(wrap(Msg::OpenPicker(key.clone())))
+                    ),
                     mode_btn,
                     reset,
                 ]
@@ -1291,6 +1388,7 @@ impl App {
                 c = c.push(pk.view(
                     font,
                     fg,
+                    dim,
                     |m| wrap(Msg::Picker(m)),
                     wrap(Msg::PickerApply),
                     wrap(Msg::PickerCancel),
@@ -1320,38 +1418,49 @@ impl App {
         // Transparence du fond.
         let theme_opacity = th.effect(crate::config::Place::Bar).opacity;
         let o = b.colors.opacity.unwrap_or(theme_opacity);
+        let spec = SliderSpec::new(
+            "bar_colors_opacity",
+            (0.0, 100.0),
+            1.0,
+            |v| wrap(Msg::Opacity(Some(v.round() as u32 as f32 / 100.0))),
+            wrap(Msg::Commit),
+        );
         col = col.push(
             self.field(
                 "Opacité du fond",
                 "",
                 row![
-                    slider(0..=100u32, (o * 100.0).round() as u32, |v| wrap(
-                        Msg::Opacity(Some(v as f32 / 100.0))
-                    ))
-                    .on_release(wrap(Msg::Commit))
-                    .width(Length::Fill),
-                    text(format!("{} %", (o * 100.0).round() as i32))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .width(48),
-                    if b.colors.opacity.is_some() {
-                        Element::from(
-                            button(
-                                text(crate::i18n::tr("Thème"))
-                                    .font(font)
-                                    .size(crate::ui::tokens::ts(12.0)),
+                    self.slider(
+                        &spec,
+                        f64::from((o * 100.0).round()),
+                        en_pour_cent,
+                        SliderLook::fill(13.0, 48, Alignment::Center).spacing(10),
+                    ),
+                    // Sur la ligne du curseur, au-dessus de son échelle
+                    // (HIG SEL-09).
+                    beside_slider(
+                        &spec,
+                        if b.colors.opacity.is_some() {
+                            Element::from(
+                                self.focusable(
+                                    button(
+                                        text(crate::i18n::tr("Thème"))
+                                            .font(font)
+                                            .size(crate::ui::tokens::ts(12.0)),
+                                    )
+                                    .padding([3, 8])
+                                    .on_press(wrap(Msg::Opacity(None))),
+                                ),
                             )
-                            .padding([3, 8])
-                            .on_press(wrap(Msg::Opacity(None))),
-                        )
-                    } else {
-                        text(crate::i18n::tr("thème"))
-                            .font(font)
-                            .size(crate::ui::tokens::ts(12.0))
-                            .color(dim)
-                            .width(52)
-                            .into()
-                    },
+                        } else {
+                            text(crate::i18n::tr("thème"))
+                                .font(font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .color(dim)
+                                .width(52)
+                                .into()
+                        }
+                    ),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
@@ -1367,7 +1476,6 @@ impl App {
         );
         // Couleur de chaque module : configuration avancée.
         let mut fine = column![].spacing(10);
-        fine = fine.push(self.section("Couleur de chaque module"));
         fine = fine.push(
             text(crate::i18n::tr(
                 "Texte et icônes du module, y compris quand il est actif ; avertissement et critique gardent leurs couleurs.",
@@ -1396,7 +1504,7 @@ impl App {
                 .spacing(6),
             );
         }
-        col = col.push(self.adv(fine));
+        col = col.push(self.adv("Couleur de chaque module", || fine));
         col.into()
     }
 }

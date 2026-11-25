@@ -91,6 +91,10 @@ fn required(t: [f32; 3]) -> f32 {
     }
 }
 
+/// Priorité des menus du shell (HIG MENU-01) : un emplacement à ce niveau
+/// n'est jamais masqué par le débordement.
+pub(in crate::ui) const PINNED: u8 = u8::MAX;
+
 fn fit(
     widths: &[f32],
     zones: &[usize],
@@ -113,7 +117,7 @@ fn fit(
         {
             break;
         }
-        if widths[i] > 0.0 {
+        if widths[i] > 0.0 && priorities[i] != PINNED {
             visible[i] = false;
             overflow = true;
         }
@@ -622,5 +626,16 @@ mod tests {
     fn long_center_content_is_also_reachable_and_empty_modules_do_not_overflow() {
         let (visible, _) = fit(&[0.0, 800.0, 32.0], &[0, 1, 2], &[0, 20, 100], 320.0, 32.0);
         assert_eq!(visible, vec![true, false, true]);
+    }
+    #[test]
+    fn pinned_menus_are_never_overflowed() {
+        // Un titre de menu (HIG MENU-01) puis deux modules, dans la zone amont :
+        // la place d'un titre et d'un module, plus un pixel.
+        let width = 40.0 + 60.0 + 2.0 * gap() + 1.0;
+        let (visible, _) = fit(&[40.0, 60.0, 60.0], &[0, 0, 0], &[PINNED, 2, 1], width, 0.0);
+        assert_eq!(visible, vec![true, true, false]);
+        // Même sans place pour lui seul, le titre reste : la zone est rognée.
+        let (visible, _) = fit(&[40.0, 60.0], &[0, 0], &[PINNED, 1], 10.0, 0.0);
+        assert_eq!(visible, vec![true, false]);
     }
 }

@@ -17,8 +17,8 @@ pub mod plugins;
 pub mod system;
 
 pub use command::run_command;
-pub use media::{media, media_control};
-pub use system::sample_system;
+pub use media::{media, media_control, media_raise};
+pub use system::{sample_system, system_items};
 
 use crate::config::{Anchor, WidgetSource, WidgetType};
 
@@ -41,6 +41,11 @@ pub struct MediaInfo {
     pub art: Option<std::path::PathBuf>,
     /// Teinte moyenne de la pochette.
     pub tint: Option<crate::config::Rgba>,
+    /// Album (`xesam:album`), position et durée en secondes : couches des
+    /// grandes tailles du widget (HIG SYS-15).
+    pub album: String,
+    pub position: Option<i64>,
+    pub length: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -90,8 +95,8 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "clock",
         name: "Horloge",
-        description: "Heure (ou date) au format strftime.",
-        options: &["format"],
+        description: "Afficher l'heure ou la date, au format strftime.",
+        options: &["format", "family"],
         interval: 1.0,
         anchor: Anchor::TopRight,
         toggleable: true,
@@ -99,8 +104,8 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "calendar",
         name: "Calendrier",
-        description: "Le mois en cours, aujourd'hui en évidence.",
-        options: &[],
+        description: "Parcourir le mois en cours, aujourd'hui en évidence.",
+        options: &["family"],
         interval: 60.0,
         anchor: Anchor::Right,
         toggleable: true,
@@ -108,8 +113,8 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "system",
         name: "Système",
-        description: "CPU, mémoire, disques, charge, durée d'allumage.",
-        options: &["show"],
+        description: "Surveiller le processeur, la mémoire, les disques, la charge et la durée d'allumage.",
+        options: &["show", "family"],
         interval: 2.0,
         anchor: Anchor::BottomRight,
         toggleable: true,
@@ -117,8 +122,8 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "media",
         name: "Lecteur média",
-        description: "Titre en cours et commandes (MPRIS).",
-        options: &["player"],
+        description: "Afficher le titre en cours et commander le lecteur (MPRIS).",
+        options: &["player", "family"],
         interval: 1.0,
         anchor: Anchor::BottomLeft,
         toggleable: true,
@@ -126,7 +131,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "command",
         name: "Commande",
-        description: "Sortie d'une commande shell (option exec, dans hyprdesk.lua).",
+        description: "Afficher la sortie d'une commande shell (option exec, dans hyprdesk.lua).",
         options: &["exec", "timeout"],
         interval: 60.0,
         anchor: Anchor::TopLeft,
@@ -135,7 +140,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin {
         id: "lua",
         name: "Fonction Lua",
-        description: "Texte rendu par une fonction Lua (option render, dans hyprdesk.lua).",
+        description: "Afficher un texte rendu par une fonction Lua (option render, dans hyprdesk.lua).",
         options: &["render", "on_click", "on_scroll", "menu", "on_toggle"],
         interval: 5.0,
         anchor: Anchor::Left,

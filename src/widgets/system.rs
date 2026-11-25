@@ -5,7 +5,7 @@ use std::sync::{LazyLock, Mutex};
 use sysinfo::{Disks, System};
 
 use super::SysLine;
-use crate::config::SysItem;
+use crate::config::{SysItem, WidgetFamily};
 
 /// Un seul `System` partagé : l'usage CPU se calcule entre deux relevés.
 static SYS: LazyLock<Option<Mutex<System>>> = LazyLock::new(|| System::new().ok().map(Mutex::new));
@@ -38,6 +38,39 @@ fn human_duration(secs: u64) -> String {
     } else {
         format!("{h} h {m:02}")
     }
+}
+
+/// Ce que relève le widget système selon sa taille (HIG SYS-15) : petit, la
+/// première jauge choisie ; moyen, le choix (`show`) ; grand, plus la charge
+/// et la durée d'allumage ; très grand, plus le disque racine. Sans doublon :
+/// une ligne déjà choisie garde sa place.
+pub fn system_items(show: &[SysItem], family: WidgetFamily) -> Vec<SysItem> {
+    let gauge = |i: &&SysItem| matches!(i, SysItem::Cpu | SysItem::Ram | SysItem::Disk(_));
+    let mut items: Vec<SysItem> = match family {
+        WidgetFamily::Small => show
+            .iter()
+            .find(gauge)
+            .or_else(|| show.first())
+            .cloned()
+            .into_iter()
+            .collect(),
+        _ => show.to_vec(),
+    };
+    let extra: &[SysItem] = match family {
+        WidgetFamily::Small | WidgetFamily::Medium => &[],
+        WidgetFamily::Large => &[SysItem::Load, SysItem::Uptime],
+        WidgetFamily::XLarge => &[SysItem::Load, SysItem::Uptime, SysItem::Disk(String::new())],
+    };
+    for item in extra {
+        let item = match item {
+            SysItem::Disk(_) => SysItem::Disk("/".into()),
+            other => other.clone(),
+        };
+        if !items.contains(&item) {
+            items.push(item);
+        }
+    }
+    items
 }
 
 /// Relevé synchrone (à appeler dans `spawn_blocking`).
@@ -128,6 +161,26 @@ mod tests {
         assert_eq!(human_bytes(3 * 1024 * 1024 * 1024 / 2), "1.5 Gio");
         assert_eq!(human_duration(90061), "1 j 1 h");
         assert_eq!(human_duration(3720), "1 h 02");
+    }
+
+    /// Moyen : le choix tel quel ; chaque taille au-dessus ajoute des lignes
+    /// sans doublon (HIG SYS-15).
+    #[test]
+    fn lignes_par_taille() {
+        use SysItem::*;
+        let show = [Load, Ram, Cpu];
+        assert_eq!(system_items(&show, WidgetFamily::Medium), show.to_vec());
+        assert_eq!(system_items(&show, WidgetFamily::Small), vec![Ram]);
+        assert_eq!(system_items(&[Uptime], WidgetFamily::Small), vec![Uptime]);
+        assert!(system_items(&[], WidgetFamily::Small).is_empty());
+        assert_eq!(
+            system_items(&show, WidgetFamily::Large),
+            vec![Load, Ram, Cpu, Uptime]
+        );
+        assert_eq!(
+            system_items(&[Cpu, Disk("/".into())], WidgetFamily::XLarge),
+            vec![Cpu, Disk("/".into()), Load, Uptime]
+        );
     }
 
     #[test]

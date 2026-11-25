@@ -57,6 +57,16 @@ pub(in crate::ui) enum Slot {
     Separator,
 }
 
+/// Part de grossissement au survol : nulle quand aucun mouvement n'est
+/// possible — icône incorporée au bureau, « Aucune » transition, mouvement
+/// réduit : un grossissement est un zoom (HIG FON-07).
+fn magnifies(over: f32, embedded: bool, still: bool) -> f32 {
+    if embedded || still { 0.0 } else { over }
+}
+
+/// Épaisseur de la bande de rappel d'un dock masqué, en pixels.
+pub(in crate::ui) const REVEAL_STRIP: u32 = 4;
+
 /// Ordre des workspaces : numériques d'abord, dans l'ordre, puis par nom.
 fn ws_key(name: &str) -> (i64, String) {
     (name.parse::<i64>().unwrap_or(i64::MAX), name.to_string())
@@ -128,6 +138,9 @@ pub struct LauncherSurface {
     pub monitor: String,
     pub position: LauncherPosition,
     pub thickness: u32,
+    /// Posé par-dessus une fenêtre plein écran (calque `Overlay`), réduit à
+    /// sa bande de rappel (HIG PAT-01).
+    pub over_fullscreen: bool,
 }
 
 /// Contenu de la bulle du lanceur.
@@ -146,6 +159,8 @@ pub struct Popup {
     pub monitor: String,
     pub key: String,
     pub content: PopupContent,
+    /// Astuce sous le nom d'une application (HIG DAT-07).
+    pub tip: Option<&'static crate::tips::Tip>,
     pub(in crate::ui) fade: crate::ui::Fade,
     pub(in crate::ui) shown: bool,
     pub(in crate::ui) placement: lifecycle::Placement,
@@ -287,6 +302,31 @@ impl App {
         Task::none()
     }
 
+    /// Le dock se masque hors survol : réglé ainsi, ou posé par-dessus une
+    /// fenêtre plein écran, où seule sa bande de rappel reste (HIG PAT-01).
+    pub(in crate::ui) fn dock_hides(&self, id: iced::window::Id) -> bool {
+        self.dock_autohide()
+            || self
+                .launcher_surfaces
+                .get(&id)
+                .is_some_and(|s| s.over_fullscreen)
+    }
+
+    /// Un dock d'écran n'est plus sur le bon calque : plein écran venu ou
+    /// parti sur son espace affiché (HIG PAT-01).
+    pub(in crate::ui) fn dock_cover_changed(&self) -> bool {
+        self.launcher_surfaces
+            .values()
+            .any(|s| s.over_fullscreen != self.dock_covered(&s.monitor))
+    }
+
+    /// Le dock de l'écran `monitor` passe par-dessus un plein écran. Pas
+    /// en Convex masqué hors survol : sa bande de réveil est sur le cadre,
+    /// sous la fenêtre (HIG PAT-01).
+    fn dock_covered(&self, monitor: &str) -> bool {
+        !self.convex_auto_hide() && self.fullscreen_on(monitor)
+    }
+
     /// Une surface de lanceur par écran où le bureau est affiché.
     pub(in crate::ui) fn sync_launchers(&mut self) -> Task<UiMsg> {
         use iced_layershell::reexport::{
@@ -306,8 +346,14 @@ impl App {
         let mut tasks = Vec::new();
         let mut changed = false;
         for (id, s) in self.launcher_surfaces.clone() {
-            if !(want.contains(&s.monitor) && (s.position, s.thickness) == spec) {
+            // Plein écran venu ou parti : le calque change, la surface est
+            // recréée (HIG PAT-01).
+            if !(want.contains(&s.monitor)
+                && (s.position, s.thickness) == spec
+                && s.over_fullscreen == self.dock_covered(&s.monitor))
+            {
                 self.launcher_surfaces.remove(&id);
+                self.bar_reveal.remove(&id);
                 self.launcher_runtime.docks.remove(&s.monitor);
                 if self
                     .launcher_runtime
@@ -334,13 +380,21 @@ impl App {
             let (pos, th) = spec;
             let fade = self.launcher_transition(0.0, 0.0, 0);
             self.launcher_runtime.docks.insert(mon.clone(), fade);
+            // Par-dessus un plein écran : calque `Overlay`, sans zone réservée,
+            // réduit d'emblée à sa bande de rappel (HIG PAT-01).
+            let cover = self.dock_covered(&mon);
+            // Ouvert au clavier, il se montre tout de suite.
+            let strip = cover && grabbed.as_deref() != Some(mon.as_str());
+            let start = if strip { REVEAL_STRIP } else { th };
             let (size, anchor) = match pos {
                 LauncherPosition::Bottom => {
-                    ((0, th), Anchor::Bottom | Anchor::Left | Anchor::Right)
+                    ((0, start), Anchor::Bottom | Anchor::Left | Anchor::Right)
                 }
-                LauncherPosition::Top => ((0, th), Anchor::Top | Anchor::Left | Anchor::Right),
-                LauncherPosition::Left => ((th, 0), Anchor::Left | Anchor::Top | Anchor::Bottom),
-                LauncherPosition::Right => ((th, 0), Anchor::Right | Anchor::Top | Anchor::Bottom),
+                LauncherPosition::Top => ((0, start), Anchor::Top | Anchor::Left | Anchor::Right),
+                LauncherPosition::Left => ((start, 0), Anchor::Left | Anchor::Top | Anchor::Bottom),
+                LauncherPosition::Right => {
+                    ((start, 0), Anchor::Right | Anchor::Top | Anchor::Bottom)
+                }
             };
             self.launcher_surfaces.insert(
                 id,
@@ -348,14 +402,18 @@ impl App {
                     monitor: mon.clone(),
                     position: pos,
                     thickness: th,
+                    over_fullscreen: cover,
                 },
             );
+            if cover {
+                self.bar_reveal.insert(id, (!strip, 0));
+            }
             tasks.push(Task::done(UiMsg::NewLayerShell {
                 settings: NewLayerShellSettings {
                     size: Some(size),
-                    layer: Layer::Top,
+                    layer: if cover { Layer::Overlay } else { Layer::Top },
                     anchor,
-                    exclusive_zone: Some(if self.convex_auto_hide() {
+                    exclusive_zone: Some(if self.convex_auto_hide() || cover {
                         0
                     } else {
                         th as i32
@@ -383,13 +441,13 @@ impl App {
             tasks.push(Task::done(UiMsg::ExclusiveZoneChange {
                 id: *id,
                 // Masqué hors survol (MLG-279) : les fenêtres prennent la place.
-                zone_size: if self.convex_auto_hide() || self.dock_autohide() {
+                zone_size: if self.convex_auto_hide() || self.dock_hides(*id) {
                     0
                 } else {
                     s.thickness as i32
                 },
             }));
-            if self.dock_autohide() && !self.bar_reveal.contains_key(id) {
+            if self.dock_hides(*id) && !self.bar_reveal.contains_key(id) {
                 // Montré à l'apparition, masqué après le délai.
                 tasks.push(Task::done(UiMsg::BarReveal(*id, false)));
             }
@@ -446,14 +504,11 @@ impl App {
         let g = &self.cfg.general;
         let l = &g.launcher;
         let vertical = !embedded && l.position.vertical();
-        let fg = color(
-            if embedded {
-                self.bar_palette().fg
-            } else {
-                g.theme.fg
-            },
-            t,
-        );
+        let palette = embedded.then(|| self.bar_palette());
+        let (fg0, bg0, accent0) = palette.map_or((g.theme.fg, g.theme.bg, g.theme.accent), |p| {
+            (p.fg, p.bg, p.accent)
+        });
+        let fg = color(fg0, t);
         let dim = color(g.theme.fg, 0.55 * t);
         let size = if embedded {
             self.cfg
@@ -463,43 +518,17 @@ impl App {
         } else {
             l.size as f32
         };
-        let accent = color(
-            if embedded {
-                self.bar_palette().accent
-            } else {
-                g.theme.accent
-            },
-            t,
-        );
+        let accent = color(accent0, t);
+        // Encre de l'icône de remplacement : celle du thème qui reste lisible
+        // sur la tuile d'accent.
+        let on_accent = Color {
+            a: t,
+            ..design::on_accent(color(accent0, 1.0), color(fg0, 1.0), color(bg0, 1.0))
+        };
         let face = |class: &str, px: f32| -> Element<'a, UiMsg> {
             let img = self.class_imgs.get(class).copied().unwrap_or(IconImg::None);
             self.img_element(img, px, t).unwrap_or_else(|| {
-                container(
-                    text(
-                        class
-                            .chars()
-                            .next()
-                            .unwrap_or('?')
-                            .to_uppercase()
-                            .to_string(),
-                    )
-                    .font(self.font)
-                    .size(px * 0.5)
-                    .color(fg),
-                )
-                .center(px)
-                .style(move |_| container::Style {
-                    background: Some(
-                        Color {
-                            a: 0.16 * t,
-                            ..accent
-                        }
-                        .into(),
-                    ),
-                    border: Border::default().rounded(px * 0.24),
-                    ..Default::default()
-                })
-                .into()
+                crate::ui::icons::fallback_icon(class, px, accent, on_accent, self.title_font())
             })
         };
         let glyph = |g: &Glyph| -> Element<'a, UiMsg> {
@@ -527,29 +556,15 @@ impl App {
                             .color(fg)
                             .into()
                     }),
-                Glyph::Settings if embedded => iced::widget::svg(
+                // Réglages : le glyphe de hyprdesk, teinté comme les autres
+                // commandes, à la même échelle dans les deux docks.
+                Glyph::Settings => iced::widget::svg(
                     crate::ui::icons::get("preferences-system").expect("settings icon"),
                 )
                 .width(size * 0.85)
                 .height(size * 0.85)
                 .style(move |_, _| iced::widget::svg::Style { color: Some(fg) })
                 .into(),
-                Glyph::Settings => self
-                    .img_element(
-                        self.ui_imgs
-                            .get(crate::ui::ICON_SETTINGS)
-                            .copied()
-                            .unwrap_or(IconImg::None),
-                        size * 0.6,
-                        t,
-                    )
-                    .unwrap_or_else(|| {
-                        text(crate::i18n::tr("Réglages"))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                            .color(fg)
-                            .into()
-                    }),
             }
         };
         let monitor = m.name.clone();
@@ -579,8 +594,12 @@ impl App {
             let launching = key
                 .strip_prefix("dock-pin:")
                 .and_then(|id| self.launcher_runtime.launches.get(id));
+            // Sans mouvement possible — « Aucune » transition, mouvement réduit
+            // — : ni zoom ni pulsation (HIG FON-07).
+            let still = g.transition == crate::config::Transition::None
+                || crate::ui::tokens::motion().reduced;
             let pulse = launching.map(|launch| {
-                if g.transition == crate::config::Transition::None {
+                if still {
                     1.0
                 } else {
                     0.5 + 0.5
@@ -588,11 +607,7 @@ impl App {
                             .sin()
                 }
             });
-            let motion = if embedded || g.transition == crate::config::Transition::None {
-                0.0
-            } else {
-                over
-            };
+            let motion = magnifies(over, embedded, still);
             let lift = match l.position {
                 LauncherPosition::Bottom => iced::Vector::new(0.0, -2.5 * motion),
                 LauncherPosition::Top => iced::Vector::new(0.0, 2.5 * motion),
@@ -898,8 +913,13 @@ impl App {
         } else {
             // Vraie réfraction (MLG-275) : le dock ne voit pas le fond derrière
             // lui ; celui de son écran est peint dessous pour la lentille.
-            let style = design::launcher_surface(&self.theme, t, false, base);
+            let mut style = design::launcher_surface(&self.theme, t, false, base);
             let th = &self.cfg.general.theme;
+            // Cible d'un dépôt valable : la bordure d'accent, comme la carte
+            // cible de l'écran des espaces (HIG DAT-04).
+            if self.dock_drop_target(&m.name) {
+                style.border = style.border.width(2).color(color(th.accent, t));
+            }
             let tint = color(
                 crate::ui::tokens::tinted(th.bg, crate::config::Place::Launcher),
                 base * 0.86 * t,
@@ -1323,16 +1343,36 @@ impl App {
         else {
             return Task::none();
         };
-        let Some(m) = self.monitors.iter().find(|m| m.name == pending.monitor) else {
+        let Some(m) = self
+            .monitors
+            .iter()
+            .find(|m| m.name == pending.monitor)
+            .cloned()
+        else {
             return Task::none();
         };
+        let m = &m;
         let anchor = self.launcher_screen_anchor(m, local);
         let position = self.launcher_bar_position(&m.name);
         let lines = match &pending.content {
             PopupContent::Windows(class) => self.popup_windows(&pending.monitor, class).len(),
             PopupContent::Label(_) => 1,
         };
-        let (w, h) = popup_size(&pending.content, lines);
+        // Astuce du menu d'une application, dans la bulle de son nom : une
+        // fois, au plus une par jour (HIG DAT-07).
+        let (tip, saved) = if matches!(pending.content, PopupContent::Label(_))
+            && ["dock-pin:", "dock:"]
+                .iter()
+                .any(|p| pending.key.starts_with(p))
+        {
+            self.take_tip(crate::tips::Surface::Dock)
+        } else {
+            (None, Task::none())
+        };
+        let (mut w, h) = popup_size(&pending.content, lines);
+        if tip.is_some() {
+            w = w.max(360);
+        }
         let max_height = (m.height as f32 - m.reserved.1 - m.reserved.3 - 16.0).max(36.0);
         let placement = lifecycle::place_popup(
             position,
@@ -1347,6 +1387,7 @@ impl App {
             monitor: pending.monitor.clone(),
             key: pending.key,
             content: pending.content,
+            tip,
             fade: self.launcher_transition(0.0, 1.0, 160),
             shown: cfg!(test),
             placement,
@@ -1355,6 +1396,7 @@ impl App {
         let bounds = placement.bounds;
         Task::batch([
             close,
+            saved,
             Task::done(UiMsg::NewLayerShell {
                 settings: NewLayerShellSettings {
                     size: Some((bounds.width as u32, bounds.height as u32)),
@@ -1485,11 +1527,46 @@ impl App {
             ..Default::default()
         };
         let body: Element<'_, UiMsg> = match &p.content {
-            PopupContent::Label(t) => text(t.clone())
-                .font(self.font)
-                .size(crate::ui::tokens::ts(13.0))
-                .color(fg)
-                .into(),
+            // Nom au survol : une infobulle, au rôle `tooltip` (HIG TYP-19).
+            PopupContent::Label(t) => {
+                let name = text(t.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts_tooltip(11.0))
+                    .color(fg);
+                match p.tip {
+                    // Astuce en pop-over : symbole de la fonction et une
+                    // phrase, sous le nom ; la bulle se ferme d'elle-même.
+                    Some(tip) => {
+                        let icon: Element<'_, UiMsg> = crate::ui::icons::get(tip.icon)
+                            .map(|h| {
+                                iced::widget::svg(h)
+                                    .width(16)
+                                    .height(16)
+                                    .style(move |_, _| iced::widget::svg::Style {
+                                        color: Some(dim),
+                                    })
+                                    .into()
+                            })
+                            .unwrap_or_else(|| Space::new().width(16).height(16).into());
+                        column![
+                            name,
+                            row![
+                                icon,
+                                text(crate::i18n::tr(tip.text))
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts_tooltip(11.0))
+                                    .color(dim)
+                                    .width(Length::Fill),
+                            ]
+                            .spacing(8)
+                            .align_y(Alignment::Center),
+                        ]
+                        .spacing(8)
+                        .into()
+                    }
+                    None => name.into(),
+                }
+            }
             PopupContent::Windows(class) => {
                 column(self.popup_windows(&p.monitor, class).into_iter().map(|c| {
                     let active =
@@ -1636,6 +1713,73 @@ impl App {
     }
 }
 
+/// Application qu'un fichier déposé sur le dock épingle (HIG DAT-04) : un
+/// `.desktop` d'une application connue (son id est le nom du fichier), pas
+/// encore épinglée.
+pub(in crate::ui) fn dock_drop_app(
+    path: &std::path::Path,
+    apps: &[crate::launch::AppInfo],
+    pinned: &[String],
+) -> Option<String> {
+    if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
+        return None;
+    }
+    let id = path.file_stem()?.to_str()?;
+    apps.iter()
+        .find(|a| a.id == id)
+        .filter(|a| !pinned.contains(&a.id))
+        .map(|a| a.id.clone())
+}
+
+impl App {
+    /// Le dock de l'écran `monitor` est la cible d'un dépôt valable.
+    fn dock_drop_target(&self, monitor: &str) -> bool {
+        self.dock_drop.as_ref().is_some_and(|(id, _)| {
+            self.launcher_surfaces
+                .get(id)
+                .is_some_and(|s| s.monitor == monitor)
+        })
+    }
+
+    /// Glisser-déposer de fichiers sur le dock `win` (HIG DAT-04) : le
+    /// survol d'une application à épingler allume la cible, le dépôt
+    /// l'épingle en fin de dock ; tout autre fichier est ignoré.
+    pub(in crate::ui) fn dock_drop_event(
+        &mut self,
+        win: iced::window::Id,
+        ev: crate::ui::DropEvent,
+    ) -> Task<UiMsg> {
+        use crate::ui::DropEvent;
+        match ev {
+            DropEvent::Hover(path) => {
+                // Un survol par fichier de l'offre : le premier qui convient
+                // fait la cible ; un chemin vide (offre sans fichier, ou pas
+                // encore lue), rien.
+                if self.dock_drop.as_ref().is_none_or(|(id, _)| *id != win)
+                    && let Some(app) = dock_drop_app(&path, &self.apps, &self.pinned())
+                {
+                    self.dock_drop = Some((win, app));
+                }
+                Task::none()
+            }
+            DropEvent::Left => {
+                self.dock_drop = None;
+                Task::none()
+            }
+            DropEvent::File(path) => {
+                self.dock_drop = None;
+                let mut l = self.pinned();
+                let Some(app) = dock_drop_app(&path, &self.apps, &l) else {
+                    return Task::none();
+                };
+                l.push(app);
+                self.settings.launcher_pinned = Some(l);
+                self.commit()
+            }
+        }
+    }
+}
+
 impl App {
     /// Une fenêtre de classe `class` appartient-elle à l'application `id` ?
     pub(in crate::ui) fn app_matches(&self, id: &str, class: &str) -> bool {
@@ -1681,8 +1825,9 @@ impl App {
         Task::batch([feedback, resolve])
     }
 
-    /// Clic sur une application regroupée : sa fenêtre suivante, à tour de
-    /// rôle. Comme toute action du lanceur, le mode du bureau ne change pas.
+    /// Clic sur une application regroupée : sa fenêtre la plus récemment
+    /// utilisée, comme le Dock de macOS (HIG PRES-08). Comme toute action du
+    /// lanceur, le mode du bureau ne change pas.
     pub(in crate::ui) fn launcher_focus_app(&mut self, monitor: &str, class: &str) -> Task<UiMsg> {
         let workspace = self
             .monitors
@@ -1698,16 +1843,62 @@ impl App {
         if list.is_empty() {
             return Task::none();
         }
-        let n = self.launcher_cycle.entry(class.to_string()).or_insert(0);
-        let address = list[*n % list.len()].clone();
-        *n = n.wrapping_add(1);
-        self.update_inner(UiMsg::FocusWindow(address))
+        // L'ordre du focus vient de Hyprland (`focusHistoryID`), relevé hors
+        // du fil de l'interface.
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    most_recent(&crate::switcher::read_with(false), &list)
+                })
+                .await
+                .unwrap_or_default()
+            },
+            UiMsg::FocusWindow,
+        )
     }
+}
+
+/// Parmi les fenêtres d'une application (`list`), la plus récemment
+/// utilisée selon l'ordre du focus ; sans cet ordre, la première.
+fn most_recent(order: &[crate::switcher::Win], list: &[String]) -> String {
+    order
+        .iter()
+        .find(|w| list.contains(&w.address))
+        .map(|w| w.address.clone())
+        .or_else(|| list.first().cloned())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Clic sur une application regroupée : sa fenêtre la plus récente
+    /// (HIG PRES-08).
+    #[test]
+    fn application_groupee_fenetre_la_plus_recente() {
+        let v = serde_json::json!([
+            {"address":"0xb","class":"kitty","title":"b","workspace":{"name":"1"},"focusHistoryID":2},
+            {"address":"0xf","class":"firefox","title":"f","workspace":{"name":"1"},"focusHistoryID":0},
+            {"address":"0xa","class":"kitty","title":"a","workspace":{"name":"1"},"focusHistoryID":1}
+        ]);
+        let order = crate::switcher::parse_with(&v, false);
+        let list = vec!["0xb".to_string(), "0xa".to_string()];
+        assert_eq!(most_recent(&order, &list), "0xa");
+        assert_eq!(most_recent(&[], &list), "0xb", "sans ordre : la première");
+    }
+
+    /// Le survol du dock ne grossit rien sans mouvement possible (HIG FON-07).
+    #[test]
+    fn pas_de_grossissement_sans_mouvement() {
+        assert!((magnifies(0.8, false, false) - 0.8).abs() < 1e-6);
+        assert_eq!(
+            magnifies(0.8, false, true),
+            0.0,
+            "mouvement réduit ou aucune transition"
+        );
+        assert_eq!(magnifies(0.8, true, false), 0.0, "icône incorporée");
+    }
 
     fn app() -> App {
         App::boot_with(
@@ -1801,5 +1992,44 @@ mod tests {
         let here = windows(&all, RunningApps::Workspace, "2");
         assert_eq!(shape(&entries(here, LauncherGroup::App)), ["kitty×2"]);
         assert!(windows(&all, RunningApps::Off, "2").is_empty());
+    }
+
+    /// Seule une application connue et pas encore épinglée se dépose sur le
+    /// dock (HIG DAT-04).
+    #[test]
+    fn le_dock_epingle_un_fichier_desktop_connu() {
+        let app = |id: &str| crate::launch::AppInfo {
+            id: id.into(),
+            name: id.into(),
+            icon: None,
+            wm_class: None,
+            mime_types: Vec::new(),
+            categories: Vec::new(),
+            available: true,
+        };
+        let apps = vec![app("firefox"), app("org.gnome.Nautilus")];
+        let pinned = vec!["org.gnome.Nautilus".to_string()];
+        let p = std::path::Path::new;
+        assert_eq!(
+            dock_drop_app(p("/usr/share/applications/firefox.desktop"), &apps, &pinned),
+            Some("firefox".into())
+        );
+        assert_eq!(
+            dock_drop_app(
+                p("/usr/share/applications/org.gnome.Nautilus.desktop"),
+                &apps,
+                &pinned
+            ),
+            None,
+            "déjà épinglée"
+        );
+        assert_eq!(
+            dock_drop_app(p("/tmp/inconnue.desktop"), &apps, &pinned),
+            None
+        );
+        assert_eq!(
+            dock_drop_app(p("/home/u/firefox.txt"), &apps, &pinned),
+            None
+        );
     }
 }

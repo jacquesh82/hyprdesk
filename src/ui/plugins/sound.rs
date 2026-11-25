@@ -5,10 +5,10 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, radio, row, slider};
+use iced::widget::{button, column, radio, row};
 use iced::{Alignment, Color, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec, beside_slider};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 
@@ -165,6 +165,25 @@ fn run(args: Vec<String>) -> Task<UiMsg> {
     )
 }
 
+/// Le curseur du volume d'un nœud (HIG SEL-08), en pour cent comme la valeur
+/// affichée : « 50 % » se saisit 50, de 0 à 150. La pose applique aussitôt :
+/// rien à enregistrer au relâcher.
+pub(in crate::ui) fn volume_spec(id: u32) -> SliderSpec {
+    SliderSpec::new(
+        format!("son.{id}"),
+        (0.0, 150.0),
+        1.0,
+        move |pct| wrap(Msg::Volume(id, pct as f32 / 100.0)),
+        UiMsg::Noop,
+    )
+}
+
+/// Volume affiché : le pour cent entier. Le produit est fait en `f32`, comme
+/// avant le composant, pour le même arrondi aux limites.
+fn en_pour_cent(v: f64) -> String {
+    format!("{} %", (v as f32).round() as i32)
+}
+
 impl App {
     fn sound_state(&self) -> Option<&State> {
         self.panel.as_ref().map(|p| &p.sound)
@@ -172,27 +191,33 @@ impl App {
 
     fn sound_node<'a>(&self, n: &'a Node, fg: Color) -> Element<'a, UiMsg> {
         let id = n.id;
-        let pct = (n.volume * 100.0).round() as i32;
         row![
-            slider(0.0f32..=1.5, n.volume, move |v| wrap(Msg::Volume(id, v)))
-                .step(0.01_f32)
-                .width(Length::Fill),
-            text(format!("{pct} %"))
-                .font(self.font)
-                .size(crate::ui::tokens::ts(12.0))
-                .color(fg)
-                .width(48),
-            button(
-                text(if n.muted {
-                    "Rétablir le son"
-                } else {
-                    "Couper le son"
-                })
-                .font(self.font)
-                .size(crate::ui::tokens::ts(12.0))
-            )
-            .padding([4, 10])
-            .on_press(wrap(Msg::Mute(id))),
+            self.slider(
+                &volume_spec(id),
+                f64::from(n.volume * 100.0),
+                en_pour_cent,
+                SliderLook::fill(12.0, 48, Alignment::Center)
+                    .spacing(10)
+                    .ink(fg)
+                    .value_width(48.0 * crate::ui::tokens::text_growth()),
+            ),
+            // Sur la ligne du curseur, au-dessus de son échelle (HIG SEL-09).
+            beside_slider(
+                &volume_spec(id),
+                self.focusable(
+                    button(
+                        text(if n.muted {
+                            "Rétablir le son"
+                        } else {
+                            "Couper le son"
+                        })
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::Mute(id)))
+                )
+            ),
         ]
         .spacing(10)
         .align_y(Alignment::Center)
@@ -211,10 +236,12 @@ impl App {
         let current = list.iter().find(|n| n.default).map(|n| n.id);
         for n in list {
             col = col.push(
-                radio(n.name.clone(), n.id, current, |id| wrap(Msg::Default(id)))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(16.0))
-                    .text_size(13),
+                self.focusable(
+                    radio(n.name.clone(), n.id, current, |id| wrap(Msg::Default(id)))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(16.0))
+                        .text_size(13),
+                ),
             );
         }
         if let Some(d) = list.iter().find(|n| n.default) {
@@ -240,13 +267,15 @@ impl App {
                     .size(crate::ui::tokens::ts(12.0))
                     .color(dim)
                     .width(Length::Fill),
-                button(
-                    text("Actualiser")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .on_press(wrap(Msg::Refresh)),
+                self.focusable(
+                    button(
+                        text("Actualiser")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(wrap(Msg::Refresh))
+                ),
             ]
             .align_y(Alignment::Center),
             self.section("Sortie"),

@@ -36,12 +36,24 @@ pub enum Command {
     /// volume les rallume (`idle_wake_volume`).
     ScreensOff,
     Quit,
+    /// Arbre d'accessibilité des surfaces, en texte (`a11y dump`, HIG ACC-01).
+    A11yDump,
     /// Ouvre l'écran Réglages sur un paquet (`desktop`, `screens`, `fond`…),
     /// sans changer le mode du bureau.
     Settings(String),
     /// Ouvre les Réglages, ou les referme s'ils sont déjà ouverts sur cet
     /// écran (raccourci `keys.settings`).
     ToggleSettings,
+    /// Le clavier va à une surface du shell (raccourcis `keys.focus_*`) :
+    /// `bar`, `dock`, `notifications` ou `settings`. La surface s'ouvre s'il
+    /// le faut et prend le clavier ; rien ne se referme, le mode ne change pas.
+    Focus(String),
+    /// Ouvre la boîte « Forcer à quitter », ou la referme (raccourci
+    /// `keys.force_quit`, HIG ENT-10).
+    ForceQuit,
+    /// Bascule l'accès clavier complet (raccourci `keys.keyboard_access`,
+    /// HIG ENT-01) et l'annonce à l'écran.
+    KeyboardAccess,
     /// Ouvre le menu d'un module de la barre (type : volume, clock, reseau, tray…).
     Menu(String),
     /// Ouvre ou referme l'assistant (tiroir LYRA, ou sa fenêtre).
@@ -60,7 +72,7 @@ pub enum Command {
     Apps,
     /// Vue d'ensemble des fenêtres (plugin de Hyprland, sinon le sélecteur).
     Overview,
-    /// Notifications de hyprdesk : `dnd [on|off]`, `clear`.
+    /// Notifications de hyprdesk : `dnd [on [1h|soir] | off]`, `clear`.
     Notifications(String),
     /// Demande à LYRA (titre de la conversation, texte), affichée aussitôt.
     Ask(String, String),
@@ -94,6 +106,7 @@ impl Command {
             "toggle-launcher" => Command::ToggleLauncher,
             "reload" => Command::Reload,
             "status" => Command::Status,
+            "a11y dump" | "a11y-dump" => Command::A11yDump,
             "forget-window-places" => Command::ForgetWindowPlaces,
             "color-test" => Command::ColorTest,
             "screens-off" => Command::ScreensOff,
@@ -110,6 +123,11 @@ impl Command {
             "switch prev" | "switch-prev" => Command::Switch(true),
             "settings" => Command::Settings("desktop".into()),
             "toggle-settings" => Command::ToggleSettings,
+            m if m.starts_with("focus ") && m.len() > 6 => {
+                Command::Focus(m[6..].trim().to_string())
+            }
+            "force-quit" => Command::ForceQuit,
+            "keyboard-access" => Command::KeyboardAccess,
             m if m.starts_with("settings ") => Command::Settings(m[9..].trim().to_string()),
             m if m.starts_with("menu ") && m.len() > 5 => Command::Menu(m[5..].trim().to_string()),
             m if m.starts_with("osd-show ") => Command::Osd(m[9..].trim().to_string()),
@@ -136,6 +154,7 @@ impl Command {
     pub fn to_line(&self) -> String {
         match self {
             Command::Menu(m) => format!("menu {m}"),
+            Command::Focus(t) => format!("focus {t}"),
             Command::Settings(p) => format!("settings {p}"),
             Command::Osd(l) => format!("osd-show {l}"),
             Command::Problem(t) => format!(
@@ -168,6 +187,7 @@ impl Command {
             Command::ToggleLauncher => "toggle-launcher",
             Command::Reload => "reload",
             Command::Status => "status",
+            Command::A11yDump => "a11y dump",
             Command::ForgetWindowPlaces => "forget-window-places",
             Command::Defaults(_) => "defaults",
             Command::ColorTest => "color-test",
@@ -175,6 +195,9 @@ impl Command {
             Command::Quit => "quit",
             Command::Settings(_) => "settings",
             Command::ToggleSettings => "toggle-settings",
+            Command::Focus(_) => "focus",
+            Command::ForceQuit => "force-quit",
+            Command::KeyboardAccess => "keyboard-access",
             Command::Menu(_) => "menu",
             Command::Assistant => "assistant",
             Command::Tour => "tour",
@@ -335,6 +358,31 @@ pub fn server_stream() -> impl Stream<Item = Command> {
                             Some(Command::Status) => {
                                 STATUS.lock().map(|s| s.clone()).unwrap_or_default()
                             }
+                            // L'interface calcule l'arbre, puis le texte est
+                            // lu ici : attente prête avant l'envoi.
+                            Some(Command::A11yDump) => {
+                                let done = crate::a11y::dumped().notified();
+                                tokio::pin!(done);
+                                done.as_mut().enable();
+                                match tokio::time::timeout(
+                                    Duration::from_secs(2),
+                                    out.send(Command::A11yDump),
+                                )
+                                .await
+                                {
+                                    // Sans réponse de l'interface, pas d'arbre
+                                    // ancien présenté comme juste.
+                                    Ok(Ok(())) => {
+                                        match tokio::time::timeout(Duration::from_secs(2), done)
+                                            .await
+                                        {
+                                            Ok(()) => crate::a11y::dump(),
+                                            Err(_) => crate::i18n::tr("démon occupé").to_string(),
+                                        }
+                                    }
+                                    _ => crate::i18n::tr("démon occupé").to_string(),
+                                }
+                            }
                             Some(c) => {
                                 // L'arrêt est toujours tracé, avec son expéditeur.
                                 if c == Command::Quit {
@@ -417,10 +465,14 @@ mod tests {
             Command::Hide,
             Command::Reload,
             Command::Status,
+            Command::A11yDump,
             Command::Quit,
             Command::Settings("desktop".into()),
             Command::Settings("fond".into()),
             Command::ToggleSettings,
+            Command::Focus("dock".into()),
+            Command::ForceQuit,
+            Command::KeyboardAccess,
             Command::LauncherOnly,
             Command::ToggleLauncher,
             Command::Cycle,
@@ -433,6 +485,15 @@ mod tests {
             );
         }
         assert_eq!(Command::parse("nope"), None);
+        // HIG ENT-02 : quatre surfaces, et rien d'autre.
+        assert_eq!(
+            Command::parse("focus bar\n"),
+            Some(Command::Focus("bar".into()))
+        );
+        assert_eq!(Command::parse("focus"), None);
+        // HIG ENT-10 : la boîte « Forcer à quitter ».
+        assert_eq!(Command::parse("force-quit\n"), Some(Command::ForceQuit));
+        assert_eq!(Command::parse("force-quit apps\n"), None);
         assert_eq!(
             Command::parse("menu network"),
             Some(Command::Menu("network".into()))

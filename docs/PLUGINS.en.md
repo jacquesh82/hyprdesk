@@ -147,7 +147,8 @@ Keys per package:
 | Package | Keys |
 |---|---|
 | `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `font`, `font_size` |
-| `keys` | `suspend_binds`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave`, `keys.switch`, `keys.search`, `keys.overview`, `keys.take`, `keys.media`, `keys.essentials`, `keys.essentials_off` |
+| `keys` | `suspend_binds`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave`, `keys.switch`, `keys.search`, `keys.overview`, `keys.focus_bar`, `keys.focus_dock`, `keys.focus_notifications`, `keys.focus_settings`, `keys.force_quit`, `keys.keyboard_access`, `keys.take`, `keys.media`, `keys.essentials`, `keys.essentials_off` |
+| `input` | `keyboard_access` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |
 | `dock` | `running_apps`, `launcher_group` |
 | `launcher` | `apps_style`, `apps_suggestions`, `apps_categories`, `apps_unified`, `launcher.<shape>` |
@@ -245,7 +246,7 @@ each CLI key points to an existing package.
 | `icons` | Icons | application shortcuts, size, theme | `launch.rs`, `layout.rs` |
 | `dock` | Dock | windows shown, grouping, style | — (widget, § 3) |
 | `launcher` | Launcher | presentation, suggestions, shape, shortcut | `search.rs` |
-| `theme` | Theme | colors, backgrounds, effect of each place (opacity, blur), desktop mode, lock screen veil; shipped themes and “My themes” | `theme.rs`, `config::Theme` |
+| `theme` | Theme | colors, backgrounds, effect of each place (opacity, blur), desktop mode, lock screen veil; shipped themes and “Custom themes” | `theme.rs`, `config::Theme` |
 | `apptheme` | Theme modules | the theme engine modules that carry the theme to other software (kitty: `~/.config/kitty/hyprdesk-theme.conf`, included at the end of kitty.conf, reloaded with SIGUSR1) | `apptheme.rs` |
 | `wallpaper` | Wallpaper | image, slideshow, color; scope | `config::WallpaperRule` |
 | `widgets` | Widgets | activation, placement | `widgets/` (§ 2) |
@@ -409,7 +410,7 @@ application launcher its button opens is the `launcher` package:
   - `none`: one entry per window;
   - `app`: one entry per application, that is, per window class,
     hence per binary. Dots show the number of windows, and a click
-    cycles from one to the next;
+    focuses the most recently used one;
   - `workspace`: windows grouped under their workspace number.
 - **Golden rule.** Using it never changes the desktop mode:
   - in `launcher-only`, a click focuses the window;
@@ -541,7 +542,7 @@ offers two scopes: **the entire setup**, or **the theme only**.
 
 - **The archive** (entire setup) holds everything hyprdesk and Hyprland keep
   (MLG-203), with a `manifest.json`:
-  - `hyprdesk.lua`, `settings.lua`, third-party plugins, “My themes”
+  - `hyprdesk.lua`, `settings.lua`, third-party plugins, “Custom themes”
     (`hyprdesk/themes/`), screen calibrations (`hyprdesk/calibration/`);
   - `hypr/`: `hyprland.lua` and every local `require` it loads. Requires are
     followed step by step in the text, without running anything. This
@@ -593,8 +594,8 @@ and options).
   screens stay as they are. A theme archive is always imported this way;
   the theme of a full archive can be too, on request (`--theme`). A wallpaper
   that is neither in the archive nor present on the machine is dropped.
-- **My themes**: theme archives stored in `hyprdesk/themes/`
-  (Theme package: “Save to My themes”, one click to apply).
+- **Custom themes**: theme archives stored in `hyprdesk/themes/`
+  (Theme package: “Save to Custom themes”, one click to apply).
   Shipped themes (`theme::PRESETS`) change colors and effects, not the
   wallpapers.
 
@@ -616,7 +617,7 @@ A **scene** is an image designed for the whole screen layout.
   “Create from an image” in the Theme package): colors extracted from
   the image (surfaces in the hue of the shadows, accent in the dominant vivid
   hue), spanned scene, translucent and blurred surfaces; stored in
-  My themes. The source can be an image, or a **pack** (folder or
+  Custom themes. The source can be an image, or a **pack** (folder or
   `.zip`) whose `manifest.json` designates the master scene (`master`) and
   its name (`theme`): the pack's pre-cut slices are ignored, slicing
   is done according to the actual screens.

@@ -38,7 +38,61 @@ pub(in crate::ui) struct Pending {
 #[derive(Clone, Debug)]
 pub(in crate::ui) struct Launch {
     pub started: Instant,
+    /// Adresses des fenêtres déjà ouvertes au lancement, toutes classes :
+    /// toute autre est arrivée depuis.
     pub known: HashSet<String>,
+}
+
+/// Fin d'un lancement du dock ou de la grille sans que la fenêtre de
+/// l'application arrive (HIG PAT-08, STA-01).
+#[derive(Debug, Clone, PartialEq)]
+pub(in crate::ui) enum LaunchEnd {
+    /// L'entrée ne donne aucune commande : application introuvable.
+    Unresolved,
+    /// Hyprland a refusé la commande : la cause.
+    Refused(String),
+    /// Le délai est passé sans qu'aucune fenêtre arrive.
+    NoWindow,
+}
+
+/// Annonce d'une fin de lancement : icône, durée (ms) et texte. L'échec est
+/// un avertissement, le retard un indice : rien n'a échoué.
+pub(in crate::ui) fn launch_end_notice_text(name: &str, end: &LaunchEnd) -> (u8, u32, String) {
+    match end {
+        LaunchEnd::Unresolved => (
+            0,
+            8000,
+            crate::tr!(
+                "Lancement de {name} impossible : application introuvable.",
+                name = name
+            ),
+        ),
+        LaunchEnd::Refused(e) => (
+            0,
+            8000,
+            crate::tr!("Lancement de {name} impossible : {e}", name = name, e = e),
+        ),
+        LaunchEnd::NoWindow => (
+            2,
+            6000,
+            crate::tr!(
+                "{name} met du temps à s'ouvrir. Si rien ne se lance, cliquez de nouveau sur son icône.",
+                name = name
+            ),
+        ),
+    }
+}
+
+/// Notification de Hyprland qui porte l'annonce : hors de l'interface, elle
+/// n'interrompt rien et ne prend pas le clavier.
+fn launch_end_notice(name: &str, end: &LaunchEnd) -> Task<UiMsg> {
+    let (icon, ms, msg) = launch_end_notice_text(name, end);
+    Task::perform(
+        async move {
+            let _ = tokio::task::spawn_blocking(move || crate::hypr::notify(icon, ms, &msg)).await;
+        },
+        |_| UiMsg::Noop,
+    )
 }
 
 /// Décalage vers le bord, identique à l'entrée et à la sortie.
@@ -211,20 +265,28 @@ impl App {
 
     pub(in crate::ui) fn launcher_frame(&mut self) -> Task<UiMsg> {
         let now = Instant::now();
-        let finished: Vec<_> = self
-            .launcher_runtime
-            .launches
-            .iter()
-            .filter(|(id, launch)| {
-                now.duration_since(launch.started) >= LAUNCH_TIMEOUT
-                    || self.clients.iter().any(|c| {
+        // `true` : délai passé sans qu'aucune fenêtre arrive, à annoncer.
+        let finished: Vec<(String, bool)> =
+            self.launcher_runtime
+                .launches
+                .iter()
+                .filter_map(|(id, launch)| {
+                    if self.clients.iter().any(|c| {
                         !launch.known.contains(&c.address) && self.app_matches(id, &c.class)
-                    })
-            })
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in finished {
+                    }) {
+                        return Some((id.clone(), false));
+                    }
+                    (now.duration_since(launch.started) >= LAUNCH_TIMEOUT)
+                        .then(|| (id.clone(), self.launch_stalled(launch)))
+                })
+                .collect();
+        let mut notices = Vec::new();
+        for (id, stalled) in finished {
             self.launcher_runtime.launches.remove(&id);
+            if stalled {
+                let notice = launch_end_notice(&self.launcher_app_name(&id), &LaunchEnd::NoWindow);
+                notices.push(notice);
+            }
         }
         if self.launcher_popup.as_ref().is_some_and(|p| {
             p.fade.to == 0.0
@@ -236,19 +298,35 @@ impl App {
         }) {
             let p = self.launcher_popup.take().unwrap();
             self.launcher_popup_hover = false;
-            return iced::window::close(p.id);
+            notices.push(iced::window::close(p.id));
         }
-        Task::none()
+        if notices.is_empty() {
+            Task::none()
+        } else {
+            Task::batch(notices)
+        }
+    }
+
+    /// Nom affiché de l'application `id` : celui de son entrée, sinon
+    /// l'identifiant.
+    pub(in crate::ui) fn launcher_app_name(&self, id: &str) -> String {
+        self.apps
+            .iter()
+            .find(|a| a.id == id)
+            .map_or_else(|| id.to_string(), |a| a.name.clone())
+    }
+
+    /// Aucune fenêtre, quelle que soit sa classe, n'est arrivée depuis le
+    /// début du lancement.
+    fn launch_stalled(&self, launch: &Launch) -> bool {
+        self.clients
+            .iter()
+            .all(|c| launch.known.contains(&c.address))
     }
 
     pub(in crate::ui) fn launcher_launch_started(&mut self, id: String) -> Task<UiMsg> {
         let started = Instant::now();
-        let known = self
-            .clients
-            .iter()
-            .filter(|c| self.app_matches(&id, &c.class))
-            .map(|c| c.address.clone())
-            .collect();
+        let known = self.clients.iter().map(|c| c.address.clone()).collect();
         self.launcher_runtime
             .launches
             .insert(id.clone(), Launch { started, known });
@@ -261,14 +339,33 @@ impl App {
         )
     }
 
-    pub(in crate::ui) fn launcher_launch_expired(&mut self, id: &str, token: Instant) {
-        if self
+    /// Termine le lancement `id` s'il est encore suivi sous ce jeton. Sans
+    /// fenêtre (`end`), la fin est annoncée, jamais en silence (HIG PAT-08,
+    /// STA-01). Au délai passé, une fenêtre arrivée depuis, d'une autre
+    /// classe que celle de l'entrée, n'est pas un échec : rien à dire.
+    pub(in crate::ui) fn launcher_launch_ended(
+        &mut self,
+        id: &str,
+        token: Instant,
+        end: LaunchEnd,
+    ) -> Task<UiMsg> {
+        let Some(launch) = self
             .launcher_runtime
             .launches
             .get(id)
-            .is_some_and(|l| l.started == token)
-        {
-            self.launcher_runtime.launches.remove(id);
+            .filter(|l| l.started == token)
+        else {
+            return Task::none();
+        };
+        let announce = match &end {
+            LaunchEnd::NoWindow => self.launch_stalled(launch),
+            _ => true,
+        };
+        self.launcher_runtime.launches.remove(id);
+        if announce {
+            launch_end_notice(&self.launcher_app_name(id), &end)
+        } else {
+            Task::none()
         }
     }
 
@@ -464,7 +561,8 @@ mod tests {
         let _ = app.launcher_frame();
         assert!(app.launcher_runtime.launches.contains_key("firefox"));
         let _ = app.launcher_launch_started("firefox".into());
-        app.launcher_launch_expired("firefox", old - Duration::from_secs(1));
+        let _ =
+            app.launcher_launch_ended("firefox", old - Duration::from_secs(1), LaunchEnd::NoWindow);
         assert!(app.launcher_runtime.launches.contains_key("firefox"));
         app.clients.push(Client {
             address: "new".into(),
@@ -549,10 +647,82 @@ mod tests {
         let _ = app.update_inner(UiMsg::LauncherDispatched(
             "test-app".into(),
             token - Duration::from_secs(1),
-            false,
+            Err("refusé".into()),
         ));
         assert!(app.launcher_runtime.launches.contains_key("test-app"));
-        let _ = app.update_inner(UiMsg::LauncherDispatched("test-app".into(), current, false));
+        // Commande partie : le lancement suit sa fenêtre jusqu'au délai.
+        let _ = app.update_inner(UiMsg::LauncherDispatched(
+            "test-app".into(),
+            current,
+            Ok(()),
+        ));
+        assert!(app.launcher_runtime.launches.contains_key("test-app"));
+        let _ = app.update_inner(UiMsg::LauncherDispatched(
+            "test-app".into(),
+            current,
+            Err("refusé".into()),
+        ));
         assert!(app.launcher_runtime.launches.is_empty());
+    }
+
+    #[test]
+    fn une_fin_de_lancement_est_annoncee_une_fois_et_jamais_si_une_fenetre_est_arrivee() {
+        let mut app = app();
+        Arc::make_mut(&mut app.apps).push(crate::launch::AppInfo {
+            id: "test-app".into(),
+            name: "Application d'essai".into(),
+            icon: None,
+            wm_class: None,
+            mime_types: Vec::new(),
+            categories: Vec::new(),
+            available: true,
+        });
+        assert_eq!(app.launcher_app_name("test-app"), "Application d'essai");
+        // Délai passé sans fenêtre : le lancement finit, une seule fois.
+        let _ = app.launcher_launch_started("test-app".into());
+        let token = app.launcher_runtime.launches["test-app"].started;
+        let _ = app.update_inner(UiMsg::LauncherLaunchExpired("test-app".into(), token));
+        assert!(app.launcher_runtime.launches.is_empty());
+        let _ = app.update_inner(UiMsg::LauncherLaunchExpired("test-app".into(), token));
+        assert!(app.launcher_runtime.launches.is_empty());
+        // Une fenêtre est arrivée, d'une autre classe que l'entrée : le
+        // lancement finit au délai, sans rien annoncer.
+        let _ = app.launcher_launch_started("test-app".into());
+        app.clients.push(Client {
+            address: "new".into(),
+            class: "other".into(),
+            title: String::new(),
+            workspace: "1".into(),
+            monitor: "A".into(),
+        });
+        let launch = app.launcher_runtime.launches["test-app"].clone();
+        assert!(!app.launch_stalled(&launch));
+        app.launcher_runtime
+            .launches
+            .get_mut("test-app")
+            .unwrap()
+            .started = Instant::now() - LAUNCH_TIMEOUT;
+        let _ = app.launcher_frame();
+        assert!(app.launcher_runtime.launches.is_empty());
+    }
+
+    #[test]
+    fn une_fin_de_lancement_est_annoncee_par_le_nom_de_l_application_et_sa_cause() {
+        // Application introuvable : avertissement.
+        let (icon, ms, msg) = launch_end_notice_text("Firefox", &LaunchEnd::Unresolved);
+        assert_eq!((icon, ms), (0, 8000));
+        assert!(msg.contains("Firefox"), "{msg}");
+        // Commande refusée : avertissement, la cause est nommée.
+        let (icon, ms, msg) =
+            launch_end_notice_text("Firefox", &LaunchEnd::Refused("pas de exec".into()));
+        assert_eq!((icon, ms), (0, 8000));
+        assert!(
+            msg.contains("Firefox") && msg.contains("pas de exec"),
+            "{msg}"
+        );
+        // Sans fenêtre : un indice, bref, qui propose de relancer.
+        let (icon, ms, msg) = launch_end_notice_text("Firefox", &LaunchEnd::NoWindow);
+        assert_eq!((icon, ms), (2, 6000));
+        assert!(msg.contains("Firefox"), "{msg}");
     }
 }

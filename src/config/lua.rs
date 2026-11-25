@@ -99,6 +99,18 @@ struct PlacePatch {
     card: Option<bool>,
     screen: Option<WidgetScreen>,
     if_missing: Option<IfMissing>,
+    family: Option<WidgetFamily>,
+}
+
+/// Taille d'un widget (`family`, HIG SYS-15).
+fn parse_family(s: &str, ctx: &str) -> mlua::Result<WidgetFamily> {
+    WidgetFamily::parse(s).ok_or_else(|| {
+        err(crate::tr!(
+            "{ctx} : family « {s} » inconnue (small, medium, large, xlarge)",
+            ctx = ctx,
+            s = s
+        ))
+    })
 }
 
 fn parse_if_missing(s: &str, ctx: &str) -> mlua::Result<IfMissing> {
@@ -671,6 +683,7 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             "icon_double_click",
             "reduced_transparency",
             "reduced_motion",
+            "keyboard_access",
             "increase_contrast",
             "text_scale",
             "advanced_settings",
@@ -798,6 +811,12 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
                 "search_desktop",
                 "overview",
                 "assistant",
+                "focus_bar",
+                "focus_dock",
+                "focus_notifications",
+                "focus_settings",
+                "force_quit",
+                "keyboard_access",
                 "take",
                 "essentials",
                 "essentials_off",
@@ -897,6 +916,12 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
             ("search_desktop", &mut g.keys.search_desktop),
             ("overview", &mut g.keys.overview),
             ("assistant", &mut g.keys.assistant),
+            ("focus_bar", &mut g.keys.focus_bar),
+            ("focus_dock", &mut g.keys.focus_dock),
+            ("focus_notifications", &mut g.keys.focus_notifications),
+            ("focus_settings", &mut g.keys.focus_settings),
+            ("force_quit", &mut g.keys.force_quit),
+            ("keyboard_access", &mut g.keys.keyboard_access),
         ] {
             match k.get::<Value>(name)? {
                 Value::Nil => {}
@@ -1133,6 +1158,9 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     if let Some(v) = opt_bool(t, "reduced_motion", CTX)? {
         g.reduced_motion = v;
     }
+    if let Some(v) = opt_bool(t, "keyboard_access", CTX)? {
+        g.keyboard_access = v;
+    }
     if let Some(v) = opt_bool(t, "increase_contrast", CTX)? {
         g.increase_contrast = v;
     }
@@ -1288,6 +1316,8 @@ fn hd_config(b: &mut Builder, t: &Table) -> mlua::Result<()> {
     if let Some(h) = t.get::<Option<Table>>("hypr")? {
         g.hypr = crate::hyprset::parse(&h).map_err(|e| err(format!("{CTX} : {e}")))?;
     }
+    // Les gestes système par défaut, une fois (HIG ENT-03).
+    crate::hyprset::seed_gestures(&mut g.hypr);
     parse_ai(t, g)?;
     if let Some(v) = opt_bool(t, "launcher_smartui", CTX)? {
         g.launcher.smartui = v;
@@ -2003,6 +2033,10 @@ fn hd_widget(lua: &Lua, b: &mut Builder, kind: &str, t: &Table, in_bar: bool) ->
             .map(|s| parse_if_missing(&s, ctx))
             .transpose()?
             .unwrap_or_default(),
+        family: opt_string(t, "family", ctx)?
+            .map(|s| parse_family(&s, ctx))
+            .transpose()?
+            .unwrap_or_default(),
     });
     Ok(())
 }
@@ -2563,7 +2597,16 @@ fn hd_place(b: &mut Builder, id: &str, t: &Table) -> mlua::Result<()> {
     let ctx = ctx.as_str();
     check_keys(
         t,
-        &["anchor", "x", "y", "size", "card", "screen", "if_missing"],
+        &[
+            "anchor",
+            "x",
+            "y",
+            "size",
+            "card",
+            "screen",
+            "if_missing",
+            "family",
+        ],
         ctx,
     )?;
     let patch = PlacePatch {
@@ -2577,6 +2620,9 @@ fn hd_place(b: &mut Builder, id: &str, t: &Table) -> mlua::Result<()> {
         screen: opt_string(t, "screen", ctx)?.map(|s| WidgetScreen::parse(&s)),
         if_missing: opt_string(t, "if_missing", ctx)?
             .map(|s| parse_if_missing(&s, ctx))
+            .transpose()?,
+        family: opt_string(t, "family", ctx)?
+            .map(|s| parse_family(&s, ctx))
             .transpose()?,
     };
     b.places.push((b.origin, id.to_string(), patch));
@@ -2600,6 +2646,7 @@ fn apply_places(b: &mut Builder) {
                         card: p.card.unwrap_or(true),
                         screen: p.screen.clone().unwrap_or_default(),
                         if_missing: p.if_missing.unwrap_or_default(),
+                        family: p.family.unwrap_or_default(),
                     },
                 );
             } else {
@@ -2630,6 +2677,13 @@ fn apply_places(b: &mut Builder) {
         }
         if let Some(v) = p.if_missing {
             w.if_missing = v;
+        }
+        // Seuls les widgets à plusieurs tailles la prennent : relu dans
+        // `hd.widget`, une taille sur un autre serait refusée (HIG SYS-15).
+        if let Some(v) = p.family
+            && w.kind.has_family()
+        {
+            w.family = v;
         }
         if origin == Origin::Settings {
             b.config.placements.insert(id, w.placement());
@@ -3581,6 +3635,21 @@ impl LuaHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Les gestes système par défaut paraissent au chargement ; une marque
+    /// posée sans geste les garde absents (HIG ENT-03).
+    #[test]
+    fn gestes_systeme_au_chargement() {
+        let h = load("hd.config({})").unwrap().config.general.hypr;
+        assert!(h.gestures_seeded);
+        assert_eq!(h.gestures.len(), crate::hyprset::DEFAULT_GESTURES.len());
+        let h = load("hd.config({ hypr = { gestures_seeded = true } })")
+            .unwrap()
+            .config
+            .general
+            .hypr;
+        assert!(h.gestures.is_empty());
+    }
 
     #[test]
     fn theme_des_applications_actif_par_defaut() {

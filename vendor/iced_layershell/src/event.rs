@@ -133,7 +133,7 @@ impl From<&DispatchMessage> for WindowEvent {
             DispatchMessage::MouseLeave => WindowEvent::CursorLeft,
             // Glisser-déposer : la position suit le pointeur ; le dépôt est
             // découpé par l'appelant (position, puis un événement par fichier).
-            DispatchMessage::DndEnter { x, y } | DispatchMessage::DndMotion { x, y } => {
+            DispatchMessage::DndEnter { x, y, .. } | DispatchMessage::DndMotion { x, y } => {
                 WindowEvent::CursorMoved { x: *x, y: *y }
             }
             DispatchMessage::DndLeave | DispatchMessage::DndDrop { .. } => {

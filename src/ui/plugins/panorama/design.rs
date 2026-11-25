@@ -1,9 +1,13 @@
 //! Réglages visuels et composition du Panorama, dans le plugin existant.
 use super::{App, Msg, UiMsg, wrap};
+use crate::config::Rgba;
 use crate::i18n::text;
 use crate::panorama::design::{Shortcut, Tile};
-use iced::widget::{button, column, pick_list, row, slider, text_input, toggler};
-use iced::{Alignment, Element, Length, Task};
+use crate::ui::color;
+use crate::ui::color_picker::{Picker, well};
+use crate::ui::panel::{SliderLook, SliderSpec};
+use iced::widget::{button, column, pick_list, row, text_input};
+use iced::{Alignment, Color, Element, Length, Task};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Choice(String);
@@ -32,6 +36,45 @@ impl App {
             .color(iced::Color::from_rgb8(255, 160, 120))
             .into()
     }
+    /// Couleur du thème que reprend un réglage de couleur du Panorama laissé
+    /// vide, comme `panorama_palette` (HIG SEL-02).
+    fn panorama_design_theme_color(&self, key: &str) -> Option<Rgba> {
+        let th = &self.cfg.general.theme;
+        match key {
+            "background" => Some(th.bg),
+            "foreground" => Some(th.fg),
+            "accent" => Some(th.accent),
+            _ => None,
+        }
+    }
+
+    /// Couleur en cours d'un réglage de couleur du Panorama : celle de la
+    /// saisie, sinon de la valeur posée, sinon du thème ; `None` hors des
+    /// clés de couleur (HIG SEL-02).
+    fn panorama_design_color(&self, key: &str, placed: Option<&str>) -> Option<Rgba> {
+        let theme = self.panorama_design_theme_color(key)?;
+        Some(
+            self.panorama
+                .design_drafts
+                .get(key)
+                .and_then(|v| Rgba::parse(v.trim()))
+                .or_else(|| placed.and_then(|v| Rgba::parse(v.trim())))
+                .unwrap_or(theme),
+        )
+    }
+
+    /// Referme le sélecteur quand son réglage change sans lui (HIG SEL-02).
+    fn panorama_design_picker_stale(&mut self, key: &str) {
+        if self
+            .panorama
+            .design_picker
+            .as_ref()
+            .is_some_and(|(k, _)| k == key)
+        {
+            self.panorama.design_picker = None;
+        }
+    }
+
     fn panorama_design_input(&self, label: &'static str, key: &'static str) -> Element<'_, UiMsg> {
         let c = self.panorama_cfg();
         let value = self
@@ -40,15 +83,36 @@ impl App {
             .get(key)
             .cloned()
             .unwrap_or_else(|| c.design.text(key).unwrap_or("").into());
-        let mut line = row![
-            text_input("", &value)
-                .on_input(move |s| wrap(Msg::DesignText(key.into(), s)))
-                .on_submit(wrap(Msg::DesignApply(key.into())))
-                .size(crate::ui::tokens::ts(13.0)),
-            button(text("Appliquer").size(crate::ui::tokens::ts(12.0)))
-                .on_press(wrap(Msg::DesignApply(key.into())))
-        ]
-        .spacing(8);
+        // Puits de couleur (HIG SEL-02) : la couleur en cours — saisie, valeur
+        // posée, sinon celle du thème — ouvre le sélecteur.
+        let (fg, dim) = (color(self.cfg.general.theme.fg, 1.0), self.ink().dim);
+        let mut line = row![].spacing(8);
+        if let Some(current) = self.panorama_design_color(key, c.design.text(key)) {
+            let lit = self
+                .panorama
+                .design_picker
+                .as_ref()
+                .is_some_and(|(k, _)| k == key);
+            line = line.push(well(
+                current,
+                22.0,
+                lit,
+                fg,
+                Color { a: 0.3, ..fg },
+                wrap(Msg::DesignPickerOpen(key.to_string())),
+            ));
+        }
+        line = line
+            .push(
+                text_input("", &value)
+                    .on_input(move |s| wrap(Msg::DesignText(key.into(), s)))
+                    .on_submit(wrap(Msg::DesignApply(key.into())))
+                    .size(crate::ui::tokens::ts(13.0)),
+            )
+            .push(
+                button(text("Appliquer").size(crate::ui::tokens::ts(12.0)))
+                    .on_press(wrap(Msg::DesignApply(key.into()))),
+            );
         // Image de fond : choisie aussi dans un explorateur (portail).
         if key == "wallpaper" {
             line = line.push(
@@ -56,14 +120,27 @@ impl App {
                     .on_press(wrap(Msg::DesignBrowse(key.into()))),
             );
         }
-        column![
+        let mut col = column![
             text(label)
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0)),
             line
         ]
-        .spacing(5)
-        .into()
+        .spacing(5);
+        // Sélecteur du réglage, dessous sa rangée.
+        if let Some((k, pk)) = self.panorama.design_picker.as_ref()
+            && k == key
+        {
+            col = col.push(pk.view(
+                self.font,
+                fg,
+                dim,
+                |m| wrap(Msg::DesignPicker(m)),
+                wrap(Msg::DesignPickerApply),
+                wrap(Msg::DesignPickerCancel),
+            ));
+        }
+        col.into()
     }
     fn panorama_design_slider(
         &self,
@@ -79,19 +156,19 @@ impl App {
             text(label)
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0)),
-            row![
-                slider(min..=max, v, move |v| wrap(Msg::DesignNumber(
-                    key.into(),
-                    v
-                )))
-                .step(step)
-                .on_release(wrap(Msg::DesignCommit)),
-                text(format!("{v:.2}"))
-                    .size(crate::ui::tokens::ts(12.0))
-                    .width(50)
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center)
+            self.slider(
+                &SliderSpec::new(
+                    key,
+                    (f64::from(min), f64::from(max)),
+                    f64::from(step),
+                    move |v| wrap(Msg::DesignNumber(key.into(), v as f32)),
+                    wrap(Msg::DesignCommit),
+                )
+                .named(crate::i18n::tr(label)),
+                f64::from(v),
+                |v| format!("{v:.2}"),
+                SliderLook::fill(12.0, 50, Alignment::Center),
+            )
         ]
         .spacing(5)
         .into()
@@ -197,7 +274,7 @@ impl App {
             ("date", "Afficher la date"),
         ] {
             col = col.push(
-                toggler(c.design.flag(key).unwrap_or(false))
+                self.toggle(c.design.flag(key).unwrap_or(false))
                     .label(label)
                     .text_size(13)
                     .on_toggle(move |v| wrap(Msg::DesignFlag(key.into(), v))),
@@ -206,7 +283,7 @@ impl App {
         col=col.push(self.section("Mesures système"))
             .push(self.panorama_design_choice("Présentation des mesures","system_style",crate::panorama::design::SYSTEMS))
             // Identifiants tapés à la main et durée en secondes : avancé.
-            .push(self.adv(column![
+            .push(self.adv("Capteurs et historique des courbes", || column![
                 self.panorama_design_input("Mesures (cpu, ram, gpu, vram, disk, load, uptime, cpu_temp, gpu_temp)","metrics"),
                 self.panorama_design_slider("Historique des courbes (secondes)","history_seconds",15.0,600.0,1.0),
             ].spacing(10)))
@@ -218,7 +295,7 @@ impl App {
             ("controls", "Afficher les commandes du bandeau"),
         ] {
             col = col.push(
-                toggler(c.design.flag(key).unwrap_or(false))
+                self.toggle(c.design.flag(key).unwrap_or(false))
                     .label(label)
                     .text_size(13)
                     .on_toggle(move |v| wrap(Msg::DesignFlag(key.into(), v))),
@@ -307,20 +384,25 @@ impl App {
                 ("h", "Hauteur (%)", tile.h, 1.0 - tile.y),
             ] {
                 let minimum = if key == "w" || key == "h" { 5.0 } else { 0.0 };
+                let spec = SliderSpec::new(
+                    format!("zone.{key}"),
+                    (f64::from(minimum), f64::from((max * 100.0).max(minimum))),
+                    1.0,
+                    move |n| wrap(Msg::TileNumber(key.into(), (n as f32) / 100.0)),
+                    wrap(Msg::DesignCommit),
+                )
+                .named(crate::i18n::tr(label));
                 col = col.push(
                     column![
-                        text(label).size(crate::ui::tokens::ts(12.0)),
-                        row![
-                            slider(minimum..=(max * 100.0).max(minimum), v * 100.0, move |n| {
-                                wrap(Msg::TileNumber(key.into(), n / 100.0))
-                            })
-                            .step(1.0_f32)
-                            .on_release(wrap(Msg::DesignCommit)),
-                            text(format!("{:.0}", v * 100.0))
-                                .width(36)
-                                .size(crate::ui::tokens::ts(12.0))
-                        ]
-                        .spacing(10)
+                        text(label)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                        self.slider(
+                            &spec,
+                            f64::from(v * 100.0),
+                            |n| format!("{n:.0}"),
+                            SliderLook::fill(12.0, 36, Alignment::Start).spacing(10),
+                        )
                     ]
                     .spacing(5),
                 );
@@ -400,13 +482,16 @@ impl App {
                 }
                 c.layout = crate::panorama::config::Layout::Dashboard;
                 self.panorama.design_drafts.clear();
+                self.panorama.design_picker = None;
                 self.panorama.selected_tile = 0;
             }
             Msg::DesignText(key, v) => {
+                self.panorama_design_picker_stale(&key);
                 self.panorama.design_drafts.insert(key, v);
                 return Task::none();
             }
             Msg::DesignApply(key) => {
+                self.panorama_design_picker_stale(&key);
                 let value = self
                     .panorama
                     .design_drafts
@@ -418,6 +503,40 @@ impl App {
                     return Task::none();
                 }
                 self.panorama.design_drafts.remove(&key);
+            }
+            // Puits de couleur (HIG SEL-02) : le sélecteur part de la couleur
+            // du puits — saisie, valeur posée, sinon thème.
+            Msg::DesignPickerOpen(key) => {
+                let open = self
+                    .panorama
+                    .design_picker
+                    .as_ref()
+                    .is_some_and(|(k, _)| *k == key);
+                let initial = self.panorama_design_color(&key, c.design.text(&key));
+                if let Some(initial) = initial {
+                    self.panorama.design_picker = (!open).then(|| (key, Picker::new(initial)));
+                }
+                return Task::none();
+            }
+            Msg::DesignPicker(m) => {
+                if let Some((_, pk)) = self.panorama.design_picker.as_mut() {
+                    pk.update(m);
+                }
+                return Task::none();
+            }
+            Msg::DesignPickerCancel => {
+                self.panorama.design_picker = None;
+                return Task::none();
+            }
+            // « Appliquer » passe par la saisie suivie de son application.
+            Msg::DesignPickerApply => {
+                let Some((key, pk)) = self.panorama.design_picker.take() else {
+                    return Task::none();
+                };
+                let chosen = crate::settings::hex(pk.color());
+                return self
+                    .panorama_design_update(Msg::DesignText(key.clone(), chosen))
+                    .chain(self.panorama_design_update(Msg::DesignApply(key)));
             }
             Msg::DesignBrowse(key) => {
                 // Départ : le dossier de l'image actuelle, sinon Images.

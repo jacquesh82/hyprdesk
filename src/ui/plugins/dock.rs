@@ -24,14 +24,16 @@ mod motion;
 mod surface;
 
 pub(in crate::ui) use contrast::Backdrop;
-pub(in crate::ui) use lifecycle::{Placement, Runtime};
-pub(in crate::ui) use surface::{LauncherSurface, Popup, PopupContent, thickness};
+pub(in crate::ui) use lifecycle::{LaunchEnd, Placement, Runtime};
+pub(in crate::ui) use surface::{
+    LauncherSurface, Popup, PopupContent, REVEAL_STRIP, Slot, thickness,
+};
 
 use crate::i18n::text;
 use iced::widget::{button, column, radio, row};
 use iced::{Alignment, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg};
 use super::{PluginInfo, PluginMsg};
 use crate::config::{LauncherGroup, LauncherPosition, RunningApps};
@@ -43,6 +45,18 @@ pub const INFO: PluginInfo = PluginInfo {
     summary: "Dock du bureau : fenêtres ouvertes, applications épinglées, style.",
     builtin: true,
 };
+
+/// Le curseur « Taille des icônes », de 24 à 96 px : sa valeur se saisit au
+/// clavier, de 1 px en 1 px (HIG SEL-08).
+pub(in crate::ui) fn size_spec() -> SliderSpec {
+    SliderSpec::new(
+        "launcher_size",
+        (24.0, 96.0),
+        1.0,
+        |v| wrap(Msg::Size(v.round() as u16)),
+        wrap(Msg::SizeCommit),
+    )
+}
 
 /// Onglets du paquet.
 pub const TABS: &[super::SubTab] = &[
@@ -85,16 +99,20 @@ impl App {
         let g = &self.cfg.general;
         let dim = self.ink().dim;
         let running = |label: &'static str, v: RunningApps| {
-            radio(crate::i18n::tr(label), v, Some(g.running_apps), |v| {
-                wrap(Msg::Running(v))
-            })
-            .font(self.font)
+            self.focusable(
+                radio(crate::i18n::tr(label), v, Some(g.running_apps), |v| {
+                    wrap(Msg::Running(v))
+                })
+                .font(self.font),
+            )
         };
         let group = |label: &'static str, v: LauncherGroup| {
-            radio(crate::i18n::tr(label), v, Some(g.launcher_group), |v| {
-                wrap(Msg::Group(v))
-            })
-            .font(self.font)
+            self.focusable(
+                radio(crate::i18n::tr(label), v, Some(g.launcher_group), |v| {
+                    wrap(Msg::Group(v))
+                })
+                .font(self.font),
+            )
         };
         if !self.on_subtab(INFO.id, "contenu") {
             return self.dock_look();
@@ -150,7 +168,9 @@ impl App {
             .map(|p| p.dock.pin_filter.clone())
             .unwrap_or_default();
         let position = |label: &'static str, v: LauncherPosition| {
-            radio(label, v, Some(l.position), |v| wrap(Msg::Position(v))).font(self.font)
+            self.focusable(
+                radio(label, v, Some(l.position), |v| wrap(Msg::Position(v))).font(self.font),
+            )
         };
         let name = |id: &str| {
             self.apps
@@ -169,20 +189,24 @@ impl App {
         }
         for (i, id) in l.pinned.iter().enumerate() {
             let small = |label: &'static str, msg: Option<UiMsg>| {
-                button(
-                    text(label)
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0)),
+                let on = msg.is_some();
+                self.focusable_when(
+                    button(
+                        text(label)
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([3, 8])
+                    .style(button::secondary)
+                    .on_press_maybe(msg),
+                    on,
                 )
-                .padding([3, 8])
-                .style(button::secondary)
-                .on_press_maybe(msg)
             };
             pins = pins.push(
                 row![
                     text(name(id))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
                     small("↑", (i > 0).then(|| wrap(Msg::MovePin(i, -1)))),
                     small(
@@ -208,23 +232,25 @@ impl App {
                 .take(8)
             {
                 found = found.push(
-                    button(
-                        row![
-                            text(a.name.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0))
-                                .width(Length::Fill),
-                            text(a.id.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0))
-                                .color(dim),
-                        ]
-                        .spacing(8),
-                    )
-                    .width(Length::Fill)
-                    .padding([6, 10])
-                    .style(button::text)
-                    .on_press(wrap(Msg::Pin(a.id.clone()))),
+                    self.focusable(
+                        button(
+                            row![
+                                text(a.name.clone())
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                                    .width(Length::Fill),
+                                text(a.id.clone())
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0))
+                                    .color(dim),
+                            ]
+                            .spacing(8),
+                        )
+                        .width(Length::Fill)
+                        .padding([6, 10])
+                        .style(button::text)
+                        .on_press(wrap(Msg::Pin(a.id.clone()))),
+                    ),
                 );
             }
         }
@@ -264,26 +290,27 @@ impl App {
             self.field(
                 "Taille des icônes",
                 "launcher_size",
-                row![
-                    iced::widget::slider(24..=96u16, l.size, |v| wrap(Msg::Size(v)))
-                        .on_release(wrap(Msg::SizeCommit))
-                        .width(260),
-                    text(format!("{} px", l.size))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+                self.slider(
+                    &size_spec(),
+                    f64::from(l.size),
+                    |v| format!("{} px", v.round() as u16),
+                    SliderLook::fixed(13.0, 260, Alignment::Start),
+                ),
             ),
             self.field(
                 "Boutons",
                 "",
                 column![
-                    iced::widget::toggler(l.show_assistant)
-                        .label(crate::i18n::tr("Assistant IA (LYRA)"))
-                        .on_toggle(|v| wrap(Msg::ShowAssistant(v))),
-                    iced::widget::toggler(l.show_settings)
-                        .label(crate::i18n::tr("Réglages"))
-                        .on_toggle(|v| wrap(Msg::ShowSettings(v))),
+                    self.focusable(
+                        self.toggle(l.show_assistant)
+                            .label(crate::i18n::tr("Assistant IA (LYRA)"))
+                            .on_toggle(|v| wrap(Msg::ShowAssistant(v)))
+                    ),
+                    self.focusable(
+                        self.toggle(l.show_settings)
+                            .label(crate::i18n::tr("Réglages"))
+                            .on_toggle(|v| wrap(Msg::ShowSettings(v)))
+                    ),
                 ]
                 .spacing(8),
             ),
@@ -293,19 +320,23 @@ impl App {
                 "Icônes",
                 "launcher_smartui",
                 row![
-                    iced::widget::toggler(l.smartui)
-                        .label(crate::i18n::tr("SmartUI design (icônes unifiées par l'IA)"))
-                        .on_toggle(
-                            |v| super::assistant::wrap(super::assistant::Msg::SmartToggle(v))
-                        ),
-                    button(
-                        text("Créer et valider les icônes…")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(super::assistant::wrap(super::assistant::Msg::OpenServices)),
+                    self.focusable(
+                        self.toggle(l.smartui)
+                            .label(crate::i18n::tr("SmartUI design (icônes unifiées par l'IA)"))
+                            .on_toggle(|v| super::assistant::wrap(
+                                super::assistant::Msg::SmartToggle(v)
+                            ))
+                    ),
+                    self.focusable(
+                        button(
+                            text("Créer et valider les icônes…")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(super::assistant::wrap(super::assistant::Msg::OpenServices))
+                    ),
                 ]
                 .spacing(14)
                 .align_y(Alignment::Center),

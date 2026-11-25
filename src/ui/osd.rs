@@ -33,6 +33,9 @@ pub struct Osd {
     /// 0..1, jusqu'à 1,5 pour le volume.
     pub value: f32,
     pub muted: bool,
+    /// Annonce d'un état (icône, texte) à la place de la jauge : l'accès
+    /// clavier complet basculé (HIG ENT-01).
+    pub note: Option<(&'static str, String)>,
     pub shown_at: Instant,
 }
 
@@ -62,12 +65,29 @@ pub fn icon(kind: Kind, value: f32, muted: bool) -> &'static str {
 impl App {
     /// Affiche (ou rafraîchit) la carte ; elle s'efface `SHOW_FOR` après.
     pub(super) fn show_osd(&mut self, kind: Kind, value: f32, muted: bool) -> Task<Msg> {
-        let name = icon(kind, value, muted);
+        self.show_osd_card(kind, value, muted, None)
+    }
+
+    /// Annonce un état sur la même carte, sans jauge : icône et texte
+    /// (« Accès clavier complet : activé », HIG ENT-01).
+    pub(super) fn show_osd_note(&mut self, icon: &'static str, note: String) -> Task<Msg> {
+        self.show_osd_card(Kind::Kbd, 0.0, false, Some((icon, note)))
+    }
+
+    fn show_osd_card(
+        &mut self,
+        kind: Kind,
+        value: f32,
+        muted: bool,
+        note: Option<(&'static str, String)>,
+    ) -> Task<Msg> {
+        let name = note.as_ref().map_or(icon(kind, value, muted), |n| n.0);
         let want = self.want_icon(name);
         if let Some(o) = self.osd.as_mut() {
             o.kind = kind;
             o.value = value;
             o.muted = muted;
+            o.note = note;
             o.shown_at = Instant::now();
             return want;
         }
@@ -77,6 +97,7 @@ impl App {
             kind,
             value,
             muted,
+            note,
             shown_at: Instant::now(),
         });
         Task::batch([
@@ -124,8 +145,12 @@ impl App {
         let bg = color(th.bg, th.shown(crate::config::Place::Menus).opacity);
         let dim = Color { a: 0.35, ..fg };
         let fill = if o.muted { dim } else { accent };
+        let name = o
+            .note
+            .as_ref()
+            .map_or(icon(o.kind, o.value, o.muted), |n| n.0);
         let icon: Element<'_, Msg> = self
-            .icon_named(icon(o.kind, o.value, o.muted), 26.0, fg)
+            .icon_named(name, 26.0, fg)
             .unwrap_or_else(|| iced::widget::Space::new().width(26).into());
         // Jauge : 0..1 (au-delà de 100 %, le volume la remplit).
         let filled = (o.value.clamp(0.0, 1.0) * 1000.0).round() as u16;
@@ -160,37 +185,45 @@ impl App {
         } else {
             format!("{:.0} %", o.value * 100.0)
         };
-        let card = container(
-            row![
+        let content = match &o.note {
+            // Une annonce : l'icône et le texte, sans jauge.
+            Some((_, note)) => row![
+                icon,
+                text(note.clone())
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(fg)
+                    .width(Length::Fill),
+            ],
+            None => row![
                 icon,
                 gauge,
                 text(label)
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg)
                     .width(52),
-            ]
-            .spacing(14)
-            .align_y(Alignment::Center),
-        )
-        .padding([0, 18])
-        .width(WIDTH)
-        .height(HEIGHT)
-        .center_y(HEIGHT)
-        .style(move |_| container::Style {
-            background: Some(bg.into()),
-            border: Border::default()
-                .rounded(super::design::RADIUS)
-                .width(1)
-                .color(Color { a: 0.12, ..fg }),
-            shadow: Shadow {
-                color: Color::from_rgba(0.0, 0.0, 0.0, 0.45),
-                offset: Vector::new(0.0, 8.0),
-                blur_radius: 22.0,
-            },
-            text_color: Some(fg),
-            ..Default::default()
-        });
+            ],
+        };
+        let card = container(content.spacing(14).align_y(Alignment::Center))
+            .padding([0, 18])
+            .width(WIDTH)
+            .height(HEIGHT)
+            .center_y(HEIGHT)
+            .style(move |_| container::Style {
+                background: Some(bg.into()),
+                border: Border::default()
+                    .rounded(super::design::RADIUS)
+                    .width(1)
+                    .color(Color { a: 0.12, ..fg }),
+                shadow: Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.45),
+                    offset: Vector::new(0.0, 8.0),
+                    blur_radius: 22.0,
+                },
+                text_color: Some(fg),
+                ..Default::default()
+            });
         container(card).padding(SHADOW).into()
     }
 }

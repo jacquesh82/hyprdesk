@@ -20,9 +20,13 @@ use iced_layershell::reexport::{
 use super::motion;
 use crate::config::{BarItem, BarPosition, RenderState, Rgba, WidgetKind};
 use crate::ui::design;
-use crate::ui::plugins::bar::popover::Request;
+use crate::ui::plugins::bar::popover::{self, Request};
 use crate::ui::{App, IconImg, Msg, color, format_now};
 use crate::{control, hypr, widgets};
+
+/// Graisse des libellés de la barre, que suivent les glyphes voisins
+/// (HIG ICO-12).
+const LABEL_WEIGHT: iced::font::Weight = iced::font::Weight::Medium;
 
 pub const BAR_NAMESPACE: &str = "hyprdesk-bar";
 
@@ -38,6 +42,8 @@ pub const DESKTOP_OFF_ICON: &str = "hyprdesk-desktop-off-symbolic";
 /// Losange « fenêtre urgente » dessiné par hyprdesk, à côté du numéro d'un
 /// espace qui porte une fenêtre demandant l'attention.
 pub const URGENT_ICON: &str = "hyprdesk-urgent-symbolic";
+/// Chevron qui marque le titre de la fenêtre active comme un menu (HIG MENU-07).
+pub const MENU_CHEVRON: &str = "go-down-symbolic";
 
 /// Icônes symboliques demandées dès que la barre existe.
 pub const STATIC_ICONS: &[&str] = &[
@@ -58,6 +64,8 @@ pub const STATIC_ICONS: &[&str] = &[
     "preferences-system-controls-symbolic",
     "view-more-symbolic",
     "display-brightness-symbolic",
+    // Chevron du titre de la fenêtre active : c'est un titre de menu.
+    MENU_CHEVRON,
     URGENT_ICON,
 ];
 
@@ -72,6 +80,13 @@ pub struct BarSurface {
     pub shape: crate::config::BarShape,
     /// Largeur de la surface (0 : tout le bord).
     pub width: u32,
+}
+
+/// Une barre passe par-dessus un plein écran, sauf réglée déjà sur
+/// `Overlay` (visible par-dessus, au choix de l'utilisateur) ou en Convex
+/// masqué hors survol, qui a son propre geste (HIG PAT-03).
+fn bar_covers(layer: crate::config::BarLayer, convex_auto_hide: bool, fullscreen: bool) -> bool {
+    fullscreen && layer != crate::config::BarLayer::Overlay && !convex_auto_hide
 }
 
 /// Couleurs effectives de la barre.
@@ -141,12 +156,79 @@ pub fn bar_item_key(item: &BarItem) -> &str {
     }
 }
 
+impl App {
+    /// Libellé d'un module de la barre : celui du catalogue des widgets, ou
+    /// celui des modules propres à la barre (`BAR_ITEMS`).
+    pub(in crate::ui) fn bar_item_label(&self, item: &BarItem) -> String {
+        match item {
+            BarItem::Widget(id) => self
+                .cfg
+                .widgets
+                .iter()
+                .find(|w| &w.id == id)
+                .map(|w| {
+                    self.cfg
+                        .catalog
+                        .iter()
+                        .find(|t| t.id == w.type_id)
+                        .map_or(w.type_id.as_str(), |t| t.name.as_str())
+                })
+                .unwrap_or(id)
+                .to_string(),
+            _ => crate::config::BAR_ITEMS
+                .iter()
+                .find(|(id, _)| *id == bar_item_key(item))
+                .map_or("", |(_, label)| crate::i18n::tr(label))
+                .to_string(),
+        }
+    }
+}
+
 pub(in crate::ui) fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
         s.to_string()
     } else {
         format!("{}…", s.chars().take(n).collect::<String>())
     }
+}
+
+/// Clic sur l'horloge de la barre (HIG SYS-13) : en style Island, la bulle
+/// vivante qui occupe la pilule centrale ouvre sa vue étendue — corps,
+/// actions, carte des notifications ; dans tous les autres cas, le calendrier.
+pub(in crate::ui) fn clock_press(
+    bar: Id,
+    module: &str,
+    style: crate::config::BarStyle,
+    toast: Option<&crate::ui::toasts::Toast>,
+) -> Msg {
+    match (style, toast) {
+        (crate::config::BarStyle::Island, Some(t)) => {
+            Msg::OpenPopover(bar, module.to_string(), Request::Activity { id: t.n.id })
+        }
+        _ => Msg::OpenPopover(bar, module.to_string(), Request::Calendar),
+    }
+}
+
+/// Clic droit sur un module de barre : son menu contextuel (HIG ENT-07). La
+/// carte s'ancre au module, sous la clé `menu_key(module)` : un clic droit ne
+/// bascule pas la carte du clic gauche.
+/// Cible d'un module de barre : la hauteur de la barre moins 8 px, sans
+/// descendre sous le minimum recommandé par la HIG (20 × 20 px), ni dépasser
+/// la barre (HIG ACC-09).
+const MODULE_TARGET: f32 = 20.0;
+
+fn module_target(bar_height: u16) -> f32 {
+    (bar_height as f32 - 8.0)
+        .max(MODULE_TARGET)
+        .min(bar_height as f32)
+}
+
+fn module_menu(bar: Id, module: &str) -> Msg {
+    Msg::OpenPopover(
+        bar,
+        popover::menu_key(module),
+        Request::ModuleMenu(module.to_string()),
+    )
 }
 
 /// `wpctl get-volume` → (volume 0..1, coupé).
@@ -499,6 +581,8 @@ impl App {
         } else {
             &bar.zones
         };
+        // Les index du bandeau comptent d'abord les titres de menus (HIG MENU-01).
+        let titles = super::menus::titles().len();
         zones
             .iter()
             .flatten()
@@ -506,7 +590,7 @@ impl App {
             .filter(|(i, _)| {
                 self.bar_hidden
                     .get(&id)
-                    .is_some_and(|hidden| hidden.contains(i))
+                    .is_some_and(|hidden| hidden.contains(&(i + titles)))
             })
             .map(|(_, item)| item.clone())
             .collect()
@@ -568,11 +652,15 @@ impl App {
         let mut changed = false;
         for (id, s) in self.bar_surfaces.clone() {
             let height = spec.map(|(_, h, _, _)| self.bar_height_on(&s.monitor, h));
+            // Plein écran venu ou parti : le calque change, la surface est
+            // recréée (HIG PAT-03).
             if !(want.contains(&s.monitor)
                 && spec.map(|(p, _, m, sh)| (p, height.unwrap_or(0), m, sh))
-                    == Some((s.position, s.height, s.margin, s.shape)))
+                    == Some((s.position, s.height, s.margin, s.shape))
+                && self.bar_over_fullscreen.contains(&id) == self.bar_covered(&s.monitor, &s.shape))
             {
                 self.bar_surfaces.remove(&id);
+                self.bar_over_fullscreen.remove(&id);
                 tasks.push(iced::window::close(id));
                 changed = true;
             }
@@ -623,7 +711,19 @@ impl App {
                         crate::config::BarAlign::End => edge | along_end,
                     }
                 };
+                // Par-dessus un plein écran : calque `Overlay`, sans zone
+                // réservée, réduite d'emblée à sa bande de rappel (HIG PAT-03).
+                let cover = self.bar_covered(&mon, &shape);
                 let autohide = shape.visibility == crate::config::BarVisibility::AutoHide;
+                let thick = if cover {
+                    shape.reveal_zone.max(1)
+                } else {
+                    height
+                };
+                if cover {
+                    self.bar_over_fullscreen.insert(id);
+                    self.bar_reveal.insert(id, (false, 0));
+                }
                 self.bar_surfaces.insert(
                     id,
                     BarSurface {
@@ -638,11 +738,12 @@ impl App {
                 tasks.push(Task::done(Msg::NewLayerShell {
                     settings: NewLayerShellSettings {
                         size: Some(if vertical {
-                            (height as u32, width)
+                            (thick as u32, width)
                         } else {
-                            (width, height as u32)
+                            (width, thick as u32)
                         }),
                         layer: match shape.layer {
+                            _ if cover => Layer::Overlay,
                             crate::config::BarLayer::Top => Layer::Top,
                             crate::config::BarLayer::Overlay => Layer::Overlay,
                             crate::config::BarLayer::Bottom => Layer::Bottom,
@@ -652,7 +753,7 @@ impl App {
                         // marge : la lame flotte au-dessus du bord. Masquée
                         // hors survol ou sans réserve : les fenêtres passent
                         // dessous.
-                        exclusive_zone: Some(if shape.reserve_space && !autohide {
+                        exclusive_zone: Some(if shape.reserve_space && !autohide && !cover {
                             height as i32
                         } else {
                             0
@@ -670,7 +771,7 @@ impl App {
                     },
                     id,
                 }));
-                if autohide {
+                if autohide && !cover {
                     // Montrée à l'apparition, masquée après le délai.
                     tasks.push(Task::done(Msg::BarReveal(id, false)));
                 }
@@ -694,8 +795,10 @@ impl App {
                 .retain(|(id, _), _| self.bar_surfaces.contains_key(id));
             self.bar_hidden
                 .retain(|id, _| self.bar_surfaces.contains_key(id));
-            self.bar_reveal
-                .retain(|id, _| self.bar_surfaces.contains_key(id));
+            // Le dock partage la bande de rappel (HIG PAT-01).
+            self.bar_reveal.retain(|id, _| {
+                self.bar_surfaces.contains_key(id) || self.launcher_surfaces.contains_key(id)
+            });
             self.bar_full_width
                 .retain(|id, _| self.bar_surfaces.contains_key(id));
             if self
@@ -952,7 +1055,7 @@ impl App {
             true,
             under,
         );
-        if shape.visibility == crate::config::BarVisibility::AutoHide {
+        if self.bar_hides(id, &shape) {
             mouse_area(el)
                 .on_enter(Msg::BarReveal(id, true))
                 .on_exit(Msg::BarReveal(id, false))
@@ -980,6 +1083,31 @@ impl App {
             .unwrap_or(base)
     }
 
+    /// Barre masquée hors survol : réglée ainsi (MLG-277), ou par-dessus un
+    /// plein écran (HIG PAT-03).
+    pub(in crate::ui) fn bar_hides(&self, id: Id, shape: &crate::config::BarShape) -> bool {
+        shape.visibility == crate::config::BarVisibility::AutoHide
+            || self.bar_over_fullscreen.contains(&id)
+    }
+
+    /// La barre de l'écran `monitor` passe par-dessus un plein écran
+    /// (HIG PAT-03).
+    fn bar_covered(&self, monitor: &str, shape: &crate::config::BarShape) -> bool {
+        bar_covers(
+            shape.layer,
+            self.convex_auto_hide(),
+            self.fullscreen_on(monitor),
+        )
+    }
+
+    /// Une barre d'écran n'est plus sur le bon calque : plein écran venu ou
+    /// parti sur son espace affiché (HIG PAT-03).
+    pub(in crate::ui) fn bar_cover_changed(&self) -> bool {
+        self.bar_surfaces.iter().any(|(id, s)| {
+            self.bar_over_fullscreen.contains(id) != self.bar_covered(&s.monitor, &s.shape)
+        })
+    }
+
     /// Dock masqué hors survol (`dock.autohide`, MLG-279), hors mode convexe
     /// qui a le sien.
     pub(in crate::ui) fn dock_autohide(&self) -> bool {
@@ -997,13 +1125,13 @@ impl App {
     /// après le délai réglé, si rien n'a changé entre-temps.
     pub(in crate::ui) fn bar_hover(&mut self, id: Id, hover: bool) -> Task<Msg> {
         // Le dock masqué hors survol suit le même geste (MLG-279).
-        let delay = if self.launcher_surfaces.contains_key(&id) && self.dock_autohide() {
+        let delay = if self.launcher_surfaces.contains_key(&id) && self.dock_hides(id) {
             if hover { 120 } else { 600 }
         } else {
             let Some(s) = self.bar_surfaces.get(&id) else {
                 return Task::none();
             };
-            if s.shape.visibility != crate::config::BarVisibility::AutoHide {
+            if !self.bar_hides(id, &s.shape) {
                 return Task::none();
             }
             u64::from(if hover {
@@ -1035,7 +1163,11 @@ impl App {
                 return Task::none();
             }
             e.0 = show;
-            let th = if show { d.thickness } else { 4 };
+            let th = if show {
+                d.thickness
+            } else {
+                crate::ui::plugins::dock::REVEAL_STRIP
+            };
             let vertical = matches!(
                 d.position,
                 crate::config::LauncherPosition::Left | crate::config::LauncherPosition::Right
@@ -1148,7 +1280,7 @@ impl App {
         iced::Rectangle::new(iced::Point::new(x, y), iced::Size::new(w, h))
     }
 
-    fn bar_item_is_launcher(&self, item: &BarItem) -> bool {
+    pub(in crate::ui) fn bar_item_is_launcher(&self, item: &BarItem) -> bool {
         matches!(item, BarItem::Widget(id) if self.cfg.widgets.iter().any(|w| &w.id == id && matches!(w.kind, WidgetKind::Launcher)))
     }
 
@@ -1186,7 +1318,7 @@ impl App {
         let shape = bar.shape;
         crate::ui::plugins::bar::layout::set_gap(shape.item_gap.map_or(2.0, f32::from));
         // Masquée hors survol : une fine bande au bord la fait revenir.
-        if shape.visibility == crate::config::BarVisibility::AutoHide && !self.bar_revealed(id) {
+        if self.bar_hides(id, &shape) && !self.bar_revealed(id) {
             return mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
                 .on_enter(Msg::BarReveal(id, true))
                 .into();
@@ -1211,6 +1343,11 @@ impl App {
                 style,
                 crate::config::BarStyle::Convexe | crate::config::BarStyle::Island
             ) {
+            // Aperçu d'un module : compté sur les modules seuls ; les titres de
+            // menus (HIG MENU-01), en tête, le décalent d'autant.
+            let preview = self
+                .bar_preview
+                .map(|(i, pressed)| (i + super::menus::titles().len(), pressed));
             let mut slots: Vec<_> = zones
                 .iter()
                 .enumerate()
@@ -1262,7 +1399,7 @@ impl App {
                             } else {
                                 content
                             };
-                            let content = if self.bar_preview == Some((index, true)) {
+                            let content = if preview == Some((index, true)) {
                                 motion::surface(
                                     content,
                                     0.97,
@@ -1286,6 +1423,22 @@ impl App {
                     },
                 )
                 .collect();
+            // Menus du shell (HIG MENU-01) : toujours en tête de la zone amont,
+            // jamais débordés, hors réglage. L'aperçu d'un module est compté
+            // sur les modules seuls : les titres le décalent d'autant.
+            let titles = self.bar_menu_titles(id, s);
+            let n = titles.len();
+            slots.extend(
+                titles
+                    .into_iter()
+                    .map(|content| crate::ui::plugins::bar::layout::Slot {
+                        zone: 0,
+                        priority: crate::ui::plugins::bar::layout::PINNED,
+                        flexible: false,
+                        content,
+                    }),
+            );
+            slots.rotate_right(n);
             if edit {
                 for (zone, items) in zones.iter().enumerate() {
                     let z = zone + zone_offset;
@@ -1331,6 +1484,8 @@ impl App {
                         )
                 })
                 .collect();
+            // Les titres de menus ne prennent pas le fond du rail.
+            eligible.splice(0..0, std::iter::repeat_n(false, n));
             if edit {
                 eligible.extend([false; 3]);
             }
@@ -1400,7 +1555,7 @@ impl App {
                     }),
                     continuity,
                 ),
-                self.bar_preview
+                preview
                     .filter(|_| style != crate::config::BarStyle::Island)
                     .map(|(i, _)| i),
                 eligible,
@@ -1409,14 +1564,14 @@ impl App {
             )
         } else {
             row![
-                container(self.bar_zone(id, s, &zones[0], edit.then_some(zone_offset)))
+                container(self.bar_zone(id, s, &zones[0], true, edit.then_some(zone_offset)))
                     .width(Length::Fill)
                     .align_x(Alignment::Start)
                     .clip(true),
-                container(self.bar_zone(id, s, &zones[1], edit.then_some(1 + zone_offset)))
+                container(self.bar_zone(id, s, &zones[1], false, edit.then_some(1 + zone_offset)))
                     .align_x(Alignment::Center)
                     .clip(true),
-                container(self.bar_zone(id, s, &zones[2], edit.then_some(2 + zone_offset)))
+                container(self.bar_zone(id, s, &zones[2], false, edit.then_some(2 + zone_offset)))
                     .width(Length::Fill)
                     .align_x(Alignment::End)
                     .clip(true),
@@ -1553,7 +1708,7 @@ impl App {
         };
         // Masquée hors survol (MLG-277) : le survol la garde, la sortie la
         // masque après le délai.
-        if shape.visibility == crate::config::BarVisibility::AutoHide {
+        if self.bar_hides(id, &shape) {
             mouse_area(bar_el)
                 .on_enter(Msg::BarReveal(id, true))
                 .on_exit(Msg::BarReveal(id, false))
@@ -1670,26 +1825,33 @@ impl App {
         id: Id,
         s: &'a BarSurface,
         items: &'a [BarItem],
+        leading: bool,
         edit: Option<usize>,
     ) -> Element<'a, Msg> {
         let compact = self.bar_compact(&s.monitor);
         let Some(z) = edit else {
-            let content = row(items.iter().map(|it| {
+            // Menus du shell (HIG MENU-01) : d'abord, dans la zone amont.
+            let titles = if leading {
+                self.bar_menu_titles(id, s)
+            } else {
+                Vec::new()
+            };
+            let unrailed = std::iter::repeat_n(false, titles.len());
+            let content = row(titles.into_iter().chain(items.iter().map(|it| {
                 motion::anchor(
                     self.bar_item(id, s, it),
                     id,
                     bar_item_key(it).into(),
                     self.bar_duration(140),
                 )
-            }))
+            })))
             .spacing(if compact { 0 } else { 2 })
             .align_y(Alignment::Center);
             return motion::rail(
                 content,
                 None,
-                items
-                    .iter()
-                    .map(|it| {
+                unrailed
+                    .chain(items.iter().map(|it| {
                         !matches!(
                             it,
                             BarItem::Workspaces
@@ -1697,7 +1859,7 @@ impl App {
                                 | BarItem::Desktop
                                 | BarItem::Tray
                         )
-                    })
+                    }))
                     .collect(),
                 crate::ui::plugins::bar::style::rail_look(
                     self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default(),
@@ -1723,6 +1885,10 @@ impl App {
                 .into()
         };
         let mut r = row![].spacing(0).align_y(Alignment::Center);
+        if leading {
+            // Les menus du shell restent en tête : ils ne se déplacent pas.
+            r = r.push(row(self.bar_menu_titles(id, s)).spacing(if compact { 0 } else { 2 }));
+        }
         for (i, it) in items.iter().enumerate() {
             r = r.push(marker((z, i)));
             let dragged = drag.is_some_and(|(from, _)| from == (z, i));
@@ -1763,6 +1929,62 @@ impl App {
             .into()
     }
 
+    /// Coin de l'ovale des non-lues sur le cadre de l'horloge (HIG SYS-02) :
+    /// celui qui touche le bord de l'écran où la barre est posée, côté fin
+    /// (bas d'une barre verticale).
+    fn badge_corner(position: BarPosition) -> (Alignment, Alignment) {
+        match position {
+            BarPosition::Top => (Alignment::End, Alignment::Start),
+            BarPosition::Bottom => (Alignment::End, Alignment::End),
+            BarPosition::Left => (Alignment::Start, Alignment::End),
+            BarPosition::Right => (Alignment::End, Alignment::End),
+        }
+    }
+
+    /// Chiffre de l'ovale des non-lues (HIG SYS-02) : « 99+ » au-delà de 99.
+    fn badge_label(unread: usize) -> String {
+        if unread > 99 {
+            "99+".to_string()
+        } else {
+            unread.to_string()
+        }
+    }
+
+    /// Ovale des non-lues, posé sur le cadre de l'horloge (HIG SYS-02) : petit
+    /// ovale plein au chiffre, au ton « attention » de la barre comme la bulle
+    /// critique (HIG FON-02) — l'accent reste à la sélection et aux actions.
+    /// `None` sans non lue.
+    fn unread_badge<'a>(&self, unread: usize, alpha: f32) -> Option<Element<'a, Msg>> {
+        if unread == 0 {
+            return None;
+        }
+        let pal = self.bar_palette();
+        // Encre du thème qui reste lisible sur ce ton, clair ou sombre.
+        let ink = design::on_accent(
+            color(pal.warning, 1.0),
+            color(pal.fg, 1.0),
+            color(pal.bg, 1.0),
+        );
+        let warning = color(pal.warning, alpha);
+        let ink = Color { a: alpha, ..ink };
+        // 18 px au moins ; grandit avec son chiffre (échelle du texte).
+        let h = 18.0_f32.max(crate::ui::tokens::ts_label(11.0) + 7.0);
+        Some(
+            container(self.label_numeric(Self::badge_label(unread), 11.0, ink))
+                .padding([0, 6])
+                .height(h)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center)
+                .style(move |_| container::Style {
+                    background: Some(Background::Color(warning)),
+                    border: Border::default().rounded(h / 2.0),
+                    text_color: Some(ink),
+                    ..Default::default()
+                })
+                .into(),
+        )
+    }
+
     /// Module de barre : capsule au survol, clics gauche/droit/milieu, molette,
     /// info-bulle.
     #[allow(clippy::too_many_arguments)]
@@ -1781,8 +2003,19 @@ impl App {
         let pal = self.bar_palette();
         let fg = color(pal.fg, alpha);
         let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
-        let h = (bar.height as f32 - 8.0).max(16.0);
+        let h = module_target(bar.height);
         let interactive = left.is_some() || right.is_some() || middle.is_some() || scroll.is_some();
+        // La barre qui tient le clavier (HIG ENT-02) : ses modules activables,
+        // ceux qu'ouvre un clic gauche, prennent l'anneau de focus, activé par
+        // Entrée ou Espace. Les autres barres, et celle-ci au repos, n'en ont
+        // pas : le focus des autres surfaces ne s'y arrête pas.
+        let keyboard = self
+            .bar_keyboard
+            .and_then(|id| self.bar_surfaces.get(&id))
+            .is_some_and(|s| s.monitor == bar.monitor);
+        let activate = left
+            .clone()
+            .filter(|m| keyboard && matches!(m, Msg::OpenPopover(..)));
         let b = button(
             container(content)
                 .height(Length::Fill)
@@ -1804,7 +2037,15 @@ impl App {
         if let Some(f) = scroll {
             m = m.on_scroll(move |d| f(scroll_dir(d)));
         }
-        let el: Element<'a, Msg> = m.into();
+        let mut el: Element<'a, Msg> = m.into();
+        if let Some(msg) = activate {
+            let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
+            el = crate::ui::focus::press(
+                el,
+                Some(msg),
+                crate::ui::plugins::bar::style::ink(style, &pal),
+            );
+        }
         match tip {
             Some(t) if !t.is_empty() => {
                 let bg = color(pal.bg, 0.95);
@@ -1869,7 +2110,7 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts_label(size))
             .color(c)
-            .font(self.ui_font(iced::font::Weight::Medium))
+            .font(self.ui_font(LABEL_WEIGHT))
             .wrapping(iced::widget::text::Wrapping::None)
             .into()
     }
@@ -1881,6 +2122,115 @@ impl App {
         item: &'a BarItem,
     ) -> Element<'a, Msg> {
         self.bar_item_alpha(bar_id, bar, item, 1.0)
+    }
+
+    /// Titres des menus du shell (HIG MENU-01), dans l'ordre de la barre :
+    /// toujours en tête de la zone amont, hors catalogue et hors débordement.
+    fn bar_menu_titles<'a>(&'a self, id: Id, s: &'a BarSurface) -> Vec<Element<'a, Msg>> {
+        let pal = self.bar_palette();
+        let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
+        let t = crate::ui::plugins::bar::style::durations(self);
+        let shape = self.cfg.bar.as_ref().map(|b| b.shape).unwrap_or_default();
+        let size = shape
+            .font_size
+            .unwrap_or((s.height as f32 * 0.38).clamp(11.0, 18.0));
+        super::menus::titles()
+            .into_iter()
+            .map(|(key, label, request)| {
+                let open = self.bar_menu_open(id, key);
+                let fg = if open && style == crate::config::BarStyle::Continuite {
+                    crate::ui::plugins::bar::style::continuite::selected_ink(&pal, 1.0)
+                } else {
+                    color(pal.fg, 0.92)
+                };
+                let actionable = self.bar_title_live(&request);
+                let title = text(truncate(label, 16))
+                    .wrapping(iced::widget::text::Wrapping::None)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(size))
+                    .color(fg)
+                    // Titres de menus : semibold (DESIGN.md, HIG MENU-07).
+                    .font(self.ui_font(iced::font::Weight::Semibold));
+                // Clic droit sur « Fenêtre » : le menu du clic gauche, sous la
+                // même clé — un contenu, une carte (HIG ENT-07).
+                let right = (actionable && matches!(request, Request::Window))
+                    .then(|| Msg::OpenPopover(id, key.into(), request.clone()));
+                motion::anchor(
+                    self.module(
+                        s,
+                        1.0,
+                        title.into(),
+                        actionable.then(|| Msg::OpenPopover(id, key.into(), request)),
+                        right,
+                        None,
+                        None,
+                        None,
+                        open,
+                    ),
+                    id,
+                    key.into(),
+                    self.bar_duration(t.hover),
+                )
+            })
+            .collect()
+    }
+
+    /// Clic gauche d'un module qui ouvre une carte, partagé par la vue et par
+    /// l'arbre d'accessibilité (`DoAction`, HIG ACC-01) : fenêtre, volume,
+    /// luminosité, centre de contrôle, horloge (vue étendue de la bulle en
+    /// style Island), calendrier ; aucun quand la vue n'affiche rien à
+    /// cliquer (fenêtre absente, luminosité inconnue). Les autres modules — espaces, bureau, zone
+    /// de notification, média, système, commandes, Lua — : aucun.
+    pub(in crate::ui) fn bar_item_press(&self, bar_id: Id, item: &BarItem) -> Option<Msg> {
+        let open = |key: &str, request| Some(Msg::OpenPopover(bar_id, key.into(), request));
+        let monitor = self.bar_surfaces.get(&bar_id).map(|b| b.monitor.as_str());
+        match item {
+            // Comme la vue : rien à cliquer sur un écran étroit ni sans
+            // fenêtre active.
+            BarItem::Window => {
+                let narrow = self
+                    .monitors
+                    .iter()
+                    .find(|m| Some(m.name.as_str()) == monitor)
+                    .is_some_and(|m| m.width < 1000);
+                let shown = self
+                    .active_window
+                    .as_ref()
+                    .is_some_and(|(c, t)| !c.is_empty() || !t.is_empty());
+                (shown && !narrow).then_some(())?;
+                open("window", Request::Window)
+            }
+            BarItem::Volume => open("volume", Request::Volume),
+            // Sans niveau sur cet écran, le module n'est pas affiché.
+            BarItem::Brightness => {
+                self.light.level_for(monitor?)?;
+                open("brightness", Request::Brightness)
+            }
+            BarItem::Widget(id) => match &self.cfg.widgets.iter().find(|w| &w.id == id)?.kind {
+                WidgetKind::Controls => open(id, Request::Widget(id.clone())),
+                WidgetKind::Calendar => open(id, Request::Calendar),
+                WidgetKind::Clock { .. } => {
+                    let style = self.cfg.bar.as_ref().map(|b| b.style).unwrap_or_default();
+                    let toast = (style == crate::config::BarStyle::Island)
+                        .then(|| self.toasts.list.first())
+                        .flatten();
+                    Some(clock_press(bar_id, id, style, toast))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Titre de menu du shell actif. Sans fenêtre active, « Fenêtre » n'a
+    /// rien à montrer : le titre reste, inactif (désactiver plutôt que
+    /// retirer).
+    pub(in crate::ui) fn bar_title_live(&self, request: &Request) -> bool {
+        !matches!(request, Request::Window)
+            || self
+                .active_window
+                .as_ref()
+                .is_some_and(|(_, t)| !t.is_empty())
     }
 
     pub(in crate::ui) fn bar_item_alpha<'a>(
@@ -1927,22 +2277,41 @@ impl App {
                     .as_ref()
                     .map(|(c, t)| if t.is_empty() { c.clone() } else { t.clone() })
                     .unwrap_or_default();
-                let title = text(truncate(&t, if compact { 18 } else { 36 }))
+                // Titre d'un menu, comme « hyprdesk », « Fenêtre » et « Espaces » :
+                // semibold (HIG MENU-07), suivi d'un chevron — seul titre de la
+                // barre dont le libellé n'est pas un nom de menu.
+                let ink = if open { fg } else { dim };
+                let label = text(truncate(&t, if compact { 18 } else { 36 }))
                     .wrapping(iced::widget::text::Wrapping::None)
                     .font(self.font)
                     .size(crate::ui::tokens::ts(size))
-                    .color(if open { fg } else { dim })
-                    .font(self.ui_font(iced::font::Weight::Normal));
+                    .color(ink)
+                    .font(self.ui_font(iced::font::Weight::Semibold));
                 if t.is_empty() {
-                    return container(title).padding([0, 8]).into();
+                    return container(label).padding([0, 8]).into();
                 }
+                let content: Element<'a, Msg> =
+                    // Le chevron suit la graisse du titre (HIG ICO-12).
+                    match self.icon_named_weighted(
+                        MENU_CHEVRON,
+                        (size * 0.75).round(),
+                        ink,
+                        iced::font::Weight::Semibold,
+                    ) {
+                        Some(chevron) => row![label, chevron]
+                            .spacing(4)
+                            .align_y(Alignment::Center)
+                            .into(),
+                        None => label.into(),
+                    };
                 // Clic : le menu de la fenêtre (MLG-311).
                 self.module(
                     bar,
                     alpha,
-                    title.into(),
+                    content,
+                    self.bar_item_press(bar_id, item),
+                    // Clic droit : le menu du clic gauche, même carte (HIG ENT-07).
                     Some(Msg::OpenPopover(bar_id, "window".into(), Request::Window)),
-                    None,
                     None,
                     None,
                     None,
@@ -2065,7 +2434,8 @@ impl App {
                     _ => String::new(),
                 };
                 let mut content = row![
-                    self.icon_named(volume_icon(self.volume), isz, fg)
+                    // Trait du libellé voisin (HIG ICO-12).
+                    self.icon_named_weighted(volume_icon(self.volume), isz, fg, LABEL_WEIGHT)
                         .unwrap_or_else(|| self.label(crate::i18n::tr("Vol."), size, fg))
                 ]
                 .spacing(6)
@@ -2077,8 +2447,8 @@ impl App {
                     bar,
                     alpha,
                     content.into(),
-                    Some(Msg::OpenPopover(bar_id, "volume".into(), Request::Volume)),
-                    None,
+                    self.bar_item_press(bar_id, item),
+                    Some(module_menu(bar_id, "volume")),
                     Some(Msg::VolumeMute),
                     Some(Box::new(|d| Msg::VolumeStep(d as i32 * 5))),
                     None,
@@ -2090,7 +2460,7 @@ impl App {
                     return Space::new().into();
                 };
                 let mut content = row![
-                    self.icon_named("display-brightness-symbolic", isz, fg)
+                    self.icon_named_weighted("display-brightness-symbolic", isz, fg, LABEL_WEIGHT)
                         .unwrap_or_else(|| self.label("☀".to_string(), size, fg))
                 ]
                 .spacing(6)
@@ -2103,12 +2473,8 @@ impl App {
                     bar,
                     alpha,
                     content.into(),
-                    Some(Msg::OpenPopover(
-                        bar_id,
-                        "brightness".into(),
-                        Request::Brightness,
-                    )),
-                    None,
+                    self.bar_item_press(bar_id, item),
+                    Some(module_menu(bar_id, "brightness")),
                     None,
                     target.map(|t| {
                         Box::new(move |d: i64| Msg::LightStep(t, d as i32 * 5))
@@ -2209,11 +2575,7 @@ impl App {
                         alpha,
                         self.icon_named("preferences-system-controls-symbolic", isz, fg)
                             .unwrap_or_else(|| self.label(crate::i18n::tr("Réglages"), size, fg)),
-                        Some(Msg::OpenPopover(
-                            bar_id,
-                            id.clone(),
-                            Request::Widget(id.clone()),
-                        )),
+                        self.bar_item_press(bar_id, item),
                         None,
                         None,
                         None,
@@ -2224,14 +2586,15 @@ impl App {
                         // « Dynamic island » : en style Island, la dernière
                         // bulle vivante prend la main sur l'horloge de la
                         // pilule centrale, et lui rend à sa disparition. Le
-                        // clic garde le calendrier.
+                        // clic ouvre sa vue étendue (HIG SYS-13) ; le
+                        // calendrier reste en pied de cette vue.
                         let toast = (style == crate::config::BarStyle::Island)
                             .then(|| self.toasts.list.first())
                             .flatten();
                         let shown: Element<'_, Msg> = if let Some(t) = toast {
-                            let icon = self
-                                .icon_named(&t.n.icon, isz, fg)
-                                .or_else(|| self.icon_named("notifications-symbolic", isz, fg))
+                            // Un glyphe monochrome de l'activité, jamais l'icône
+                            // entière de l'application (HIG SYS-14).
+                            let icon = crate::ui::icons::glyph("notifications", isz, fg)
                                 .unwrap_or_else(|| self.label("•", size, fg));
                             row![icon, self.label(truncate(&t.n.summary, 26), size, fg),]
                                 .spacing(6)
@@ -2252,24 +2615,59 @@ impl App {
                                 fg,
                             )
                         };
-                        self.module(
+                        // Ovale des non-lues sur l'horloge (HIG SYS-02). La
+                        // pile mesure son premier enfant : le cadre, posé au
+                        // centre de l'épaisseur de la barre. L'ovale y déborde
+                        // dans la marge du cadre, à ras du bord de l'écran, sans
+                        // déplacer ni couvrir l'heure. Son nom, en
+                        // info-bulle, dit le compte.
+                        let unread = self.toasts.unread();
+                        let tip = (unread > 0).then(|| crate::tr!("Non lues : {n}", n = unread));
+                        let frame = self.module(
                             bar,
                             alpha,
                             shown,
-                            Some(Msg::OpenPopover(bar_id, id.clone(), Request::Calendar)),
+                            self.bar_item_press(bar_id, item),
+                            Some(module_menu(bar_id, id)),
                             None,
                             None,
-                            None,
-                            None,
+                            tip,
                             open,
-                        )
+                        );
+                        match self.unread_badge(unread, alpha) {
+                            Some(badge) => {
+                                let (x, y) = Self::badge_corner(bar.position);
+                                let vertical = bar.position.vertical();
+                                let base = container(frame)
+                                    .width(if vertical {
+                                        Length::Fixed(bar.height as f32)
+                                    } else {
+                                        Length::Shrink
+                                    })
+                                    .height(if vertical {
+                                        Length::Shrink
+                                    } else {
+                                        Length::Fixed(bar.height as f32)
+                                    })
+                                    .align_x(Alignment::Center)
+                                    .align_y(Alignment::Center);
+                                let over: Element<'_, Msg> = container(badge)
+                                    .width(Length::Fill)
+                                    .height(Length::Fill)
+                                    .align_x(x)
+                                    .align_y(y)
+                                    .into();
+                                iced::widget::stack![base, over].into()
+                            }
+                            None => frame,
+                        }
                     }
                     WidgetKind::Calendar => self.module(
                         bar,
                         alpha,
                         self.label(format_now("%a %-d %b"), size, fg),
-                        Some(Msg::OpenPopover(bar_id, id.clone(), Request::Calendar)),
-                        None,
+                        self.bar_item_press(bar_id, item),
+                        Some(module_menu(bar_id, id)),
                         None,
                         None,
                         None,
@@ -2320,9 +2718,13 @@ impl App {
                                 bar,
                                 alpha,
                                 row![
-                                    self.icon_named(icon, isz * 0.85, fg).unwrap_or_else(
-                                        || self.label(crate::i18n::tr("▶"), size, fg)
-                                    ),
+                                    // Trait du libellé voisin (HIG ICO-12).
+                                    self.icon_named_weighted(icon, isz * 0.85, fg, LABEL_WEIGHT)
+                                        .unwrap_or_else(|| self.label(
+                                            crate::i18n::tr("▶"),
+                                            size,
+                                            fg
+                                        )),
                                     self.label(
                                         if compact {
                                             String::new()
@@ -2406,7 +2808,10 @@ impl App {
                         if let Some(icon) = r
                             .icon
                             .as_deref()
-                            .and_then(|name| self.icon_named(name, isz, tint))
+                            // Trait du libellé voisin (HIG ICO-12).
+                            .and_then(|name| {
+                                self.icon_named_weighted(name, isz, tint, LABEL_WEIGHT)
+                            })
                         {
                             content = content.push(icon);
                             has_icon = true;
@@ -2440,10 +2845,13 @@ impl App {
                             )
                         });
                         let click_msg = click.map(|f| Msg::LuaCall(id.clone(), f, None));
+                        // Widget de notifications sans fonction `menu` (HIG
+                        // ENT-07) : son menu court à lui ; avec elle, le sien.
+                        let notif = menu.is_none() && w.type_id == "notifications";
                         let (left, right) = match (menu_msg, click_msg) {
                             (Some(m), Some(c)) => (Some(c), Some(m)),
                             (Some(m), None) => (Some(m), None),
-                            (None, c) => (c, None),
+                            (None, c) => (c, notif.then(|| module_menu(bar_id, id))),
                         };
                         let wid = id.clone();
                         let scroll_cb: Option<Box<dyn Fn(i64) -> Msg + 'a>> = scroll.map(|f| {
@@ -2467,10 +2875,12 @@ impl App {
         }
     }
 
+    /// Carte de `key` ouverte sur la barre. Le menu contextuel d'un module
+    /// (HIG ENT-07) porte la clé `menu_key(module)` : il allume son module.
     fn bar_menu_open(&self, bar: Id, key: &str) -> bool {
         self.popover
             .as_ref()
-            .is_some_and(|p| p.bar == bar && p.key == key && !p.closing())
+            .is_some_and(|p| p.bar == bar && popover::module_key(&p.key) == key && !p.closing())
     }
 
     fn tray_icon(
@@ -2499,6 +2909,30 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    /// Par-dessus un plein écran, la barre se retire au bord, sauf déjà sur
+    /// `Overlay` ou en Convex masqué (HIG PAT-03).
+    #[test]
+    fn barre_par_dessus_le_plein_ecran() {
+        use super::bar_covers;
+        use crate::config::BarLayer;
+        assert!(bar_covers(BarLayer::Top, false, true));
+        assert!(bar_covers(BarLayer::Bottom, false, true));
+        assert!(!bar_covers(BarLayer::Top, false, false));
+        assert!(!bar_covers(BarLayer::Overlay, false, true));
+        assert!(!bar_covers(BarLayer::Top, true, true));
+    }
+
+    /// Cible d'un module de barre : 20 px au moins, jamais plus haut que la
+    /// barre (HIG ACC-09).
+    #[test]
+    fn cible_d_un_module_de_barre() {
+        assert_eq!(module_target(36), 28.0);
+        assert_eq!(module_target(30), 22.0);
+        assert_eq!(module_target(28), MODULE_TARGET);
+        assert_eq!(module_target(24), MODULE_TARGET, "24 px : 20, plus 16");
+        assert_eq!(module_target(20), MODULE_TARGET);
+        assert_eq!(module_target(18), 18.0, "jamais plus haut que la barre");
+    }
 
     #[test]
     fn evenements_du_volume() {
@@ -2636,6 +3070,59 @@ Video
         assert_eq!(
             volume_icon(Some((0.9, true))),
             "audio-volume-muted-symbolic"
+        );
+    }
+
+    /// HIG SYS-02 : l'ovale des non-lues se pose au coin du cadre de l'horloge
+    /// qui touche le bord de l'écran ; « 99+ » au-delà de 99.
+    #[test]
+    fn ovale_des_non_lues_au_bord_de_l_ecran() {
+        use BarPosition::{Bottom, Left, Right, Top};
+        assert_eq!(App::badge_corner(Top), (Alignment::End, Alignment::Start));
+        assert_eq!(App::badge_corner(Bottom), (Alignment::End, Alignment::End));
+        assert_eq!(App::badge_corner(Left), (Alignment::Start, Alignment::End));
+        assert_eq!(App::badge_corner(Right), (Alignment::End, Alignment::End));
+        assert_eq!(App::badge_label(1), "1");
+        assert_eq!(App::badge_label(99), "99");
+        assert_eq!(App::badge_label(100), "99+");
+    }
+
+    /// HIG SYS-13 : en style Island, le clic sur la pilule occupée par une
+    /// bulle vivante ouvre la vue étendue de cette bulle ; sans bulle, ou dans
+    /// un autre style, l'horloge garde le calendrier.
+    #[test]
+    fn le_clic_sur_la_pilule_occupee_ouvre_la_vue_etendue() {
+        use crate::config::BarStyle;
+        let bulle = |id: u32| crate::ui::toasts::Toast {
+            n: crate::notifications::build(id, "a", "", "s", "", &[], &Default::default(), -1),
+            since: std::time::Instant::now(),
+            request: None,
+            alert: false,
+            summary: false,
+        };
+        let calendrier = |style, toast| {
+            matches!(
+                clock_press(Id::unique(), "clock", style, toast),
+                Msg::OpenPopover(_, key, Request::Calendar) if key == "clock"
+            )
+        };
+        let sept = bulle(7);
+        assert!(
+            matches!(
+                clock_press(Id::unique(), "clock", BarStyle::Island, Some(&sept)),
+                Msg::OpenPopover(_, key, Request::Activity { id }) if key == "clock" && id == 7
+            ),
+            "Island, bulle vivante : la vue étendue de cette bulle"
+        );
+        for style in [BarStyle::Continuite, BarStyle::Graphite, BarStyle::Convexe] {
+            assert!(
+                calendrier(style, Some(&sept)),
+                "un autre style garde le calendrier : {style:?}"
+            );
+        }
+        assert!(
+            calendrier(BarStyle::Island, None),
+            "sans bulle vivante, l'horloge garde le calendrier"
         );
     }
 }

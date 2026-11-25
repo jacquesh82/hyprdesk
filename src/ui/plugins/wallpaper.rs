@@ -7,17 +7,27 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::i18n::text;
-use iced::widget::{
-    Space, button, column, container, image, pick_list, radio, row, slider, text_input, toggler,
-};
-use iced::{Border, Color, Element, Task};
+use iced::widget::{Space, button, column, container, image, pick_list, radio, row, text_input};
+use iced::{Alignment, Border, Color, Element, Task};
 
-use super::super::panel::{Panel, PanelMsg, SWATCHES};
+use super::super::panel::{Panel, PanelMsg, SWATCHES, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color, list_images};
 use super::{PluginInfo, PluginMsg};
+
+/// Valeur affichée de l'intervalle du diaporama (HIG SEL-08) : « 30 s » ou
+/// « 5 min 00 s », la valeur bornée que le curseur montre.
+fn affiche_rotation(v: f64) -> String {
+    let secs = v.round() as u64;
+    if secs >= 60 {
+        format!("{} min {:02} s", secs / 60, secs % 60)
+    } else {
+        format!("{secs} s")
+    }
+}
 use crate::config::resolve::resolve;
 use crate::config::{Fit, Origin, Rgba, Selector, WallSource};
 use crate::settings::hex;
+use crate::ui::color_picker::{Picker, PickerMsg, well};
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "wallpaper",
@@ -44,6 +54,8 @@ pub struct State {
     /// Dimensions des images (pour signaler une résolution trop faible).
     pub dims: HashMap<PathBuf, (u32, u32)>,
     pub hex: String,
+    /// Sélecteur de couleur ouvert (HIG SEL-02).
+    pub picker: Option<Picker>,
 }
 
 impl Default for State {
@@ -56,6 +68,7 @@ impl Default for State {
             thumbs: HashMap::new(),
             dims: HashMap::new(),
             hex: String::new(),
+            picker: None,
         }
     }
 }
@@ -81,6 +94,11 @@ pub enum Msg {
     Color(Rgba),
     Hex(String),
     HexSubmit,
+    /// Ouvre ou referme le sélecteur de couleur (HIG SEL-02).
+    OpenPicker,
+    Picker(PickerMsg),
+    PickerApply,
+    PickerCancel,
     Fit(Fit),
     /// Étaler l'image sur tous les écrans (découpe automatique).
     /// Étalement : 0 non, 1 bureau et verrouillage, 2 verrouillage seulement.
@@ -251,24 +269,30 @@ impl App {
         col = col.push(self.section("Source"));
         col = col.push(
             row![
-                radio(
-                    crate::i18n::tr("Image"),
-                    WallKind::Image,
-                    kind.or(Some(WallKind::Image)),
-                    |v| wrap(Msg::Kind(v))
-                )
-                .font(self.font),
-                radio(crate::i18n::tr("Diaporama"), WallKind::Rotate, kind, |v| {
-                    wrap(Msg::Kind(v))
-                })
-                .font(self.font),
-                radio(
-                    crate::i18n::tr("Couleur unie"),
-                    WallKind::Color,
-                    kind,
-                    |v| wrap(Msg::Kind(v))
-                )
-                .font(self.font),
+                self.focusable(
+                    radio(
+                        crate::i18n::tr("Image"),
+                        WallKind::Image,
+                        kind.or(Some(WallKind::Image)),
+                        |v| wrap(Msg::Kind(v))
+                    )
+                    .font(self.font)
+                ),
+                self.focusable(
+                    radio(crate::i18n::tr("Diaporama"), WallKind::Rotate, kind, |v| {
+                        wrap(Msg::Kind(v))
+                    })
+                    .font(self.font)
+                ),
+                self.focusable(
+                    radio(
+                        crate::i18n::tr("Couleur unie"),
+                        WallKind::Color,
+                        kind,
+                        |v| wrap(Msg::Kind(v))
+                    )
+                    .font(self.font)
+                ),
             ]
             .spacing(20),
         );
@@ -283,13 +307,15 @@ impl App {
                         .on_submit(wrap(Msg::FolderSubmit))
                         .padding(8)
                         .width(240),
-                    button(
-                        text("Parcourir")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(14.0))
-                    )
-                    .padding([6, 12])
-                    .on_press(wrap(Msg::Browse)),
+                    self.focusable(
+                        button(
+                            text("Parcourir")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([6, 12])
+                        .on_press(wrap(Msg::Browse))
+                    ),
                 ]
                 .spacing(8),
             ),
@@ -309,32 +335,26 @@ impl App {
                             .size(crate::ui::tokens::ts(13.0))
                             .color(dim),
                     );
-                    col = col.push(
-                        self.field(
-                            "Changer toutes les",
-                            "",
-                            row![
-                                slider(10..=3600u32, secs.clamp(10, 3600) as u32, |v| wrap(
-                                    Msg::RotInterval(v as u64)
-                                ))
-                                .step(10u32)
-                                .on_release(UiMsg::Panel(PanelMsg::Commit))
-                                .width(260),
-                                text(if secs >= 60 {
-                                    format!("{} min {:02} s", secs / 60, secs % 60)
-                                } else {
-                                    format!("{secs} s")
-                                })
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0)),
-                            ]
-                            .spacing(12),
+                    col = col.push(self.field(
+                        "Changer toutes les",
+                        "",
+                        self.slider(
+                            &SliderSpec::new(
+                                "rotation_interval",
+                                (10.0, 3600.0),
+                                10.0,
+                                |v| wrap(Msg::RotInterval(v.round() as u64)),
+                                UiMsg::Panel(PanelMsg::Commit),
+                            ),
+                            secs.clamp(10, 3600) as f64,
+                            affiche_rotation,
+                            SliderLook::fixed(13.0, 260, Alignment::Start),
                         ),
-                    );
+                    ));
                     col = col.push(self.field(
                         "Ordre aléatoire",
                         "",
-                        toggler(*shuffle).on_toggle(|v| wrap(Msg::Shuffle(v))),
+                        self.focusable(self.toggle(*shuffle).on_toggle(|v| wrap(Msg::Shuffle(v)))),
                     ));
                     col = col.push(text("Pour changer de dossier : saisir le dossier, puis choisir à nouveau « Diaporama ».").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim));
                 }
@@ -342,21 +362,57 @@ impl App {
             Some(WallKind::Color) => {
                 let swatches = row(SWATCHES.iter().map(|c| {
                     let col = color(*c, 1.0);
-                    button(Space::new().width(32).height(32))
-                        .padding(0)
-                        .on_press(wrap(Msg::Color(*c)))
-                        .style(move |_, _| button::Style {
-                            background: Some(col.into()),
-                            border: Border::default()
-                                .rounded(8)
-                                .color(Color { a: 0.3, ..fg })
-                                .width(1),
-                            ..Default::default()
-                        })
-                        .into()
+                    self.focusable(
+                        button(Space::new().width(32).height(32))
+                            .padding(0)
+                            .on_press(wrap(Msg::Color(*c)))
+                            .style(move |_, _| button::Style {
+                                background: Some(col.into()),
+                                border: Border::default()
+                                    .rounded(8)
+                                    .color(Color { a: 0.3, ..fg })
+                                    .width(1),
+                                ..Default::default()
+                            }),
+                    )
                 }))
                 .spacing(8);
-                col = col.push(self.field("Couleur", "", swatches));
+                // Puits de couleur (HIG SEL-02) : la couleur en place ouvre le
+                // sélecteur, qui se dessine sous la rangée.
+                let current = rule
+                    .and_then(|r| match &r.source {
+                        WallSource::Color(c) => Some(*c),
+                        _ => None,
+                    })
+                    .unwrap_or(g.background);
+                let open = p.wallpaper.picker.as_ref();
+                let mut color_col = column![].spacing(8);
+                color_col = color_col.push(
+                    row![
+                        well(
+                            current,
+                            22.0,
+                            open.is_some(),
+                            fg,
+                            Color { a: 0.3, ..fg },
+                            wrap(Msg::OpenPicker),
+                        ),
+                        swatches,
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                );
+                if let Some(pk) = open {
+                    color_col = color_col.push(pk.view(
+                        self.font,
+                        fg,
+                        dim,
+                        |m| wrap(Msg::Picker(m)),
+                        wrap(Msg::PickerApply),
+                        wrap(Msg::PickerCancel),
+                    ));
+                }
+                col = col.push(self.field("Couleur", "", color_col));
                 col = col.push(
                     self.field(
                         "Code",
@@ -412,29 +468,30 @@ impl App {
                                     }
                                 }
                                 None => container(
-                                    text("…").font(self.font).size(crate::ui::tokens::ts(14.0)),
+                                    text("…").font(self.font).size(crate::ui::tokens::ts(13.0)),
                                 )
                                 .center_x(THUMB.0 as f32)
                                 .center_y(THUMB.1 as f32)
                                 .into(),
                             };
-                            button(inner)
-                                .padding(3)
-                                .on_press(wrap(Msg::PickImage(img.clone())))
-                                .style(move |_, s| button::Style {
-                                    background: None,
-                                    border: Border::default().rounded(8).width(3).color(
-                                        if selected {
-                                            accent
-                                        } else if matches!(s, button::Status::Hovered) {
-                                            Color { a: 0.5, ..fg }
-                                        } else {
-                                            Color::TRANSPARENT
-                                        },
-                                    ),
-                                    ..Default::default()
-                                })
-                                .into()
+                            self.focusable(
+                                button(inner)
+                                    .padding(3)
+                                    .on_press(wrap(Msg::PickImage(img.clone())))
+                                    .style(move |_, s| button::Style {
+                                        background: None,
+                                        border: Border::default().rounded(8).width(3).color(
+                                            if selected {
+                                                accent
+                                            } else if matches!(s, button::Status::Hovered) {
+                                                Color { a: 0.5, ..fg }
+                                            } else {
+                                                Color::TRANSPARENT
+                                            },
+                                        ),
+                                        ..Default::default()
+                                    }),
+                            )
                         }))
                         .spacing(10),
                     );
@@ -454,24 +511,30 @@ impl App {
                     "Étaler sur tous les écrans",
                     "",
                     row![
-                        radio(crate::i18n::tr("Non"), 0u8, Some(span_mode), |v| wrap(
-                            Msg::Span(v)
-                        ))
-                        .font(self.font),
-                        radio(
-                            crate::i18n::tr("Bureau et verrouillage"),
-                            1u8,
-                            Some(span_mode),
-                            |v| wrap(Msg::Span(v))
-                        )
-                        .font(self.font),
-                        radio(
-                            crate::i18n::tr("Verrouillage seulement"),
-                            2u8,
-                            Some(span_mode),
-                            |v| wrap(Msg::Span(v))
-                        )
-                        .font(self.font),
+                        self.focusable(
+                            radio(crate::i18n::tr("Non"), 0u8, Some(span_mode), |v| wrap(
+                                Msg::Span(v)
+                            ))
+                            .font(self.font)
+                        ),
+                        self.focusable(
+                            radio(
+                                crate::i18n::tr("Bureau et verrouillage"),
+                                1u8,
+                                Some(span_mode),
+                                |v| wrap(Msg::Span(v))
+                            )
+                            .font(self.font)
+                        ),
+                        self.focusable(
+                            radio(
+                                crate::i18n::tr("Verrouillage seulement"),
+                                2u8,
+                                Some(span_mode),
+                                |v| wrap(Msg::Span(v))
+                            )
+                            .font(self.font)
+                        ),
                     ]
                     .spacing(16),
                 ),
@@ -523,26 +586,22 @@ impl App {
             }
         }
         if rule.is_some() && kind != Some(WallKind::Color) && !span {
-            let fits = [Fit::Cover, Fit::Contain, Fit::Fill, Fit::Center];
+            // « Étirer » (`Fit::Fill`) n'est plus proposé : il déforme l'œuvre (HIG TYP-18).
+            // Une règle réglée à `fill` (Lua, ligne de commande) garde son rendu.
+            let fits = [
+                (Fit::Cover, crate::i18n::tr("Remplir")),
+                (Fit::Contain, crate::i18n::tr("Ajuster")),
+                (Fit::Center, crate::i18n::tr("Centrer")),
+            ];
             let current = rule.map(|r| r.fit).unwrap_or_default();
             col = col.push(
                 self.field(
                     "Ajustement",
                     "",
-                    row(fits.iter().map(|f| {
-                        radio(
-                            match f {
-                                Fit::Cover => "Remplir",
-                                Fit::Contain => "Ajuster",
-                                Fit::Fill => crate::i18n::tr("Étirer"),
-                                Fit::Center => "Centrer",
-                            },
-                            *f,
-                            Some(current),
-                            |v| wrap(Msg::Fit(v)),
+                    row(fits.iter().map(|(f, label)| {
+                        self.focusable(
+                            radio(*label, *f, Some(current), |v| wrap(Msg::Fit(v))).font(self.font),
                         )
-                        .font(self.font)
-                        .into()
                     }))
                     .spacing(16),
                 ),
@@ -550,13 +609,15 @@ impl App {
         }
         if rule.is_some() {
             col = col.push(
-                button(
-                    text("Supprimer la règle de cette portée")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0)),
-                )
-                .padding([6, 12])
-                .on_press(wrap(Msg::RemoveWall)),
+                self.focusable(
+                    button(
+                        text("Supprimer la règle de cette portée")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(Msg::RemoveWall)),
+                ),
             );
         }
         col.into()
@@ -611,22 +672,26 @@ impl App {
             .cloned();
         let (s1, s2) = (scope.clone(), scope.clone());
         let pickers = row![
-            pick_list(screens, cur_screen, move |p: Pick| {
-                wrap(Msg::Scope(Scope {
-                    monitor: p.value,
-                    ..s1.clone()
-                }))
-            })
-            .font(self.font)
-            .width(200),
-            pick_list(workspaces, cur_ws, move |p: Pick| {
-                wrap(Msg::Scope(Scope {
-                    workspace: p.value,
-                    ..s2.clone()
-                }))
-            })
-            .font(self.font)
-            .width(200),
+            self.choosable(
+                pick_list(screens, cur_screen, move |p: Pick| {
+                    wrap(Msg::Scope(Scope {
+                        monitor: p.value,
+                        ..s1.clone()
+                    }))
+                })
+                .font(self.font)
+                .width(200)
+            ),
+            self.choosable(
+                pick_list(workspaces, cur_ws, move |p: Pick| {
+                    wrap(Msg::Scope(Scope {
+                        workspace: p.value,
+                        ..s2.clone()
+                    }))
+                })
+                .font(self.font)
+                .width(200)
+            ),
         ]
         .spacing(12);
         // Règles réglées ici : un clic y revient.
@@ -644,31 +709,33 @@ impl App {
             let delete = self.delete_button(armed, wrap(Msg::DeleteRule(s.clone())));
             rules = rules.push(
                 row![
-                    button(
-                        text(scope_label(&s))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([3, 10])
-                    .style(move |_, status| button::Style {
-                        background: Some(
-                            if active {
-                                Color { a: 0.28, ..accent }
-                            } else if matches!(status, button::Status::Hovered) {
-                                Color { a: 0.1, ..fg }
-                            } else {
-                                Color { a: 0.05, ..fg }
-                            }
-                            .into(),
-                        ),
-                        text_color: fg,
-                        border: Border::default().rounded(999).width(1).color(Color {
-                            a: if active { 0.7 } else { 0.15 },
-                            ..if active { accent } else { fg }
-                        }),
-                        ..Default::default()
-                    })
-                    .on_press(wrap(Msg::Scope(s))),
+                    self.focusable(
+                        button(
+                            text(scope_label(&s))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([3, 10])
+                        .style(move |_, status| button::Style {
+                            background: Some(
+                                if active {
+                                    Color { a: 0.28, ..accent }
+                                } else if matches!(status, button::Status::Hovered) {
+                                    Color { a: 0.1, ..fg }
+                                } else {
+                                    Color { a: 0.05, ..fg }
+                                }
+                                .into(),
+                            ),
+                            text_color: fg,
+                            border: Border::default().rounded(999).width(1).color(Color {
+                                a: if active { 0.7 } else { 0.15 },
+                                ..if active { accent } else { fg }
+                            }),
+                            ..Default::default()
+                        })
+                        .on_press(wrap(Msg::Scope(s)))
+                    ),
                     delete,
                 ]
                 .spacing(2)
@@ -784,6 +851,9 @@ impl App {
                 Task::none()
             }
             Msg::PickImage(p) => {
+                // La source change : le sélecteur se referme, pour ne pas
+                // rouvrir tout seul au retour à la source « Couleur ».
+                panel.wallpaper.picker = None;
                 // En-tête seulement : de quoi avertir d'une résolution trop faible.
                 if !panel.wallpaper.dims.contains_key(&p)
                     && let Ok(d) = ::image::image_dimensions(&p)
@@ -796,6 +866,7 @@ impl App {
                 self.commit()
             }
             Msg::Kind(k) => {
+                panel.wallpaper.picker = None;
                 let typed = Rgba::parse(&panel.wallpaper.hex);
                 let sel = self.scope_selector(scope);
                 let fit = self.current_fit(&sel);
@@ -833,11 +904,61 @@ impl App {
                 self.commit()
             }
             Msg::Color(c) => {
+                // La couleur change sans le sélecteur : il se referme.
+                panel.wallpaper.picker = None;
                 panel.wallpaper.hex = hex(c);
                 let sel = self.scope_selector(scope);
                 self.settings
                     .set_wallpaper(sel, WallSource::Color(c), Fit::Cover);
                 self.commit()
+            }
+            // Puits de couleur (HIG SEL-02) : le sélecteur part du brouillon
+            // s'il est lisible, sinon de la couleur en place.
+            Msg::OpenPicker => {
+                let open = panel.wallpaper.picker.is_some();
+                let fallback = self.cfg.general.background;
+                let placed = self
+                    .settings
+                    .wallpaper(&self.scope_selector(scope))
+                    .and_then(|r| match &r.source {
+                        WallSource::Color(c) => Some(*c),
+                        _ => None,
+                    });
+                let Some(panel) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                let initial = Rgba::parse(panel.wallpaper.hex.trim())
+                    .or(placed)
+                    .unwrap_or(fallback);
+                panel.wallpaper.picker = (!open).then(|| Picker::new(initial));
+                Task::none()
+            }
+            Msg::Picker(m) => {
+                if let Some(pk) = self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.wallpaper.picker.as_mut())
+                {
+                    pk.update(m);
+                }
+                Task::none()
+            }
+            Msg::PickerCancel => {
+                if let Some(panel) = self.panel.as_mut() {
+                    panel.wallpaper.picker = None;
+                }
+                Task::none()
+            }
+            Msg::PickerApply => {
+                match self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.wallpaper.picker.take())
+                    .map(|pk| pk.color())
+                {
+                    Some(c) => self.wallpaper_update(Msg::Color(c)),
+                    None => Task::none(),
+                }
             }
             Msg::Hex(h) => {
                 panel.wallpaper.hex = h;

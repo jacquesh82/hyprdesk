@@ -8,11 +8,11 @@
 use std::collections::BTreeMap;
 
 use crate::i18n::text;
-use iced::widget::{button, column, container, pick_list, row, slider, toggler};
-use iced::{Alignment, Color, Element, Length, Task};
+use iced::widget::{button, column, container, pick_list, row};
+use iced::{Alignment, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
-use super::super::{App, Msg as UiMsg, color};
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec, beside_slider};
+use super::super::{App, Msg as UiMsg};
 use super::{PluginInfo, PluginMsg};
 use crate::config::Config;
 use crate::fx::{self, Anim, Fx};
@@ -58,13 +58,15 @@ pub enum Msg {
 }
 
 /// Réglages effectifs : ceux de la config, ou rien si le paquet est coupé
-/// (ainsi que Performance, qui écrit dans les mêmes réglages).
+/// (ainsi que Performance, qui écrit dans les mêmes réglages) ; le mouvement
+/// réduit coupe en plus glissements et agrandissements (HIG FON-08).
 pub fn effective(cfg: &Config) -> Fx {
-    if cfg.plugin_on(INFO.id) || cfg.plugin_on(super::performance::INFO.id) {
+    let fx = if cfg.plugin_on(INFO.id) || cfg.plugin_on(super::performance::INFO.id) {
         cfg.general.fx.clone()
     } else {
         Fx::default()
-    }
+    };
+    fx::with_reduced_motion(fx, cfg.general.reduced_motion)
 }
 
 /// Lit les valeurs en place dans Hyprland, hors du fil de l'interface.
@@ -146,21 +148,22 @@ impl App {
 
     /// « réglé ici » + Rétablir, ou l'origine hyprland.lua.
     fn fx_origin(&self, ours: bool, reset: UiMsg) -> Element<'_, UiMsg> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
         if ours {
             row![
                 text(crate::i18n::tr("réglé ici"))
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
-                    .color(color(self.cfg.general.theme.accent, 1.0)),
-                button(
-                    text(crate::i18n::tr("Rétablir"))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([2, 8])
-                .style(button::text)
-                .on_press(reset),
+                    .color(self.ink().accent),
+                self.focusable(
+                    button(
+                        text(crate::i18n::tr("Rétablir"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([2, 8])
+                    .style(button::text)
+                    .on_press(reset)
+                ),
             ]
             .spacing(6)
             .align_y(Alignment::Center)
@@ -169,7 +172,7 @@ impl App {
             text(crate::i18n::tr("hyprland.lua"))
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0))
-                .color(Color { a: 0.6, ..fg })
+                .color(self.ink().dim)
                 .into()
         }
     }
@@ -184,13 +187,13 @@ impl App {
     fn blur_compare(&self) -> Element<'_, UiMsg> {
         let dim = self.ink().dim;
         row![
-            button(
+            self.focusable(button(
                 text(crate::i18n::tr("Comparer à l'écran"))
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
             )
             .padding([4, 10])
-            .on_press(wrap(Msg::Compare("decoration.blur.variant"))),
+            .on_press(wrap(Msg::Compare("decoration.blur.variant")))),
             text(crate::i18n::tr(
                 "Chaque variante quatre secondes, son nom en haut de l'écran, puis la vôtre revient. \
                  Gardez une fenêtre transparente devant un fond détaillé."
@@ -206,7 +209,6 @@ impl App {
     }
 
     fn fx_effects(&self) -> Element<'_, UiMsg> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
         let mut col = column![
             text(crate::i18n::tr(
                 "Effets dessinés par Hyprland autour et derrière les fenêtres. Seuls les \
@@ -215,7 +217,7 @@ impl App {
             ))
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
-            .color(Color { a: 0.6, ..fg }),
+            .color(self.ink().dim),
         ]
         .spacing(14);
         for (title, keys) in fx::GROUPS {
@@ -233,7 +235,10 @@ impl App {
             }
             // Réglages fins du groupe : configuration avancée.
             if keys.iter().any(|k| fx::ADVANCED.contains(k)) {
-                col = col.push(self.adv(fine));
+                col = col.push(self.adv(
+                    &crate::tr!("Réglages fins : {t}", t = crate::i18n::tr(title)),
+                    || fine,
+                ));
             }
         }
         col.into()
@@ -254,6 +259,19 @@ impl App {
             .color(dim),
         ]
         .spacing(14);
+        // Mouvement réduit : il l'emporte sur les réglages ci-dessous (HIG FON-08).
+        if self.cfg.general.reduced_motion {
+            col = col.push(
+                text(crate::i18n::tr(
+                    "Mouvement réduit est activé (Thème → Accessibilité) : fenêtres et \
+                     calques ne glissent ni ne grossissent plus, les workspaces changent \
+                     en fondu, quels que soient les réglages ci-dessous.",
+                ))
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim),
+            );
+        }
         // Catalogue de hyprdesk, puis courbes de l'utilisateur (MLG-143).
         let curves: Vec<Choice<String>> = fx::CURVES
             .iter()
@@ -278,13 +296,15 @@ impl App {
                         "",
                         row![
                             container(
-                                button(
-                                    text(crate::i18n::tr("Personnaliser"))
-                                        .font(self.font)
-                                        .size(crate::ui::tokens::ts(12.0))
-                                )
-                                .padding([4, 10])
-                                .on_press(wrap(Msg::Anim(name.into(), Some(Anim::new_for(l))))),
+                                self.focusable(
+                                    button(
+                                        text(crate::i18n::tr("Personnaliser"))
+                                            .font(self.font)
+                                            .size(crate::ui::tokens::ts(12.0))
+                                    )
+                                    .padding([4, 10])
+                                    .on_press(wrap(Msg::Anim(name.into(), Some(Anim::new_for(l)))))
+                                ),
                             )
                             .width(Length::Fill),
                             self.fx_origin(false, UiMsg::Noop),
@@ -295,7 +315,14 @@ impl App {
                 continue;
             };
             let base = a.clone();
-            let mut line = row![toggler(a.enabled).on_toggle({
+            let speed = SliderSpec::new(
+                format!("anim_speed.{name}"),
+                (1.0, 20.0),
+                0.5,
+                move |x| wrap(Msg::Speed(name.into(), x)),
+                wrap(Msg::Commit),
+            );
+            let interrupteur = self.focusable(self.toggle(a.enabled).on_toggle({
                 let base = base.clone();
                 move |v| {
                     wrap(Msg::Anim(
@@ -306,42 +333,43 @@ impl App {
                         }),
                     ))
                 }
-            })]
+            }));
+            // Avec son curseur, l'interrupteur reste sur la ligne de celui-ci,
+            // au-dessus de son échelle (HIG SEL-09).
+            let mut line = if a.enabled {
+                row![beside_slider(&speed, interrupteur)]
+            } else {
+                row![interrupteur]
+            }
             .spacing(12)
             .align_y(Alignment::Center);
             // Seconde ligne : courbe et style.
             let mut second = row![].spacing(10);
             if a.enabled {
-                line = line.push(
-                    slider(1.0f32..=20.0, a.speed as f32, move |x| {
-                        wrap(Msg::Speed(name.into(), x as f64))
-                    })
-                    .step(0.5f32)
-                    .on_release(wrap(Msg::Commit))
-                    .width(Length::Fill),
-                );
-                line = line.push(
-                    text(format!("{}", a.speed))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .width(30),
-                );
+                line = line.push(self.slider(
+                    &speed,
+                    a.speed,
+                    |x| format!("{x}"),
+                    SliderLook::fill(13.0, 30, Alignment::Center),
+                ));
                 let sel = curves.iter().find(|c| c.value == a.curve).cloned();
                 second = second.push(
-                    pick_list(curves.clone(), sel, {
-                        let base = base.clone();
-                        move |c: Choice<String>| {
-                            wrap(Msg::Anim(
-                                name.into(),
-                                Some(Anim {
-                                    curve: c.value,
-                                    ..base.clone()
-                                }),
-                            ))
-                        }
-                    })
-                    .font(self.font)
-                    .width(Length::FillPortion(1)),
+                    self.choosable(
+                        pick_list(curves.clone(), sel, {
+                            let base = base.clone();
+                            move |c: Choice<String>| {
+                                wrap(Msg::Anim(
+                                    name.into(),
+                                    Some(Anim {
+                                        curve: c.value,
+                                        ..base.clone()
+                                    }),
+                                ))
+                            }
+                        })
+                        .font(self.font)
+                        .width(Length::FillPortion(1)),
+                    ),
                 );
                 if !l.styles.is_empty() {
                     let styles: Vec<Choice<String>> = l
@@ -357,24 +385,31 @@ impl App {
                         .find(|c| Some(&c.value) == a.style.as_ref())
                         .cloned();
                     second = second.push(
-                        pick_list(styles, sel, {
-                            let base = base.clone();
-                            move |c: Choice<String>| {
-                                wrap(Msg::Anim(
-                                    name.into(),
-                                    Some(Anim {
-                                        style: Some(c.value),
-                                        ..base.clone()
-                                    }),
-                                ))
-                            }
-                        })
-                        .font(self.font)
-                        .width(Length::FillPortion(1)),
+                        self.choosable(
+                            pick_list(styles, sel, {
+                                let base = base.clone();
+                                move |c: Choice<String>| {
+                                    wrap(Msg::Anim(
+                                        name.into(),
+                                        Some(Anim {
+                                            style: Some(c.value),
+                                            ..base.clone()
+                                        }),
+                                    ))
+                                }
+                            })
+                            .font(self.font)
+                            .width(Length::FillPortion(1)),
+                        ),
                     );
                 }
             }
-            line = line.push(self.fx_origin(true, wrap(Msg::Anim(name.into(), None))));
+            let origine = self.fx_origin(true, wrap(Msg::Anim(name.into(), None)));
+            line = line.push(if a.enabled {
+                beside_slider(&speed, origine)
+            } else {
+                origine
+            });
             col = col.push(self.field(l.label, "", column![line, second].spacing(8)));
         }
         col = col.push(

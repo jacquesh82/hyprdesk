@@ -10,9 +10,10 @@
 use std::collections::BTreeSet;
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, row, text_input, toggler};
+use iced::widget::{Space, button, column, container, row, text_input};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
+use super::super::etats::Etat;
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
@@ -131,9 +132,9 @@ impl App {
             let installed = (t.installed)();
             let checked = on.contains(t.id);
             let status = if installed {
-                text(crate::i18n::tr("installé")).color(dim)
+                text(Etat::Installe.libelle()).color(dim)
             } else {
-                text(crate::i18n::tr("introuvable")).color(warn)
+                text(Etat::Introuvable.libelle()).color(warn)
             };
             col = col.push(
                 container(
@@ -143,7 +144,7 @@ impl App {
                                 row![
                                     text(t.label)
                                         .font(self.title_font())
-                                        .size(crate::ui::tokens::ts(14.0)),
+                                        .size(crate::ui::tokens::ts(13.0)),
                                     status.font(self.font).size(crate::ui::tokens::ts(12.0)),
                                 ]
                                 .spacing(8)
@@ -155,7 +156,11 @@ impl App {
                             ]
                             .spacing(4)
                             .width(Length::Fill),
-                            toggler(checked).on_toggle(move |v| wrap(Msg::Toggle(t.id, v))),
+                            self.focusable(
+                                self.toggle(checked)
+                                    .named(crate::i18n::tr(t.label))
+                                    .on_toggle(move |v| wrap(Msg::Toggle(t.id, v)))
+                            ),
                         ]
                         .spacing(12)
                         .align_y(Alignment::Center),
@@ -168,18 +173,20 @@ impl App {
                             .size(crate::ui::tokens::ts(12.0))
                             .color(dim)
                             .width(Length::Fill),
-                            button(
-                                text(if editing == Some(t.id) {
-                                    "Fermer"
-                                } else {
-                                    "Réglages"
-                                })
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0)),
-                            )
-                            .padding([4, 10])
-                            .style(button::secondary)
-                            .on_press(wrap(Msg::Edit(t.id))),
+                            self.focusable(
+                                button(
+                                    text(if editing == Some(t.id) {
+                                        "Fermer"
+                                    } else {
+                                        "Réglages"
+                                    })
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0)),
+                                )
+                                .padding([4, 10])
+                                .style(button::secondary)
+                                .on_press(wrap(Msg::Edit(t.id)))
+                            ),
                         ]
                         .spacing(10)
                         .align_y(Alignment::Center),
@@ -227,13 +234,15 @@ impl App {
             .spacing(16),
         );
         col = col.push(
-            button(
-                text(crate::i18n::tr("Appliquer maintenant"))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0)),
-            )
-            .padding([6, 14])
-            .on_press(wrap(Msg::ApplyNow)),
+            self.focusable(
+                button(
+                    text(crate::i18n::tr("Appliquer maintenant"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([6, 14])
+                .on_press(wrap(Msg::ApplyNow)),
+            ),
         );
         if let Some(p) = &self.panel {
             for (id, r) in &p.apptheme.report {
@@ -292,7 +301,7 @@ impl App {
                 row![
                     text(crate::i18n::tr("Applications iced"))
                         .font(self.title_font())
-                        .size(crate::ui::tokens::ts(14.0)),
+                        .size(crate::ui::tokens::ts(13.0)),
                     status.font(self.font).size(crate::ui::tokens::ts(12.0)),
                 ]
                 .spacing(8)
@@ -377,14 +386,16 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(
-                    text("Valeurs par défaut")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([3, 8])
-                .style(button::text)
-                .on_press(wrap(Msg::Reset(t.id))),
+                self.focusable(
+                    button(
+                        text("Valeurs par défaut")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([3, 8])
+                    .style(button::text)
+                    .on_press(wrap(Msg::Reset(t.id)))
+                ),
             ]
             .spacing(8)
             .align_y(Alignment::Center),

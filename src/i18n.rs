@@ -82,6 +82,7 @@ mod tests {
         "text(",
         ".section(",
         ".field(",
+        ".adv(",
         "radio(",
         ".label(",
         "text_input(",

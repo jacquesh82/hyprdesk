@@ -957,6 +957,101 @@ pub struct Hypr {
     pub devices: Vec<serde_json::Value>,
     /// Permissions (`hl.permission`), lues au démarrage de Hyprland seulement.
     pub permissions: Vec<Permission>,
+    /// Les gestes par défaut (`DEFAULT_GESTURES`) ont été posés une fois :
+    /// un défaut supprimé n'est pas reposé (HIG ENT-03).
+    pub gestures_seeded: bool,
+}
+
+/// Gestes système par défaut (HIG ENT-03), sur le modèle de macOS : trois
+/// doigts vers le haut, la vue d'ensemble (Mission Control) ; quatre doigts
+/// pincés, les applications (Launchpad) ; écartés, le bureau ; vers la
+/// gauche, le centre de notifications (Hyprland n'a pas de geste depuis le
+/// bord).
+pub const DEFAULT_GESTURES: &[(i64, &str, &str)] = &[
+    (3, "up", "hyprdesk:overview"),
+    (4, "pinchin", "hyprdesk:apps"),
+    (4, "pinchout", "hyprdesk:show-desktop"),
+    (4, "left", "hyprdesk:notifications"),
+];
+
+/// Le sens `a` couvre le sens `b` (HIG ENT-03) : « vertical » couvre « up »
+/// et « down », « horizontal » « left » et « right », « swipe » tout
+/// balayement, « pinch » « pinchin » et « pinchout » ; tout sens se couvre.
+pub fn covers(a: &str, b: &str) -> bool {
+    a == b
+        || match a {
+            "horizontal" => matches!(b, "left" | "right"),
+            "vertical" => matches!(b, "up" | "down"),
+            "swipe" => matches!(
+                b,
+                "horizontal" | "vertical" | "left" | "right" | "up" | "down"
+            ),
+            "pinch" => matches!(b, "pinchin" | "pinchout"),
+            _ => false,
+        }
+}
+
+/// Deux sens se recouvrent : l'un couvre l'autre (« vertical » et « up »).
+pub fn overlaps(a: &str, b: &str) -> bool {
+    covers(a, b) || covers(b, a)
+}
+
+/// Un geste réglé, sans modificateur, prend déjà `fingers` doigts dans le
+/// sens `direction` ou un sens qui le recouvre.
+pub fn gesture_taken(gestures: &[serde_json::Value], fingers: i64, direction: &str) -> bool {
+    gestures.iter().any(|g| {
+        g.get("fingers").and_then(|v| v.as_i64()) == Some(fingers)
+            && g.get("direction")
+                .and_then(|v| v.as_str())
+                .is_some_and(|d| overlaps(d, direction))
+            && g.get("mods").is_none()
+    })
+}
+
+/// Un geste de hyprland.lua (`body`) prend la place des gestes par défaut
+/// qu'il recouvre — mêmes doigts, sans modificateur, sens qui se recouvrent
+/// (HIG ENT-03) : sinon le même mouvement déclencherait deux gestes.
+pub fn yield_defaults(gestures: &mut Vec<serde_json::Value>, body: &serde_json::Value) {
+    if body.get("mods").is_some() {
+        return;
+    }
+    let (Some(fingers), Some(direction)) = (
+        body.get("fingers").and_then(|v| v.as_i64()),
+        body.get("direction").and_then(|v| v.as_str()),
+    ) else {
+        return;
+    };
+    gestures.retain(|g| {
+        !DEFAULT_GESTURES.iter().any(|(f, d, a)| {
+            *f == fingers
+                && overlaps(d, direction)
+                && g.get("fingers").and_then(|v| v.as_i64()) == Some(*f)
+                && g.get("direction").and_then(|v| v.as_str()) == Some(*d)
+                && g.get("action").and_then(|v| v.as_str()) == Some(*a)
+                && g.get("mods").is_none()
+        })
+    });
+}
+
+/// Pose une fois les gestes par défaut que nul geste réglé ne recouvre
+/// (HIG ENT-03) : ils paraissent dans Réglages → Gestes, où chacun se
+/// supprime pour de bon. Rend vrai si la liste a changé.
+pub fn seed_gestures(h: &mut Hypr) -> bool {
+    if h.gestures_seeded {
+        return false;
+    }
+    h.gestures_seeded = true;
+    let before = h.gestures.len();
+    for (fingers, direction, action) in DEFAULT_GESTURES {
+        if !gesture_taken(&h.gestures, *fingers, direction) {
+            h.gestures.push(serde_json::json!({
+                "fingers": fingers,
+                "direction": direction,
+                "action": action,
+            }));
+        }
+    }
+    h.gestures.len() != before
 }
 
 /// Permission de Hyprland : un programme (regex de son chemin) ou un
@@ -1032,6 +1127,7 @@ impl Hypr {
             && self.env.is_empty()
             && self.rules.is_empty()
             && !self.theme_borders
+            && !self.gestures_seeded
             && self.gestures.is_empty()
             && self.devices.is_empty()
             && self.permissions.is_empty()
@@ -1060,6 +1156,9 @@ impl Hypr {
         }
         if self.theme_borders {
             items.push("theme_borders = true".into());
+        }
+        if self.gestures_seeded {
+            items.push("gestures_seeded = true".into());
         }
         if !self.rules.is_empty() {
             let r: Vec<String> = self
@@ -1161,6 +1260,10 @@ pub fn parse(t: &mlua::Table) -> Result<Hypr, String> {
             h.theme_borders = matches!(v, mlua::Value::Boolean(true));
             continue;
         }
+        if k == "gestures_seeded" {
+            h.gestures_seeded = matches!(v, mlua::Value::Boolean(true));
+            continue;
+        }
         if matches!(
             k.as_str(),
             "env" | "rules" | "gestures" | "devices" | "permissions"
@@ -1211,15 +1314,46 @@ pub fn gesture_complete(g: &serde_json::Value) -> bool {
         && filled(g, "action")
 }
 
+/// Commande hyprdesk d'une action de geste `hyprdesk:<nom>` (HIG ENT-03) :
+/// vue d'ensemble, applications, centre de notifications, bureau.
+pub fn gesture_command(action: &str) -> Option<&'static str> {
+    Some(match action.strip_prefix("hyprdesk:")? {
+        "overview" => "overview",
+        "apps" => "apps",
+        "notifications" => "focus notifications",
+        "show-desktop" => "show",
+        _ => return None,
+    })
+}
+
 /// `hl.gesture(…)` ou `hl.device(…)` des éléments complets, une ligne
-/// chacun, dans l'ordre.
+/// chacun, dans l'ordre. Un geste à action hyprdesk (`hyprdesk:<nom>`)
+/// s'écrit en fonction, qui lance la commande au déclenchement : `hyprdesk`
+/// nu, trouvé dans le `PATH` (un chemin absolu serait périmé après une
+/// réinstallation, et voyagerait tel quel dans un export) ; une action
+/// hyprdesk inconnue n'est pas écrite.
 pub fn calls_lua(func: &str, list: &[serde_json::Value]) -> String {
     list.iter()
         .filter(|v| match func {
             "gesture" => gesture_complete(v),
             _ => filled(v, "name"),
         })
-        .map(|v| format!("hl.{func}({})\n", json_lua(v)))
+        .filter_map(|v| {
+            let action = v.get("action").and_then(|a| a.as_str()).unwrap_or("");
+            if func != "gesture" || !action.starts_with("hyprdesk:") {
+                return Some(format!("hl.{func}({})\n", json_lua(v)));
+            }
+            let cmd = gesture_command(action)?;
+            let mut rest = v.clone();
+            if let Some(m) = rest.as_object_mut() {
+                m.remove("action");
+            }
+            let fields = json_lua(&rest);
+            let fields = fields.trim_end_matches('}').trim_end();
+            Some(format!(
+                "hl.{func}({fields}, action = function() hl.dispatch(hl.dsp.exec_cmd(\"hyprdesk {cmd}\")) end }})\n"
+            ))
+        })
         .collect()
 }
 
@@ -1399,6 +1533,84 @@ mod tests {
         assert!(lua.contains("active_border = { colors = { \"rgba(454158ff)\" }, angle = 90 },"));
         assert!(lua.contains("[\"tap-and-drag\"] = true,"));
         assert!(lua.contains("gaps_in = { top = 5, right = 5, bottom = 5, left = 5 },"));
+    }
+
+    /// Un geste à action hyprdesk s'écrit en fonction qui lance la commande,
+    /// et sa chaîne survit à l'aller-retour par settings.lua (HIG ENT-03).
+    #[test]
+    fn geste_hyprdesk_en_fonction() {
+        let g =
+            serde_json::json!({ "fingers": 3, "direction": "up", "action": "hyprdesk:overview" });
+        assert_eq!(
+            calls_lua("gesture", std::slice::from_ref(&g)),
+            "hl.gesture({ direction = \"up\", fingers = 3, action = function() \
+             hl.dispatch(hl.dsp.exec_cmd(\"hyprdesk overview\")) end })\n"
+        );
+        let notif = serde_json::json!({ "fingers": 4, "direction": "left", "action": "hyprdesk:notifications" });
+        assert!(
+            calls_lua("gesture", &[notif])
+                .contains("hl.dsp.exec_cmd(\"hyprdesk focus notifications\")")
+        );
+        // Une action inconnue n'est pas écrite ; celles de Hyprland, telles quelles.
+        let inconnue =
+            serde_json::json!({ "fingers": 3, "direction": "up", "action": "hyprdesk:rien" });
+        assert_eq!(calls_lua("gesture", &[inconnue]), "");
+        let ws =
+            serde_json::json!({ "fingers": 3, "direction": "horizontal", "action": "workspace" });
+        assert_eq!(
+            calls_lua("gesture", &[ws]),
+            "hl.gesture({ action = \"workspace\", direction = \"horizontal\", fingers = 3 })\n"
+        );
+        // Aller-retour par settings.lua : la chaîne reste.
+        let h = Hypr {
+            gestures: vec![g.clone()],
+            ..Default::default()
+        };
+        let lua = mlua::Lua::new();
+        let t: mlua::Table = lua.load(format!("return {}", h.to_lua())).eval().unwrap();
+        assert_eq!(parse(&t).unwrap().gestures, vec![g]);
+    }
+
+    /// Les gestes par défaut se posent une fois, là où nul geste réglé ne
+    /// les recouvre ; la marque voyage par settings.lua (HIG ENT-03).
+    #[test]
+    fn gestes_par_defaut() {
+        let mut h = Hypr::default();
+        assert!(seed_gestures(&mut h));
+        assert_eq!(h.gestures.len(), DEFAULT_GESTURES.len());
+        assert!(h.gestures_seeded && !h.is_empty());
+        // Déjà posés : rien de plus.
+        assert!(!seed_gestures(&mut h));
+        // Trois doigts vers le haut ou le bas déjà réglés : la vue d'ensemble
+        // n'est pas posée, les trois autres le sont.
+        let mut h = Hypr {
+            gestures: vec![
+                serde_json::json!({ "fingers": 3, "direction": "vertical", "action": "special" }),
+            ],
+            ..Default::default()
+        };
+        assert!(seed_gestures(&mut h));
+        assert_eq!(h.gestures.len(), 4);
+        assert!(
+            !h.gestures
+                .iter()
+                .any(|g| g["action"] == "hyprdesk:overview")
+        );
+        // Un défaut supprimé n'est pas reposé : la marque survit à
+        // l'aller-retour par settings.lua, même sans geste.
+        let h = Hypr {
+            gestures_seeded: true,
+            ..Default::default()
+        };
+        let lua = mlua::Lua::new();
+        let t: mlua::Table = lua.load(format!("return {}", h.to_lua())).eval().unwrap();
+        let mut back = parse(&t).unwrap();
+        assert_eq!(back, h);
+        assert!(!seed_gestures(&mut back) && back.gestures.is_empty());
+        // Chaque défaut est une action hyprdesk connue.
+        for (_, _, action) in DEFAULT_GESTURES {
+            assert!(gesture_command(action).is_some(), "{action}");
+        }
     }
 
     #[test]

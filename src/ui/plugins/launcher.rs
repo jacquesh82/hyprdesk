@@ -14,7 +14,7 @@ use crate::i18n::text;
 use iced::widget::{button, column, radio, row};
 use iced::{Alignment, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 
@@ -37,6 +37,15 @@ pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Launcher(m)))
 }
 
+/// Valeur d'un curseur de la forme du lanceur, en pixels ou en nombre seul.
+fn en_px(v: f64) -> String {
+    format!("{} px", v.round() as u16)
+}
+
+fn en_nombre(v: f64) -> String {
+    v.round().to_string()
+}
+
 /// Message de ce paquet, enveloppé pour l'application.
 #[derive(Debug, Clone)]
 pub enum Msg {
@@ -47,8 +56,8 @@ pub enum Msg {
     AppsShape(crate::config::LauncherShape, bool),
     AppsSuggestionsCommit,
     AppsCategories(bool),
-    /// keys.search = SUPER + R (à la place d'un autre lanceur).
-    UseSuperR,
+    /// keys.search = SUPER + Espace (à la place d'un autre lanceur, HIG ENT-09).
+    UseSuperSpace,
     /// Le même lanceur dans tous les modes (apps_unified).
     AppsUnified(bool),
     /// Plein bureau : raccourci propre (keys.search_desktop), saisi puis validé.
@@ -122,27 +131,35 @@ impl App {
             f(&mut s);
             wrap(Msg::AppsShape(s, commit))
         };
-        let commit = wrap(Msg::AppsShape(shape, true));
+        // L'enregistrement d'un curseur de la forme ne porte pas la forme :
+        // posée juste avant (glissé ou saisie), la voilà à jour.
         let slider_row =
             |label: &'static str,
-             range: std::ops::RangeInclusive<f32>,
-             value: f32,
-             shown: String,
+             key: &'static str,
+             range: (f64, f64),
+             value: f64,
+             affiche: fn(f64) -> String,
              apply: fn(&mut crate::config::LauncherShape, f32)| {
                 self.field(
                     label,
                     "",
-                    row![
-                        iced::widget::slider(range, value, move |v| set(
-                            &|s: &mut crate::config::LauncherShape| apply(s, v),
-                            false
-                        ))
-                        .on_release(commit.clone())
-                        .width(220),
-                        text(shown).font(font).size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+                    self.slider(
+                        &SliderSpec::new(
+                            key,
+                            range,
+                            1.0,
+                            move |v| {
+                                set(
+                                    &|s: &mut crate::config::LauncherShape| apply(s, v as f32),
+                                    false,
+                                )
+                            },
+                            UiMsg::Panel(PanelMsg::Commit),
+                        ),
+                        value,
+                        affiche,
+                        SliderLook::fixed(13.0, 220, Alignment::Center),
+                    ),
                 )
             };
         let radios = |label: &'static str,
@@ -153,11 +170,12 @@ impl App {
                 label,
                 "",
                 row(items.into_iter().map(|(l, v)| {
-                    radio(crate::i18n::tr(l), v, Some(current), move |v| {
-                        set(&|s: &mut crate::config::LauncherShape| apply(s, v), true)
-                    })
-                    .font(font)
-                    .into()
+                    self.focusable(
+                        radio(crate::i18n::tr(l), v, Some(current), move |v| {
+                            set(&|s: &mut crate::config::LauncherShape| apply(s, v), true)
+                        })
+                        .font(font),
+                    )
                 }))
                 .spacing(14)
                 .wrap(),
@@ -167,38 +185,45 @@ impl App {
             self.section("Forme du lanceur"),
             slider_row(
                 "Largeur de la carte",
-                480.0..=1200.0,
-                f32::from(shape.width),
-                format!("{} px", shape.width),
+                "apps_width",
+                (480.0, 1200.0),
+                f64::from(shape.width),
+                en_px,
                 |s, v| s.width = v.round() as u16
             ),
             slider_row(
                 "Résultats visibles",
-                3.0..=16.0,
-                f32::from(shape.max_results),
-                shape.max_results.to_string(),
+                "apps_max_results",
+                (3.0, 16.0),
+                f64::from(shape.max_results),
+                en_nombre,
                 |s, v| s.max_results = v.round() as u8
             ),
             slider_row(
                 "Colonnes de la feuille",
-                4.0..=10.0,
-                f32::from(shape.columns),
-                shape.columns.to_string(),
+                "apps_columns",
+                (4.0, 10.0),
+                f64::from(shape.columns),
+                en_nombre,
                 |s, v| s.columns = v.round() as u8
             ),
             slider_row(
                 "Rayon des coins",
-                0.0..=48.0,
-                f32::from(shape.radius),
-                format!("{} px", shape.radius),
+                "apps_radius",
+                (0.0, 48.0),
+                f64::from(shape.radius),
+                en_px,
                 |s, v| s.radius = v.round() as u16
             ),
+            // En pour cent, comme la valeur affichée : le curseur avance de
+            // 1 %, au lieu de sauter de 0 à 80 %.
             slider_row(
                 "Voile derrière",
-                0.0..=0.8,
-                shape.backdrop_dim,
-                format!("{} %", (shape.backdrop_dim * 100.0).round()),
-                |s, v| s.backdrop_dim = v
+                "apps_backdrop_dim",
+                (0.0, 80.0),
+                (f64::from(shape.backdrop_dim) * 100.0).round(),
+                |v| format!("{} %", v.round() as u32),
+                |s, v| s.backdrop_dim = v / 100.0
             ),
             radios(
                 "Avant la saisie",
@@ -262,10 +287,13 @@ impl App {
             self.field(
                 "Un clic hors de la carte la ferme",
                 "",
-                iced::widget::toggler(shape.close_on_outside_click).on_toggle(move |v| set(
-                    &|s: &mut crate::config::LauncherShape| s.close_on_outside_click = v,
-                    true
-                )),
+                self.focusable(
+                    self.toggle(shape.close_on_outside_click)
+                        .on_toggle(move |v| set(
+                            &|s: &mut crate::config::LauncherShape| s.close_on_outside_click = v,
+                            true
+                        ))
+                ),
             ),
         ]
         .spacing(14)
@@ -279,10 +307,12 @@ impl App {
         let a = g.apps_launcher;
         let dim = self.ink().dim;
         let style = |label: &'static str, v: AppsStyle| {
-            radio(crate::i18n::tr(label), v, Some(a.style), |v| {
-                wrap(Msg::AppsStyle(v))
-            })
-            .font(self.font)
+            self.focusable(
+                radio(crate::i18n::tr(label), v, Some(a.style), |v| {
+                    wrap(Msg::AppsStyle(v))
+                })
+                .font(self.font),
+            )
         };
         column![
             self.section("Lanceur d'applications"),
@@ -303,30 +333,25 @@ impl App {
             self.field(
                 "Suggestions (les plus lancées)",
                 "apps_suggestions",
-                row![
-                    iced::widget::slider(0.0..=16.0, a.suggestions as f32, |v| wrap(
-                        Msg::AppsSuggestions(v.round() as u8)
-                    ))
-                    .step(1.0_f32)
-                    .on_release(wrap(Msg::AppsSuggestionsCommit))
-                    .width(220),
-                    text(a.suggestions.to_string()).font(self.font).size(crate::ui::tokens::ts(13.0)),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
+                self.slider(
+                    &SliderSpec::new("apps_suggestions", (0.0, 16.0), 1.0, |v| wrap(Msg::AppsSuggestions(v.round() as u8)), wrap(Msg::AppsSuggestionsCommit)),
+                    f64::from(a.suggestions),
+                    |v| format!("{}", v.round() as u8),
+                    SliderLook::fixed(13.0, 220, Alignment::Center),
+                ),
             ),
             self.field(
                 "Catégories dans la grande feuille",
                 "apps_categories",
-                iced::widget::toggler(a.categories).on_toggle(|v| wrap(Msg::AppsCategories(v))),
+                self.focusable(self.toggle(a.categories).on_toggle(|v| wrap(Msg::AppsCategories(v)))),
             ),
-            button(
+            self.focusable(button(
                 text(crate::i18n::tr("Ouvrir le lanceur"))
                     .font(self.font)
                     .size(crate::ui::tokens::ts(13.0))
             )
             .padding([6, 14])
-            .on_press(UiMsg::Control(crate::control::Command::Apps)),
+            .on_press(UiMsg::Control(crate::control::Command::Apps))),
         ]
         .spacing(12)
         .into()
@@ -350,7 +375,10 @@ impl App {
             self.field(
                 "Le même lanceur dans tous les modes",
                 "apps_unified",
-                iced::widget::toggler(a.unified).on_toggle(|v| wrap(Msg::AppsUnified(v))),
+                self.focusable(
+                    self.toggle(a.unified)
+                        .on_toggle(|v| wrap(Msg::AppsUnified(v)))
+                ),
             ),
             text(outside)
                 .font(self.font)
@@ -404,16 +432,18 @@ impl App {
             .align_y(Alignment::Center);
             if i.holder().is_some() {
                 line = line.push(
-                    button(
-                        text(crate::i18n::tr("hyprdesk le prend"))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(super::keys::wrap(super::keys::Msg::TakeKey(
-                        i.action.combo.clone(),
-                    ))),
+                    self.focusable(
+                        button(
+                            text(crate::i18n::tr("Donner à hyprdesk"))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(super::keys::wrap(
+                            super::keys::Msg::TakeKey(i.action.combo.clone()),
+                        )),
+                    ),
                 );
             }
             line = line.push(self.lyra_button(
@@ -422,16 +452,18 @@ impl App {
             ));
             col = col.push(line);
         }
-        if g.keys.search != "SUPER + R" {
+        if g.keys.search != "SUPER + Space" {
             col = col.push(
-                button(
-                    text(crate::i18n::tr("Utiliser SUPER + R"))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                )
-                .padding([6, 14])
-                .style(button::secondary)
-                .on_press(wrap(Msg::UseSuperR)),
+                self.focusable(
+                    button(
+                        text(crate::i18n::tr("Utiliser SUPER + Espace"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0)),
+                    )
+                    .padding([6, 14])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::UseSuperSpace)),
+                ),
             );
         }
         col.into()
@@ -456,8 +488,8 @@ impl App {
                 self.settings.apps_categories = Some(v);
                 self.commit()
             }
-            Msg::UseSuperR => {
-                self.settings.key_search = Some("SUPER + R".into());
+            Msg::UseSuperSpace => {
+                self.settings.key_search = Some("SUPER + Space".into());
                 self.commit()
             }
             Msg::AppsUnified(v) => {
@@ -484,7 +516,7 @@ impl App {
                     .to_string();
                 if !v.is_empty() && crate::hypr::parse_combo(&v).is_none() {
                     p.launcher.desk_error = Some(crate::tr!(
-                        "« {v} » : raccourci illisible (ex. SUPER + SHIFT + D)",
+                        "« {v} » : raccourci illisible (ex. SHIFT + SUPER + D)",
                         v = v
                     ));
                     return Task::none();

@@ -60,7 +60,8 @@ pub enum Held {
     WindowPlaces,
     /// Historique des lancements (suggestions du lanceur).
     Launches,
-    /// Notifications gardées et « Ne pas déranger » (remise globale).
+    /// Notifications gardées, « Ne pas déranger », passage du Silence et
+    /// autorisations des applications (remise globale).
     Notifications,
     /// Thèmes perso (`hyprdesk/themes`, remise globale).
     Themes,
@@ -80,7 +81,9 @@ impl Held {
             Held::DesktopModes => "mode du bureau de chaque workspace oublié",
             Held::WindowPlaces => "places des fenêtres oubliées",
             Held::Launches => "historique des lancements effacé",
-            Held::Notifications => "notifications gardées effacées, « Ne pas déranger » coupé",
+            Held::Notifications => {
+                "notifications gardées effacées, « Ne pas déranger » coupé, passage du Silence et autorisations des applications oubliés"
+            }
             Held::Themes => "thèmes perso mis de côté",
             Held::UserWidgets => "widgets perso mis de côté",
         }
@@ -123,6 +126,8 @@ components! {
     "keys" => [
         key_toggle, key_launcher, key_hide, key_settings, key_lock, key_switch,
         key_search, key_search_desktop, key_overview, key_assistant, key_take, overview_command,
+        key_focus_bar, key_focus_dock, key_focus_notifications, key_focus_settings,
+        key_force_quit, key_keyboard_access,
         key_leave, key_media, key_essentials, key_essentials_off,
         key_essential_keys, suspend_binds,
     ] + [Binds];
@@ -165,7 +170,7 @@ components! {
     "layouts" => [tiling];
     "animations" => [fx, fade_ms, transition, crossfade_ms];
     "performance" => [renderer, gpu, hyprland_gpu, worker_threads];
-    "input" => [] + [Inputs];
+    "input" => [keyboard_access] + [Inputs];
     "lock" => [
         lock_blur, lock_dim, lock_image, lock_show_user, lock_show_battery,
         lock_show_media, lock_fingerprint, idle_manage, idle_dim, idle_lock,
@@ -244,6 +249,9 @@ fn split_fields(id: &str, s: &mut Settings, changed: &mut Vec<String>) {
         if id == "input" {
             h.gestures.clear();
             h.devices.clear();
+            // Les gestes par défaut reviennent (HIG ENT-03).
+            h.gestures_seeded = false;
+            crate::hyprset::seed_gestures(h);
         }
         if id == "hyprconfig" {
             h.env.clear();
@@ -576,7 +584,11 @@ fn reset_held(
         }
         Held::WindowPlaces => remove(&crate::windows::places_path()),
         Held::Launches => remove(&crate::search::usage_path()),
-        Held::Notifications => remove(&crate::notifications::dnd_path()),
+        Held::Notifications => {
+            remove(&crate::notifications::dnd_path())?;
+            remove(&crate::notifications::passage_path())
+                .and(remove(&crate::notifications::authorizations_path()))
+        }
         Held::Themes | Held::UserWidgets => {
             let name = if h == Held::Themes {
                 "themes"

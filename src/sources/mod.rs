@@ -217,7 +217,7 @@ async fn follow<T: Send + Sync + 'static>(
 }
 
 /// Flux des `PropertiesChanged` d'un service (et de ses objets sous `namespace`).
-async fn properties_changed(
+pub(crate) async fn properties_changed(
     conn: &zbus::Connection,
     sender: &'static str,
     namespace: &'static str,
@@ -441,6 +441,9 @@ fn index_table(lua: &Lua, json: &str) -> mlua::Result<Value> {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Notifs {
     pub dnd: bool,
+    /// Fin programmée du Silence (HIG PAT-04) : échéance en secondes depuis
+    /// l'époque ; `None` quand le Silence n'a pas de fin.
+    pub dnd_until: Option<i64>,
     pub count: u64,
     /// (application, titre, texte), les plus récentes d'abord.
     pub list: Vec<(String, String, String)>,
@@ -454,6 +457,7 @@ pub fn parse_notifications(s: &str) -> Notifs {
         };
         match k {
             "dnd" => n.dnd = v == "1",
+            "dnd_until" => n.dnd_until = v.parse().ok(),
             "count" => n.count = v.parse().unwrap_or(0),
             "n" => {
                 let mut f = v.splitn(3, '\t');
@@ -472,6 +476,7 @@ fn notifications_table(lua: &Lua, n: &Notifs) -> mlua::Result<Table> {
     let t = lua.create_table()?;
     t.set("source", "hyprdesk")?;
     t.set("dnd", n.dnd)?;
+    t.set("dnd_until", n.dnd_until)?;
     t.set("count", n.count)?;
     let list = lua.create_table()?;
     for (i, (app, title, body)) in n.list.iter().enumerate() {
@@ -702,6 +707,7 @@ pub(crate) mod tests {
     #[test]
     fn etat_des_notifications_relu() {
         let n = crate::notifications::Notification {
+            action_icons: Vec::new(),
             id: 1,
             app: "kitty".into(),
             icon: String::new(),
@@ -714,12 +720,18 @@ pub(crate) mod tests {
             transient: false,
             desktop_entry: None,
             category: None,
+            unread: false,
         };
-        let st = parse_notifications(&crate::notifications::render_state(true, &[n]));
+        let st = parse_notifications(&crate::notifications::render_state(
+            true,
+            Some(1_000_600),
+            &[n],
+        ));
         assert_eq!(
             st,
             Notifs {
                 dnd: true,
+                dnd_until: Some(1_000_600),
                 count: 1,
                 list: vec![("kitty".into(), "Fini".into(), "cargo test".into())],
             }

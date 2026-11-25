@@ -249,6 +249,8 @@ pub struct State {
     pub browser_draft: Option<String>,
     pub design_drafts: HashMap<String, String>,
     pub design_error: Option<String>,
+    /// Sélecteur de couleur ouvert, et la clé de son réglage (HIG SEL-02).
+    pub design_picker: Option<(String, crate::ui::color_picker::Picker)>,
     pub selected_tile: usize,
     pub shortcut_draft: (String, String, String),
     /// Réglages → Panorama : disposition dont on règle les zones.
@@ -542,7 +544,7 @@ pub fn detect_task() -> Task<Msg> {
     )
 }
 
-fn fmt_time(secs: i64) -> String {
+pub(in crate::ui) fn fmt_time(secs: i64) -> String {
     let s = secs.max(0);
     if s >= 3600 {
         format!("{}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60)
@@ -1818,11 +1820,17 @@ impl App {
             }
             PMsg::Notifs(mon) => {
                 self.panorama.last_press = Some(Instant::now());
-                if mon.is_some() {
+                // Le volet des notifications qui s'ouvre lit tout (HIG SYS-02).
+                let opened = mon.is_some();
+                if opened {
                     self.panorama.picker = None;
                 }
                 self.panorama.notifs = mon;
-                Task::none()
+                if opened {
+                    self.toasts_update(crate::ui::toasts::TMsg::Read)
+                } else {
+                    Task::none()
+                }
             }
             PMsg::NotifsClear => {
                 self.toasts.command("clear");
@@ -1846,7 +1854,14 @@ impl App {
             PMsg::Show(mon) => {
                 self.panorama.hidden.remove(&mon);
                 self.panorama.last_press = Some(Instant::now());
-                self.sync_panorama()
+                // La surface revient sur son volet des notifications ouvert :
+                // la liste se montre, tout est lu (HIG SYS-02).
+                let read = if self.panorama.notifs.is_some() {
+                    self.toasts_update(crate::ui::toasts::TMsg::Read)
+                } else {
+                    Task::none()
+                };
+                Task::batch([self.sync_panorama(), read])
             }
             PMsg::Toggle(mon) => {
                 let list = self.panorama_monitors();
@@ -3089,7 +3104,7 @@ impl App {
                 row![
                     self.icon_named("go-up-symbolic", 14.0, fg)
                         .unwrap_or_else(|| text("▴")
-                            .size(crate::ui::tokens::ts(14.0))
+                            .size(crate::ui::tokens::ts(13.0))
                             .color(fg)
                             .into()),
                     text("Panorama")
@@ -3144,7 +3159,7 @@ impl App {
         let btn = |label: &'static str, primary: bool, msg: Msg| -> Element<'_, Msg> {
             button(
                 text(crate::i18n::tr(label))
-                    .size(crate::ui::tokens::ts(18.0))
+                    .size(crate::ui::tokens::ts(17.0))
                     .font(self.panorama_font())
                     .color(if primary { Color::BLACK } else { fg }),
             )
@@ -3178,7 +3193,7 @@ impl App {
                     .font(self.panorama_font())
                     .color(fg),
                 text(what)
-                    .size(crate::ui::tokens::ts(16.0))
+                    .size(crate::ui::tokens::ts(15.0))
                     .font(self.panorama_font())
                     .color(dim),
                 Space::new().height(Length::Fill),
@@ -3261,5 +3276,25 @@ mod tests {
         assert!(l.contains(r#"class = "^(hyprdesk-panorama-preview)$""#));
         assert!(l.contains(r#"float = true, center = true, size = "1280 360""#));
         assert!(l.contains("set_enabled(false)"));
+    }
+
+    /// HIG SYS-02 : le volet des notifications qui s'ouvre lit tout ; fermé,
+    /// il ne lit rien.
+    #[test]
+    fn le_volet_des_notifications_qui_s_ouvre_lit_tout() {
+        let (mut app, _) = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-panorama-tests/config.lua"),
+            true,
+        );
+        app.toasts.history = (1..=2)
+            .map(|id| {
+                crate::notifications::build(id, "a", "", "s", "", &[], &Default::default(), -1)
+            })
+            .collect();
+        let _ = app.panorama_update(PMsg::Notifs(None));
+        assert_eq!(app.toasts.unread(), 2, "le volet fermé ne lit rien");
+        let _ = app.panorama_update(PMsg::Notifs(Some("A".into())));
+        assert_eq!(app.panorama.notifs.as_deref(), Some("A"));
+        assert_eq!(app.toasts.unread(), 0, "le volet ouvert lit tout");
     }
 }

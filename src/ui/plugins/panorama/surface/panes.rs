@@ -1437,36 +1437,47 @@ impl App {
         } else {
             !self.panorama.media.as_ref().is_some_and(|m| m.playing)
         };
-        let btn = |label: &'static str, msg: Msg| {
+        // Lecture, pause et fermeture : les glyphes du jeu (HIG ICO-07).
+        let btn = |name: &'static str, msg: Msg| {
             self.panorama_feedback(
-                button(text(label).size(crate::ui::tokens::ts(16.0)).color(fg))
-                    .padding([4, 12])
-                    .on_press(msg)
-                    .style(move |_, st| button::Style {
-                        background: Some(
-                            fx::alpha(
-                                accent,
-                                if matches!(st, button::Status::Pressed) {
-                                    0.6
-                                } else {
-                                    0.25
-                                },
-                            )
-                            .into(),
-                        ),
-                        border: Border::default().rounded(12),
-                        text_color: fg,
-                        ..Default::default()
-                    }),
+                button(
+                    crate::ui::icons::glyph(name, crate::ui::tokens::ts(16.0), fg)
+                        .expect("glyphe du jeu"),
+                )
+                .padding([6, 12])
+                .on_press(msg)
+                .style(move |_, st| button::Style {
+                    background: Some(
+                        fx::alpha(
+                            accent,
+                            if matches!(st, button::Status::Pressed) {
+                                0.6
+                            } else {
+                                0.25
+                            },
+                        )
+                        .into(),
+                    ),
+                    border: Border::default().rounded(12),
+                    text_color: fg,
+                    ..Default::default()
+                }),
             )
         };
         let pill = container(
             row![
                 text(format!("♪ {name}"))
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
-                btn(if paused { "▶" } else { "⏸" }, wrap(PMsg::NowPlayingToggle)),
-                btn("✕", wrap(PMsg::VideoClose)),
+                btn(
+                    if paused {
+                        "media-playback-start"
+                    } else {
+                        "media-playback-pause"
+                    },
+                    wrap(PMsg::NowPlayingToggle),
+                ),
+                btn("window-close", wrap(PMsg::VideoClose)),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -1664,10 +1675,15 @@ impl App {
         }
         head = head.push(
             self.panorama_feedback(
-                button(text("✕").size(crate::ui::tokens::ts(size)).color(fg))
-                    .padding([5, 12])
-                    .on_press(wrap(PMsg::Notifs(None)))
-                    .style(pill),
+                // Fermeture : le glyphe du jeu (HIG ICO-07). Le remplissage garde à la
+                // pastille la hauteur de ses voisines de texte (interligne 1,3).
+                button(
+                    crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(size + 2.0), fg)
+                        .expect("glyphe de fermeture"),
+                )
+                .padding([0.15 * crate::ui::tokens::ts(size) + 4.0, 12.0])
+                .on_press(wrap(PMsg::Notifs(None)))
+                .style(pill),
             ),
         );
         let mut list = column![].spacing(size * 0.7);
@@ -1679,27 +1695,41 @@ impl App {
                     .color(dim),
             );
         }
-        for n in history.iter().take(30) {
-            let mut card = column![
-                text(n.app.clone()).size(size * 0.75).font(font).color(dim),
-                text(n.summary.clone())
-                    .size(crate::ui::tokens::ts(size))
-                    .font(font)
-                    .color(fg),
-            ]
-            .spacing(3);
-            if !n.body.is_empty() {
-                card = card.push(text(n.body.clone()).size(size * 0.85).font(font).color(fg));
+        let hide = crate::design_options::flag(&self.cfg.general, "notifications.hide_previews");
+        // Une boîte par application, son nom en en-tête (HIG LAY-02) : la carte
+        // d'une notification devient celle de son groupe.
+        for (app, ranks) in crate::ui::toasts::app_groups(
+            &history[..history.len().min(crate::ui::toasts::HISTORY_SHOWN)],
+        ) {
+            let mut cards = column![].spacing(size * 0.35);
+            for i in ranks {
+                let n = &history[i];
+                // Titre et corps bornés (HIG LAY-04), masqués sur réglage (HIG SYS-05).
+                let (title, body) = crate::ui::toasts::card_text(n, hide);
+                let mut card = column![
+                    text(title)
+                        .size(crate::ui::tokens::ts(size))
+                        .font(font)
+                        .color(fg),
+                ]
+                .spacing(3);
+                if let Some(body) = body {
+                    card = card.push(text(body).size(size * 0.85).font(font).color(fg));
+                }
+                cards = cards.push(card);
             }
             list = list.push(
-                container(card)
-                    .width(Length::Fill)
-                    .padding([size * 0.5, size * 0.7])
-                    .style(move |_| container::Style {
-                        background: Some(fx::alpha(fg, 0.06).into()),
-                        border: Border::default().rounded(size * 0.6),
-                        ..Default::default()
-                    }),
+                container(
+                    column![text(app).size(size * 0.75).font(font).color(dim), cards,]
+                        .spacing(size * 0.35),
+                )
+                .width(Length::Fill)
+                .padding([size * 0.5, size * 0.7])
+                .style(move |_| container::Style {
+                    background: Some(fx::alpha(fg, 0.06).into()),
+                    border: Border::default().rounded(size * 0.6),
+                    ..Default::default()
+                }),
             );
         }
         let width = (s.w * 0.34).clamp(280.0, 560.0).min(s.w);

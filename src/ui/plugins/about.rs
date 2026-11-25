@@ -249,12 +249,13 @@ impl App {
             return text("").into();
         };
         let th = &self.cfg.general.theme;
-        let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
+        // Texte accentué : l'encre garantie à 4,5:1 (HIG FON-05).
+        let (fg, accent) = (color(th.fg, 1.0), self.ink().accent);
         let dim = self.ink().dim;
         let head = column![
             text("hyprdesk")
                 .font(self.title_font())
-                .size(crate::ui::tokens::ts(28.0))
+                .size(crate::ui::tokens::ts(26.0))
                 .color(fg),
             text(format!(
                 "{} {}",
@@ -262,7 +263,7 @@ impl App {
                 env!("CARGO_PKG_VERSION")
             ))
             .font(self.font)
-            .size(crate::ui::tokens::ts(14.0))
+            .size(crate::ui::tokens::ts(13.0))
             .color(accent),
             text(crate::i18n::tr(env!("CARGO_PKG_DESCRIPTION")))
                 .font(self.font)
@@ -320,7 +321,7 @@ impl App {
             self.section("Ce bureau"),
             details,
             row![
-                button(
+                self.focusable_when(button(
                     text(if p.about.copied {
                         crate::i18n::tr("Copié ✓")
                     } else {
@@ -330,11 +331,11 @@ impl App {
                     .size(crate::ui::tokens::ts(13.0))
                 )
                 .padding([6, 14])
-                .on_press_maybe(p.about.facts.is_some().then(|| wrap(Msg::Copy))),
-                button(text("Ouvrir le dépôt").font(self.font).size(crate::ui::tokens::ts(13.0)))
+                .on_press_maybe(p.about.facts.is_some().then(|| wrap(Msg::Copy))), (p.about.facts.is_some().then(|| wrap(Msg::Copy))).is_some()),
+                self.focusable(button(text("Ouvrir le dépôt").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .style(button::secondary)
-                    .on_press(wrap(Msg::OpenRepo)),
+                    .on_press(wrap(Msg::OpenRepo))),
                 Space::new().width(Length::Fill),
             ]
             .spacing(10)
@@ -350,14 +351,14 @@ impl App {
                 .color(dim),
             self.about_files(p),
             row![
-                button(text("Ouvrir le dossier").font(self.font).size(crate::ui::tokens::ts(13.0)))
+                self.focusable(button(text("Ouvrir le dossier").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .style(button::secondary)
-                    .on_press(wrap(Msg::OpenConfigDir)),
-                button(text("Historique…").font(self.font).size(crate::ui::tokens::ts(13.0)))
+                    .on_press(wrap(Msg::OpenConfigDir))),
+                self.focusable(button(text("Historique…").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .style(button::secondary)
-                    .on_press(wrap(Msg::History)),
+                    .on_press(wrap(Msg::History))),
             ]
             .spacing(10),
             self.section("Nouveautés"),
@@ -370,23 +371,22 @@ impl App {
             if p.about.confirm_reset {
                 Element::from(
                     row![
-                        button(text("Confirmer : tout remettre par défaut").font(self.font).size(crate::ui::tokens::ts(13.0)))
+                        self.focusable(button(text("Confirmer : tout remettre par défaut").font(self.font).size(crate::ui::tokens::ts(13.0)))
                             .padding([6, 14])
                             .style(button::danger)
-                            .on_press(wrap(Msg::Reset)),
-                        button(text("Annuler").font(self.font).size(crate::ui::tokens::ts(13.0)))
+                            .on_press(wrap(Msg::Reset))),
+                        self.focusable(button(text("Annuler").font(self.font).size(crate::ui::tokens::ts(13.0)))
                             .padding([6, 14])
                             .style(button::secondary)
-                            .on_press(wrap(Msg::ResetCancel)),
+                            .on_press(wrap(Msg::ResetCancel))),
                     ]
                     .spacing(10),
                 )
             } else {
-                button(text("Revenir à la configuration par défaut…").font(self.font).size(crate::ui::tokens::ts(13.0)))
+                self.focusable(button(text("Revenir à la configuration par défaut…").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
                     .style(button::secondary)
-                    .on_press(wrap(Msg::Reset))
-                    .into()
+                    .on_press(wrap(Msg::Reset)))
             },
             match &p.about.reset {
                 Some(Ok(m)) => Element::from(text(m.clone()).font(self.font).size(crate::ui::tokens::ts(12.0)).color(accent)),
@@ -406,7 +406,7 @@ impl App {
     fn about_files(&self, p: &super::super::panel::Panel) -> Element<'_, UiMsg> {
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let dim = self.ink().dim;
-        let accent = color(self.cfg.general.theme.accent, 1.0);
+        let accent = self.ink().accent;
         let Some(f) = &p.about.facts else {
             return Space::new().into();
         };

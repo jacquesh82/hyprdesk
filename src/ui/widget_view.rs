@@ -9,13 +9,30 @@ use chrono::{Datelike, Local};
 use iced::widget::{Space, button, column, container, mouse_area, progress_bar, row};
 use iced::{Alignment, Background, Border, Color, Element, Length, mouse};
 
-use super::{App, IconImg, Msg, chrono_locale, color, format_now};
-use crate::config::{Anchor, WidgetDef, WidgetKind};
+use super::{App, Msg, chrono_locale, color, format_now};
+use crate::config::{Anchor, WidgetDef, WidgetFamily, WidgetKind};
 use crate::widgets;
+
+/// Une jauge est en alerte dès le seuil réglé (`monitoring.threshold`).
+fn gauge_alert(ratio: f32, threshold: f64) -> bool {
+    f64::from(ratio) >= threshold
+}
 
 impl App {
     /// Un widget du bureau : sa boîte, et où la poser (`desk_layout` la place
     /// sans recouvrir les autres).
+    /// Le widget a un contenu lié qu'un clic sur son fond ouvre : horloge,
+    /// calendrier, système, média en cours (HIG SYS-10).
+    pub(super) fn widget_link(&self, w: &WidgetDef) -> bool {
+        match &w.kind {
+            WidgetKind::Clock { .. } | WidgetKind::Calendar | WidgetKind::System { .. } => true,
+            WidgetKind::Media { .. } => {
+                matches!(self.values.get(&w.id), Some(widgets::Value::Media(Some(_))))
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn view_widget(
         &self,
         win: iced::window::Id,
@@ -43,39 +60,87 @@ impl App {
             .into(),
             WidgetKind::Clock { format } => {
                 let size = if w.size > 0.0 { w.size } else { 56.0 };
+                let layers = clock_layers(
+                    w.family,
+                    format,
+                    crate::design_options::flag(g, "clock.date"),
+                );
                 let time = text(format_now(format))
                     .font(self.numeric_font(iced::font::Weight::Light))
                     .size(crate::ui::tokens::ts_metric(size))
                     .color(fg);
+                let small = (size * 0.22).clamp(13.0, 20.0);
+                let mut c = column![time].spacing(2).align_x(Alignment::Center);
                 // Date sous l'heure, au choix (MLG-279).
-                if format == "%H:%M" && crate::design_options::flag(g, "clock.date") {
-                    column![
-                        time,
+                if layers.date {
+                    c = c.push(
                         text(format_now("%A %-d %B"))
                             .font(font)
-                            .size((size * 0.22).clamp(13.0, 20.0))
-                            .color(dim)
+                            .size(small)
+                            .color(dim),
+                    );
+                }
+                // Grand : le jour de l'année et la semaine (HIG SYS-15).
+                if layers.day_week {
+                    c = c.push(
+                        text(crate::tr!(
+                            "Jour {jour} · semaine {semaine}",
+                            jour = format_now("%-j"),
+                            semaine = format_now("%-V")
+                        ))
+                        .font(font)
+                        .size(small)
+                        .color(dim),
+                    );
+                }
+                // Très grand : la grille du mois, celle du calendrier.
+                if layers.month {
+                    c = c
+                        .push(Space::new().height(8))
+                        .push(self.view_calendar(base, fg, dim, accent, None, None));
+                }
+                c.into()
+            }
+            WidgetKind::Calendar => {
+                let size = if w.size > 0.0 { w.size } else { base };
+                match calendar_months(w.family) {
+                    // Petit : le jour et sa date, sans la grille (HIG SYS-15).
+                    0 => column![
+                        text(format_now("%A")).font(font).size(size).color(dim),
+                        text(format_now("%-d"))
+                            .font(self.numeric_font(iced::font::Weight::Light))
+                            .size(crate::ui::tokens::ts_metric(size * 3.0))
+                            .color(fg),
+                        text(format_now("%B")).font(font).size(size).color(dim),
                     ]
                     .spacing(2)
                     .align_x(Alignment::Center)
-                    .into()
-                } else {
-                    time.into()
+                    .into(),
+                    1 => self.view_calendar(size, fg, dim, accent, None, None),
+                    // Grand, très grand : les mois suivants à côté, sans
+                    // agrandir le premier.
+                    n => row((0..n as i32).map(|m| {
+                        if m == 0 {
+                            self.view_calendar(size, fg, dim, accent, None, None)
+                        } else {
+                            let first = month_start(Local::now().date_naive(), m);
+                            column![
+                                self.month_title(first, size, fg),
+                                self.view_calendar(size, fg, dim, accent, None, Some(m)),
+                            ]
+                            .spacing(6)
+                            .into()
+                        }
+                    }))
+                    .spacing(24)
+                    .into(),
                 }
             }
-            WidgetKind::Calendar => self.view_calendar(
-                if w.size > 0.0 { w.size } else { base },
-                fg,
-                dim,
-                accent,
-                None,
-                None,
-            ),
             WidgetKind::System { .. } => {
                 let size = if w.size > 0.0 { w.size } else { base };
                 match self.values.get(&w.id) {
                     Some(widgets::Value::Sys(lines)) => column(lines.iter().map(|l| {
-                        let mut c = column![row![
+                        let values = row![
                             text(l.label.clone())
                                 .font(self.font)
                                 .size(crate::ui::tokens::ts(size))
@@ -86,15 +151,20 @@ impl App {
                                 .size(crate::ui::tokens::ts_metric(size))
                                 .color(fg)
                                 .font(self.numeric_font(font.weight)),
-                        ]];
+                        ]
+                        .spacing(size * 0.3);
+                        let mut c = column![values];
                         // Monitoring (MLG-279) : jauges au choix, en alerte
                         // au-delà du seuil réglé.
+                        let mut alert = false;
                         if let Some(r) = l
                             .ratio
                             .filter(|_| crate::design_options::flag(g, "monitoring.bars"))
                         {
-                            let alert = f64::from(r)
-                                >= crate::design_options::num(g, "monitoring.threshold");
+                            alert = gauge_alert(
+                                r,
+                                crate::design_options::num(g, "monitoring.threshold"),
+                            );
                             let bar = if alert {
                                 Color {
                                     a: t,
@@ -115,6 +185,18 @@ impl App {
                                     }),
                             );
                         }
+                        // Ligne en alerte : un signe qui ne tient pas à la seule
+                        // couleur de la jauge, dans l'encre du texte (HIG SYS-16).
+                        // Sous la jauge : la largeur du widget ne bouge pas.
+                        if alert
+                            && let Some(sign) = crate::ui::icons::glyph(
+                                "dialog-warning",
+                                crate::ui::tokens::ts(size) * 0.9,
+                                fg,
+                            )
+                        {
+                            c = c.push(sign);
+                        }
                         c.spacing(4).into()
                     }))
                     .spacing(10)
@@ -126,12 +208,12 @@ impl App {
                 let size = if w.size > 0.0 { w.size } else { base };
                 match self.values.get(&w.id) {
                     Some(widgets::Value::Media(Some(mi))) => {
-                        // Icône du thème si elle existe, sinon un repli en ASCII
-                        // (les glyphes ⏮ ⏯ ⏭ manquent à la plupart des polices).
+                        // Glyphe de hyprdesk teinté comme les autres commandes ;
+                        // à défaut, un repli en ASCII (les glyphes ⏮ ⏯ ⏭ manquent
+                        // à la plupart des polices).
                         let ctl = |icon: usize, fallback: &'static str, method: &'static str| {
-                            let img = self.ui_imgs.get(icon).copied().unwrap_or(IconImg::None);
                             let label: Element<'_, Msg> =
-                                self.img_element(img, size * 1.3, t).unwrap_or_else(|| {
+                                self.ui_icon(icon, size * 1.3, t, fg).unwrap_or_else(|| {
                                     text(fallback)
                                         .font(self.font)
                                         .size(crate::ui::tokens::ts(size))
@@ -164,34 +246,87 @@ impl App {
                             }
                             None => Space::new().width(0).into(),
                         };
-                        let info = column![
-                            text(if mi.title.is_empty() {
-                                "—".to_string()
-                            } else {
-                                mi.title.clone()
-                            })
-                            .font(self.font)
-                            .size(size * 1.15)
-                            .color(fg)
-                            .font(self.title_font()),
-                            text(mi.artist.clone())
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(size))
-                                .color(dim)
-                                .font(font),
-                            row![
-                                ctl(0, "|<", "Previous"),
-                                if mi.playing {
-                                    ctl(1, "||", "PlayPause")
-                                } else {
-                                    ctl(2, ">", "PlayPause")
-                                },
-                                ctl(3, ">|", "Next")
-                            ]
-                            .spacing(6),
-                        ]
-                        .spacing(4)
-                        .max_width(size * 26.0);
+                        let layers = media_layers(w.family);
+                        let play = if mi.playing {
+                            ctl(1, "||", "PlayPause")
+                        } else {
+                            ctl(2, ">", "PlayPause")
+                        };
+                        // Petit : la pochette et la lecture seules (HIG SYS-15).
+                        let controls = if layers.info {
+                            row![ctl(0, "|<", "Previous"), play, ctl(3, ">|", "Next")]
+                        } else {
+                            row![play]
+                        };
+                        let mut info = column![].spacing(4).max_width(size * 26.0);
+                        if layers.info {
+                            info = info
+                                .push(
+                                    text(if mi.title.is_empty() {
+                                        "—".to_string()
+                                    } else {
+                                        mi.title.clone()
+                                    })
+                                    .font(self.font)
+                                    .size(size * 1.15)
+                                    .color(fg)
+                                    .font(self.title_font()),
+                                )
+                                .push(
+                                    text(mi.artist.clone())
+                                        .font(self.font)
+                                        .size(crate::ui::tokens::ts(size))
+                                        .color(dim)
+                                        .font(font),
+                                );
+                        }
+                        // Très grand : l'album et le lecteur.
+                        if layers.details {
+                            let line = [mi.album.clone(), widgets::media::player_name(&mi.bus)]
+                                .into_iter()
+                                .filter(|s| !s.is_empty())
+                                .collect::<Vec<_>>()
+                                .join(" · ");
+                            info = info.push(
+                                text(line)
+                                    .size(crate::ui::tokens::ts(size))
+                                    .color(dim)
+                                    .font(font),
+                            );
+                        }
+                        info = info.push(controls.spacing(6));
+                        // Grand : la progression, quand le lecteur la donne.
+                        if layers.progress
+                            && let Some((r, p, l)) = media_progress(mi.position, mi.length)
+                        {
+                            let track = color(th.fg, 0.15 * t);
+                            let small = crate::ui::tokens::ts(size) * 0.85;
+                            info = info.push(
+                                column![
+                                    progress_bar(0.0..=1.0, r)
+                                        .girth(4)
+                                        .length(Length::Fixed(size * 16.0))
+                                        .style(move |_| progress_bar::Style {
+                                            background: track.into(),
+                                            bar: accent.into(),
+                                            border: Border::default().rounded(2),
+                                        }),
+                                    row![
+                                        text(super::plugins::panorama::surface::fmt_time(p))
+                                            .size(small)
+                                            .color(dim)
+                                            .font(font),
+                                        Space::new().width(Length::Fill),
+                                        text(super::plugins::panorama::surface::fmt_time(l))
+                                            .size(small)
+                                            .color(dim)
+                                            .font(font),
+                                    ]
+                                    .width(Length::Fixed(size * 16.0)),
+                                ]
+                                .spacing(4),
+                            );
+                        }
                         row![cover, info]
                             .spacing(12)
                             .align_y(iced::Alignment::Center)
@@ -217,7 +352,12 @@ impl App {
             let base = th.shown(crate::config::Place::Widgets).opacity;
             match self.monitor(win) {
                 Some(m) if th.shown(crate::config::Place::Widgets).adaptive.is_some() => {
-                    let roi = widget_roi(self.monitor_size(&m.name), w.anchor, (w.x, w.y));
+                    let roi = widget_roi(
+                        self.monitor_size(&m.name),
+                        w.anchor,
+                        (w.x, w.y),
+                        self.desk_bottom_edge(m, 32.0),
+                    );
                     self.adaptive_opacity(crate::config::Place::Widgets, base, &m.name, roi)
                 }
                 _ => base,
@@ -284,6 +424,12 @@ impl App {
                 .interaction(mouse::Interaction::Grab)
                 .into()
             }
+            // Réglages fermés : le fond ouvre le contenu lié ; les boutons du
+            // widget gardent leur clic (HIG SYS-10).
+            None if self.widget_link(w) => mouse_area(boxed)
+                .on_press(Msg::WidgetOpen(w.id.clone()))
+                .interaction(mouse::Interaction::Pointer)
+                .into(),
             None => boxed,
         };
         let margin = 32.0;
@@ -307,7 +453,12 @@ impl App {
             }
         };
         let (left, right) = axis(ax, w.x, margin);
-        let (top, bottom) = axis(ay, w.y, if ay == Alignment::End { 120.0 } else { margin });
+        // Bord bas : au-dessus du dock et des barres de l'écran, d'après
+        // leur hauteur rendue (HIG TYP-17).
+        let low = self
+            .monitor(win)
+            .map_or(margin, |m| self.desk_bottom_edge(m, margin));
+        let (top, bottom) = axis(ay, w.y, if ay == Alignment::End { low } else { margin });
         (
             super::desk_layout::Spot {
                 x: ax,
@@ -390,16 +541,9 @@ impl App {
         let this_month = months == 0;
         let offset = first.weekday().num_days_from_monday();
         let w = width.map(|width| width / 7.0).unwrap_or(size * 2.2);
-        let title = format!("{}", first.format_localized("%B %Y", chrono_locale()));
         let mut grid = column![].spacing(6);
         if with_title {
-            grid = grid.push(
-                text(title)
-                    .font(self.font)
-                    .size(size * 1.1)
-                    .color(fg)
-                    .font(self.title_font()),
-            );
+            grid = grid.push(self.month_title(first, size, fg));
         }
         // Initiales des jours, lundi d'abord, dans la langue de l'utilisateur.
         let monday = first - chrono::Duration::days(offset as i64);
@@ -457,6 +601,77 @@ impl App {
         }
         grid.into()
     }
+
+    /// Titre d'un mois du calendrier (« novembre 2026 »).
+    fn month_title(&self, first: chrono::NaiveDate, size: f32, fg: Color) -> Element<'_, Msg> {
+        text(format!(
+            "{}",
+            first.format_localized("%B %Y", chrono_locale())
+        ))
+        .size(size * 1.1)
+        .color(fg)
+        .font(self.title_font())
+        .into()
+    }
+}
+
+/// Ce que montre l'horloge selon sa taille (HIG SYS-15) : `Medium` est
+/// l'affichage historique, chaque taille au-dessus ajoute une couche.
+#[derive(Debug, PartialEq, Eq)]
+struct ClockLayers {
+    /// La date sous l'heure (format `%H:%M` et option `clock.date`).
+    date: bool,
+    /// Le jour de l'année et la semaine.
+    day_week: bool,
+    /// La grille du mois.
+    month: bool,
+}
+
+fn clock_layers(family: WidgetFamily, format: &str, date_option: bool) -> ClockLayers {
+    use WidgetFamily as F;
+    ClockLayers {
+        date: family != F::Small && format == "%H:%M" && date_option,
+        day_week: matches!(family, F::Large | F::XLarge),
+        month: family == F::XLarge,
+    }
+}
+
+/// Ce que montre le widget média selon sa taille (HIG SYS-15).
+#[derive(Debug, PartialEq, Eq)]
+struct MediaLayers {
+    /// Le titre, l'artiste et les commandes précédent et suivant (dès moyen).
+    info: bool,
+    /// La progression, position et durée (dès grand).
+    progress: bool,
+    /// L'album et le lecteur (très grand).
+    details: bool,
+}
+
+fn media_layers(family: WidgetFamily) -> MediaLayers {
+    use WidgetFamily as F;
+    MediaLayers {
+        info: family != F::Small,
+        progress: matches!(family, F::Large | F::XLarge),
+        details: family == F::XLarge,
+    }
+}
+
+/// Progression d'une lecture : la part jouée, la position et la durée, si
+/// elles sont plausibles (un direct annonce parfois une durée absurde).
+fn media_progress(position: Option<i64>, length: Option<i64>) -> Option<(f32, i64, i64)> {
+    let (p, l) = (position?, length?);
+    (l > 0 && l < 48 * 3600 && (0..=l).contains(&p)).then(|| (p as f32 / l as f32, p, l))
+}
+
+/// Mois que montre le calendrier selon sa taille (HIG SYS-15) : aucun en
+/// petit (le jour seul), puis un, deux ou trois à partir du mois en cours.
+fn calendar_months(family: WidgetFamily) -> u32 {
+    match family {
+        WidgetFamily::Small => 0,
+        WidgetFamily::Medium => 1,
+        WidgetFamily::Large => 2,
+        WidgetFamily::XLarge => 3,
+    }
 }
 
 /// Premier jour du mois d'aujourd'hui décalé de `months` (négatif : avant).
@@ -480,7 +695,12 @@ pub(super) fn month_weeks(first: chrono::NaiveDate) -> u32 {
 /// Zone approximative d'un widget sur son écran, d'après son ancrage et son
 /// décalage (sa taille n'est connue qu'après la mise en page) : une carte
 /// de 360×220 au point d'ancrage, de quoi lire le fond qu'il couvre.
-fn widget_roi(screen: iced::Size, anchor: Anchor, (dx, dy): (f32, f32)) -> iced::Rectangle {
+fn widget_roi(
+    screen: iced::Size,
+    anchor: Anchor,
+    (dx, dy): (f32, f32),
+    low: f32,
+) -> iced::Rectangle {
     let (w, h, margin) = (360.0_f32, 220.0_f32, 32.0_f32);
     let x = match anchor {
         Anchor::TopLeft | Anchor::Left | Anchor::BottomLeft => margin + dx,
@@ -490,7 +710,7 @@ fn widget_roi(screen: iced::Size, anchor: Anchor, (dx, dy): (f32, f32)) -> iced:
     let y = match anchor {
         Anchor::TopLeft | Anchor::Top | Anchor::TopRight => margin + dy,
         Anchor::Left | Anchor::Center | Anchor::Right => (screen.height - h) / 2.0 + dy,
-        Anchor::BottomLeft | Anchor::Bottom | Anchor::BottomRight => screen.height - h - 120.0 + dy,
+        Anchor::BottomLeft | Anchor::Bottom | Anchor::BottomRight => screen.height - h - low + dy,
     };
     iced::Rectangle::new(
         iced::Point::new(
@@ -499,6 +719,50 @@ fn widget_roi(screen: iced::Size, anchor: Anchor, (dx, dy): (f32, f32)) -> iced:
         ),
         iced::Size::new(w.min(screen.width), h.min(screen.height)),
     )
+}
+
+/// Distance du bord bas où se posent les widgets ancrés en bas : la marge
+/// commune, ou la bande occupée en bas (dock rendu, zone réservée par une
+/// barre) plus 16 px d'air (HIG TYP-17).
+pub(super) fn bottom_edge(dock: Option<f32>, reserved: f32, margin: f32) -> f32 {
+    let band = dock.unwrap_or(0.0).max(reserved);
+    if band > 0.0 {
+        margin.max(band + 16.0)
+    } else {
+        margin
+    }
+}
+
+impl App {
+    /// Bord bas des widgets de l'écran `m`, d'après la hauteur rendue de
+    /// son dock (s'il est en bas) et la zone réservée en bas.
+    pub(super) fn desk_bottom_edge(&self, m: &crate::hypr::Monitor, margin: f32) -> f32 {
+        let dock = self
+            .launcher_surfaces
+            .values()
+            .find(|s| s.monitor == m.name && s.position == crate::config::LauncherPosition::Bottom)
+            .map(|s| s.thickness as f32);
+        bottom_edge(dock, m.reserved.3, margin)
+    }
+}
+
+#[cfg(test)]
+mod bottom_edge_tests {
+    use super::bottom_edge;
+
+    #[test]
+    fn le_bord_bas_suit_le_dock_et_les_barres() {
+        // Sans dock ni barre en bas : la marge des autres bords.
+        assert_eq!(bottom_edge(None, 0.0, 32.0), 32.0);
+        // Dock par défaut (42 px, surface de 98 px) : 114 px.
+        assert_eq!(bottom_edge(Some(98.0), 0.0, 32.0), 114.0);
+        // Grand dock : la marge grandit avec lui.
+        assert_eq!(bottom_edge(Some(160.0), 0.0, 32.0), 176.0);
+        // Barre en bas, plus haute que le dock : la barre.
+        assert_eq!(bottom_edge(Some(40.0), 60.0, 32.0), 76.0);
+        // Barre fine : jamais sous la marge.
+        assert_eq!(bottom_edge(None, 8.0, 32.0), 32.0);
+    }
 }
 
 #[cfg(test)]
@@ -517,5 +781,54 @@ mod calendar_tests {
         // Novembre 2026 commence un dimanche : 6 lignes.
         assert_eq!(month_weeks(d(2026, 11, 1)), 6);
         assert_eq!(month_weeks(d(2027, 2, 1)), 4);
+    }
+
+    /// Taille moyenne : l'affichage d'avant les tailles (HIG SYS-15) ; les
+    /// autres ajoutent ou retirent une couche sans toucher à l'heure.
+    #[test]
+    fn couches_par_taille() {
+        use WidgetFamily as F;
+        let l = |date, day_week, month| ClockLayers {
+            date,
+            day_week,
+            month,
+        };
+        assert_eq!(
+            clock_layers(F::Medium, "%H:%M", true),
+            l(true, false, false)
+        );
+        assert_eq!(
+            clock_layers(F::Medium, "%H:%M", false),
+            l(false, false, false)
+        );
+        assert_eq!(
+            clock_layers(F::Medium, "%H:%M:%S", true),
+            l(false, false, false)
+        );
+        assert_eq!(
+            clock_layers(F::Small, "%H:%M", true),
+            l(false, false, false)
+        );
+        assert_eq!(clock_layers(F::Large, "%H:%M", true), l(true, true, false));
+        assert_eq!(
+            clock_layers(F::XLarge, "%H:%M", false),
+            l(false, true, true)
+        );
+        assert_eq!(calendar_months(F::Medium), 1);
+        assert_eq!(calendar_months(F::Small), 0);
+        assert_eq!(calendar_months(F::Large), 2);
+        let m = |info, progress, details| MediaLayers {
+            info,
+            progress,
+            details,
+        };
+        assert_eq!(media_layers(F::Medium), m(true, false, false));
+        assert_eq!(media_layers(F::Small), m(false, false, false));
+        assert_eq!(media_layers(F::XLarge), m(true, true, true));
+        assert_eq!(media_progress(Some(30), Some(120)), Some((0.25, 30, 120)));
+        assert_eq!(media_progress(Some(30), None), None);
+        assert_eq!(media_progress(Some(200), Some(120)), None);
+        assert_eq!(media_progress(Some(0), Some(0)), None);
+        assert_eq!(calendar_months(F::XLarge), 3);
     }
 }

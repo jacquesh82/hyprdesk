@@ -259,6 +259,47 @@ pub fn close_window(address: &str) -> Result<(), ipc::IpcError> {
     Ok(())
 }
 
+/// La commande Lua qui tue une fenêtre désignée par son adresse (HIG ENT-10) :
+/// `kill`, le jumeau brutal de `close` — même désignation, même échappement.
+/// Hyprland 0.57.2 : `hl.dsp.window.kill({ window = … })`, à côté de `close`
+/// et `signal`.
+pub fn kill_window_lua(address: &str) -> String {
+    format!(
+        "hl.dsp.window.kill({{ window = \"address:{}\" }})",
+        ipc::lua_escape(address)
+    )
+}
+
+/// Tue une fenêtre, même si son application s'y refuse : « Forcer à quitter ».
+pub fn kill_window(address: &str) -> Result<(), ipc::IpcError> {
+    let r = ipc::dispatch(&kill_window_lua(address))?;
+    if r.trim() != "ok" {
+        tracing::warn!(
+            "{}",
+            crate::tr!("destruction {address} : {r}", address = address, r = r)
+        );
+    }
+    Ok(())
+}
+
+/// Tue des fenêtres une à une (« Forcer à quitter », HIG ENT-10). Chacune est
+/// relue juste avant : une fenêtre déjà disparue — son processus, partagé
+/// avec la précédente, vient d'être tué — n'est plus visée, jamais une autre
+/// à sa place.
+pub fn kill_windows(addresses: &[String]) {
+    for a in addresses {
+        let alive = ipc::query_json("clients")
+            .map(|v| parse_clients(&v))
+            .is_ok_and(|l| l.iter().any(|c| &c.address == a));
+        if alive && let Err(e) = kill_window(a) {
+            tracing::warn!(
+                "{}",
+                crate::tr!("destruction {address} : {r}", address = a, r = e)
+            );
+        }
+    }
+}
+
 /// Ce que le flux d'événements apporte à l'interface.
 #[derive(Debug, Clone)]
 pub enum Update {
@@ -322,6 +363,10 @@ impl Pending {
                 | "fullscreen"
         ) {
             self.workspaces = true;
+        }
+        // Le mode du plein écran se lit dans les fenêtres (HIG PAT-01).
+        if name == "fullscreen" {
+            self.clients = true;
         }
         if let Some(p) = line.strip_prefix("activewindow>>") {
             self.active = Some(parse_active_window(p));
@@ -548,6 +593,18 @@ fn modifier_bit(m: &str) -> Option<u32> {
     })
 }
 
+/// Modificateurs à l'écrit, dans l'ordre de la HIG : CTRL, ALT, SHIFT, SUPER
+/// (HIG ENT-04).
+pub const MODIFIER_ORDER: [(u32, &str); 4] = [(4, "CTRL"), (8, "ALT"), (1, "SHIFT"), (64, "SUPER")];
+
+/// Rang d'écriture d'un modificateur d'une combinaison ; ce qui n'en est pas
+/// un vient en dernier, dans son ordre d'écriture.
+pub fn modifier_rank(name: &str) -> usize {
+    modifier_bit(name)
+        .and_then(|bit| MODIFIER_ORDER.iter().position(|(b, _)| *b == bit))
+        .unwrap_or(MODIFIER_ORDER.len())
+}
+
 /// `"SUPER + SHIFT + D"` → (modmask, touche en minuscules).
 pub fn parse_combo(s: &str) -> Option<(u32, String)> {
     let parts: Vec<&str> = s
@@ -569,7 +626,7 @@ pub fn parse_combo(s: &str) -> Option<(u32, String)> {
 /// Raccourcis de Hyprland marqués `submap_universal` : ils restent actifs
 /// sur le bureau. Rendus lisibles (« SUPER + eacute → focus »).
 pub fn universal_binds(binds: &Value) -> Vec<String> {
-    let names = [(64, "SUPER"), (4, "CTRL"), (8, "ALT"), (1, "SHIFT")];
+    let names = MODIFIER_ORDER;
     binds
         .as_array()
         .map(|l| {
@@ -691,6 +748,46 @@ pub fn build_keys_lua(
         ("search", &keys.search, "search", "lanceur d'applications"),
         ("overview", &keys.overview, "overview", "vue d'ensemble"),
         ("assistant", &keys.assistant, "assistant", "LYRA"),
+        // Un raccourci par surface du shell (HIG ENT-02) : barre, dock,
+        // centre de notifications, volet des Réglages.
+        (
+            "focus-bar",
+            &keys.focus_bar,
+            "focus bar",
+            "clavier à la barre",
+        ),
+        (
+            "focus-dock",
+            &keys.focus_dock,
+            "focus dock",
+            "clavier au dock",
+        ),
+        (
+            "focus-notifications",
+            &keys.focus_notifications,
+            "focus notifications",
+            "clavier au centre de notifications",
+        ),
+        (
+            "focus-settings",
+            &keys.focus_settings,
+            "focus settings",
+            "clavier aux réglages",
+        ),
+        // Forcer une application à quitter (HIG ENT-10), partout.
+        (
+            "force-quit",
+            &keys.force_quit,
+            "force-quit",
+            "forcer à quitter",
+        ),
+        // Accès clavier complet (HIG ENT-01), partout.
+        (
+            "keyboard-access",
+            &keys.keyboard_access,
+            "keyboard-access",
+            "accès clavier complet",
+        ),
         ("settings", &keys.settings, "toggle-settings", "réglages"),
         ("lock", &keys.lock, "lock", "verrouiller"),
     ] {
@@ -782,6 +879,45 @@ pub fn build_keys_lua(
         ),
         ("overview", &keys.overview, "overview", "vue d'ensemble"),
         ("assistant", &keys.assistant, "assistant", "LYRA"),
+        // Le clavier va à chaque surface, bureau affiché aussi (HIG ENT-02).
+        (
+            "focus-bar",
+            &keys.focus_bar,
+            "focus bar",
+            "clavier à la barre",
+        ),
+        (
+            "focus-dock",
+            &keys.focus_dock,
+            "focus dock",
+            "clavier au dock",
+        ),
+        (
+            "focus-notifications",
+            &keys.focus_notifications,
+            "focus notifications",
+            "clavier au centre de notifications",
+        ),
+        (
+            "focus-settings",
+            &keys.focus_settings,
+            "focus settings",
+            "clavier aux réglages",
+        ),
+        // Forcer une application à quitter, bureau affiché aussi (HIG ENT-10).
+        (
+            "force-quit",
+            &keys.force_quit,
+            "force-quit",
+            "forcer à quitter",
+        ),
+        // Accès clavier complet (HIG ENT-01), partout.
+        (
+            "keyboard-access",
+            &keys.keyboard_access,
+            "keyboard-access",
+            "accès clavier complet",
+        ),
     ] {
         if plan.desktop(id, k) {
             bind(&mut lua, "  ", k, exec(arg), desc);
@@ -997,11 +1133,11 @@ pub fn workspace_modifier(binds: &Value) -> String {
     modmask_name(mask)
 }
 
-/// Masque de modificateurs de Hyprland → « SUPER + ALT ».
+/// Masque de modificateurs de Hyprland → « ALT + SUPER ».
 pub fn modmask_name(mask: u64) -> String {
     let mut parts = Vec::new();
-    for (bit, name) in [(64, "SUPER"), (8, "ALT"), (4, "CTRL"), (1, "SHIFT")] {
-        if mask & bit != 0 {
+    for (bit, name) in MODIFIER_ORDER {
+        if mask & u64::from(bit) != 0 {
             parts.push(name);
         }
     }
@@ -1771,6 +1907,9 @@ pub struct WindowGeo {
     pub workspace: String,
     pub floating: bool,
     pub rect: Rect,
+    /// Vrai plein écran (mode 2 de Hyprland), pas la fenêtre agrandie (mode
+    /// 1), sous laquelle les calques `top` restent visibles (HIG PAT-01).
+    pub fullscreen: bool,
 }
 
 /// Fenêtres d'après `clients` : titres et géométrie en coordonnées globales.
@@ -1802,6 +1941,7 @@ pub fn parse_window_geometries(v: &Value) -> Vec<WindowGeo> {
                     n(&c["size"], 0),
                     n(&c["size"], 1),
                 ),
+                fullscreen: c["fullscreen"].as_i64().unwrap_or(0) & 2 != 0,
             })
         })
         .filter(|w| !w.workspace.starts_with("special:"))
@@ -2288,6 +2428,23 @@ pub fn notify(icon: u8, ms: u32, msg: &str) {
 
 #[cfg(test)]
 mod tests {
+    /// Vrai plein écran (mode 2, ou 3 : agrandie puis plein écran) ; une
+    /// fenêtre seulement agrandie (mode 1) n'en est pas un (HIG PAT-01).
+    #[test]
+    fn plein_ecran_distingue_de_la_fenetre_agrandie() {
+        let v = serde_json::json!([
+            {"address": "0x1", "class": "mpv", "workspace": {"name": "1"}, "fullscreen": 2},
+            {"address": "0x2", "class": "foot", "workspace": {"name": "1"}, "fullscreen": 1},
+            {"address": "0x3", "class": "kitty", "workspace": {"name": "2"}, "fullscreen": 3},
+            {"address": "0x4", "class": "zed", "workspace": {"name": "2"}}
+        ]);
+        let full: Vec<bool> = super::parse_window_geometries(&v)
+            .iter()
+            .map(|g| g.fullscreen)
+            .collect();
+        assert_eq!(full, [true, false, true, false]);
+    }
+
     fn float_win(address: &str, ws: &str, rect: Rect, floating: bool) -> Geometry {
         Geometry {
             address: address.into(),
@@ -2850,6 +3007,70 @@ mod tests {
     }
 
     #[test]
+    fn raccourcis_de_focus() {
+        // HIG ENT-02 : un raccourci par surface du shell, posé hors de la
+        // submap comme dedans (la submap reste active).
+        let k = crate::config::Keys::default();
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
+        let (main, submap) = lua.split_once("hl.define_submap").unwrap();
+        for (combo, arg) in [
+            ("CTRL + F2", "focus bar"),
+            ("CTRL + F3", "focus dock"),
+            ("CTRL + F8", "focus notifications"),
+            ("CTRL + F6", "focus settings"),
+        ] {
+            let bind = format!(r#"hl.bind("{combo}", hl.dsp.exec_cmd("'/bin/hyprdesk' {arg}")"#);
+            assert!(main.contains(&bind) && submap.contains(&bind), "{lua}");
+        }
+    }
+
+    #[test]
+    fn raccourci_forcer_a_quitter() {
+        // HIG ENT-10 : le modèle Option-Command-Esc, partout — hors de la
+        // submap comme dedans. Coupé (`none`) : plus aucune liaison.
+        let k = crate::config::Keys::default();
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
+        let (main, submap) = lua.split_once("hl.define_submap").unwrap();
+        let bind =
+            r#"hl.bind("ALT + SUPER + Escape", hl.dsp.exec_cmd("'/bin/hyprdesk' force-quit")"#;
+        assert!(main.contains(bind) && submap.contains(bind), "{lua}");
+        let mut k = k;
+        k.force_quit.clear();
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
+        assert!(!lua.contains("force-quit"), "{lua}");
+    }
+
+    #[test]
+    fn raccourci_acces_clavier() {
+        // HIG ENT-01 : Control-F1, hors de la submap comme dedans.
+        let k = crate::config::Keys::default();
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
+        let (main, submap) = lua.split_once("hl.define_submap").unwrap();
+        let bind = r#"hl.bind("CTRL + F1", hl.dsp.exec_cmd("'/bin/hyprdesk' keyboard-access")"#;
+        assert!(main.contains(bind) && submap.contains(bind), "{lua}");
+        let mut k = k;
+        k.keyboard_access.clear();
+        let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");
+        assert!(!lua.contains("keyboard-access"), "{lua}");
+    }
+
+    #[test]
+    fn lua_de_destruction() {
+        // HIG ENT-10 : la fenêtre désignée par son adresse, échappée comme
+        // pour `close` ; jamais la fenêtre active par défaut.
+        assert_eq!(
+            kill_window_lua("0x55a1b2c3d4e5"),
+            r#"hl.dsp.window.kill({ window = "address:0x55a1b2c3d4e5" })"#
+        );
+        let l = kill_window_lua("a\"b");
+        assert!(
+            l.starts_with("hl.dsp.window.kill({ window = \"address:a"),
+            "{l}"
+        );
+        assert!(l.ends_with("\" })") && !l.contains(r#"address:a"b"#), "{l}");
+    }
+
+    #[test]
     fn workspaces_et_fenetre_active() {
         let v: Value = serde_json::from_str(
             r#"[{"id":6,"name":"6","monitor":"DP-1","windows":3},{"id":1,"name":"1","monitor":"HDMI-A-2","windows":0},
@@ -2915,7 +3136,7 @@ mod tests {
         let alt = serde_json::json!([
             { "submap": "", "dispatcher": "HL.Dispatcher(focus)", "key": "code:11", "modmask": 72 },
         ]);
-        assert_eq!(workspace_modifier(&alt), "SUPER + ALT");
+        assert_eq!(workspace_modifier(&alt), "ALT + SUPER");
         assert_eq!(workspace_modifier(&serde_json::json!([])), "SUPER");
         let k = crate::config::Keys::default();
         let lua = build_keys_lua(&k, &[], "/bin/hyprdesk", &Default::default(), "SUPER");

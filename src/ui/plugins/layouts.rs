@@ -139,11 +139,12 @@ impl App {
         match tab {
             "custom" => self.layouts_custom(),
             // Les raccourcis d'abord : c'est ce qu'on cherche en ouvrant l'onglet.
-            "dwindle" | "master" | "scrolling" => {
-                column![self.layout_keys(tab), self.adv(self.layouts_options(tab))]
-                    .spacing(14)
-                    .into()
-            }
+            "dwindle" | "master" | "scrolling" => column![
+                self.layout_keys(tab),
+                self.adv("Réglages de la disposition", || self.layouts_options(tab))
+            ]
+            .spacing(14)
+            .into(),
             "monocle" => column![
                 self.section("Monocle"),
                 text(crate::i18n::tr(
@@ -210,11 +211,13 @@ impl App {
         );
         let choices = self.layout_choices(&from_hypr);
         let selected = choices.iter().find(|c| c.value == t.layout).cloned();
-        let default_pick = pick_list(choices.clone(), selected, |c: LayoutChoice| {
-            wrap(Msg::Default(c.value))
-        })
-        .font(self.font)
-        .width(320);
+        let default_pick = self.choosable(
+            pick_list(choices.clone(), selected, |c: LayoutChoice| {
+                wrap(Msg::Default(c.value))
+            })
+            .font(self.font)
+            .width(320),
+        );
 
         // Un layout par workspace : ceux qui existent toujours, et ceux déjà réglés.
         let upto = g.workspaces.unwrap_or(10).max(1) as usize;
@@ -226,8 +229,10 @@ impl App {
         }
         let ws_choices = self.layout_choices(crate::i18n::tr("Par défaut"));
         // Deux par ligne quand elles tiennent, sinon une : la liste passait
-        // sous la suivante et sa flèche sur le texte.
-        let per_row = if self.detail_width() >= 2.0 * (110.0 + 8.0 + 180.0) + 16.0 {
+        // sous la suivante et sa flèche sur le texte. La case du libellé suit
+        // le texte agrandi (HIG TYP-08).
+        let label_w = 110.0 * crate::ui::tokens::text_growth();
+        let per_row = if self.detail_width() >= 2.0 * (label_w + 8.0 + 180.0) + 16.0 {
             2
         } else {
             1
@@ -240,13 +245,16 @@ impl App {
                 row![
                     text(crate::tr!("Workspace {ws}", ws = ws))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
-                        .width(110),
-                    pick_list(ws_choices.clone(), sel, move |c: LayoutChoice| {
-                        wrap(Msg::Workspace(w.clone(), c.value))
-                    })
-                    .font(self.font)
-                    .width(180),
+                        .size(crate::ui::tokens::ts(13.0))
+                        .width(label_w)
+                        .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
+                    self.choosable(
+                        pick_list(ws_choices.clone(), sel, move |c: LayoutChoice| {
+                            wrap(Msg::Workspace(w.clone(), c.value))
+                        })
+                        .font(self.font)
+                        .width(180)
+                    ),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center)
@@ -343,7 +351,7 @@ impl App {
                         column![
                             text(crate::i18n::tr(c.label))
                                 .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0)),
+                                .size(crate::ui::tokens::ts(13.0)),
                             text(crate::i18n::tr(c.summary))
                                 .font(self.font)
                                 .size(crate::ui::tokens::ts(12.0))
@@ -359,15 +367,16 @@ impl App {
                                     .color(accent),
                             )
                         } else {
-                            button(
-                                text(crate::i18n::tr("Par défaut"))
-                                    .font(self.font)
-                                    .size(crate::ui::tokens::ts(12.0)),
+                            self.focusable(
+                                button(
+                                    text(crate::i18n::tr("Par défaut"))
+                                        .font(self.font)
+                                        .size(crate::ui::tokens::ts(12.0)),
+                                )
+                                .padding([4, 10])
+                                .style(button::secondary)
+                                .on_press(wrap(Msg::Default(Some(c.name.to_string())))),
                             )
-                            .padding([4, 10])
-                            .style(button::secondary)
-                            .on_press(wrap(Msg::Default(Some(c.name.to_string()))))
-                            .into()
                         },
                     ]
                     .spacing(12)
@@ -475,14 +484,16 @@ impl App {
                 );
                 if let Some(lua) = l.lua.clone() {
                     keys = keys.push(
-                        button(
-                            text(crate::i18n::tr("Copier"))
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0)),
-                        )
-                        .padding([2, 8])
-                        .style(button::text)
-                        .on_press(wrap(Msg::Copy(lua))),
+                        self.focusable(
+                            button(
+                                text(crate::i18n::tr("Copier"))
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0)),
+                            )
+                            .padding([2, 8])
+                            .style(button::text)
+                            .on_press(wrap(Msg::Copy(lua))),
+                        ),
                     );
                 }
             }

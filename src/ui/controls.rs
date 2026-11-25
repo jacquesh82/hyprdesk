@@ -1,5 +1,5 @@
 //! Composition des réglages existants ; aucune source système supplémentaire.
-use iced::widget::{Space, button, column, container, row, slider};
+use iced::widget::{Space, button, column, container, row, slider, tooltip};
 use iced::{Alignment, Border, Color, Element, Length};
 
 use crate::config::{RenderState, WidgetDef, WidgetKind};
@@ -7,6 +7,25 @@ use crate::i18n::text;
 use crate::ui::plugins::bar::popover::Request;
 use crate::ui::{App, DesktopMode, Msg, color, design};
 use crate::widgets::Value;
+
+/// Symbole d'une commande à bascule quand il dépend de son état : pour le
+/// Wi-Fi, celui de sa radio — les ondes allumées, barrées éteintes —, l'état
+/// de la connexion se lisant dans la valeur. Sinon rien : le symbole que
+/// donne le widget fait foi (HIG SYS-08).
+pub(in crate::ui) fn radio_symbol(type_id: &str, toggled: Option<bool>) -> Option<&'static str> {
+    match (type_id, toggled) {
+        ("network", Some(on)) => Some(wifi_radio(on)),
+        _ => None,
+    }
+}
+
+fn wifi_radio(on: bool) -> &'static str {
+    if on {
+        "network-wireless-symbolic"
+    } else {
+        "network-wireless-disabled-symbolic"
+    }
+}
 
 impl App {
     pub(in crate::ui) fn control_source(&self, type_id: &str) -> Option<&WidgetDef> {
@@ -51,7 +70,16 @@ impl App {
                 _ => None,
             });
         let active = rich.is_some_and(|r| r.toggled == Some(true));
-        let detail = if pending {
+        // Passage d'un état à l'autre en fondu (HIG SYS-06) ; pendant
+        // l'action, la pastille pulse au lieu d'afficher « En cours… »
+        // (HIG SYS-07), sauf sans transition.
+        let on = self.toggle_progress(&w.id, active);
+        let pulse = if pending {
+            self.pending_pulse(&w.id)
+        } else {
+            None
+        };
+        let detail = if pending && pulse.is_none() {
             crate::i18n::tr("En cours…").to_string()
         } else if error.is_some() {
             crate::i18n::tr("Indisponible").to_string()
@@ -59,30 +87,34 @@ impl App {
             rich.and_then(|r| r.tooltip.clone())
                 .unwrap_or_else(|| crate::i18n::tr("Chargement…").to_string())
         };
-        let glyph = rich
-            .and_then(|r| r.icon.as_deref())
+        let glyph = radio_symbol(type_id, rich.and_then(|r| r.toggled))
+            .or_else(|| rich.and_then(|r| r.icon.as_deref()))
             .unwrap_or(if type_id == "network" {
                 "network-offline-symbolic"
             } else {
                 "bluetooth-symbolic"
             });
         let on_accent = design::on_accent(accent, fg, color(self.cfg.general.theme.bg, alpha));
+        let beat = pulse.unwrap_or(1.0);
+        let ink = design::mix(fg, on_accent, on).scale_alpha(beat);
         let orb = container(
-            self.icon_named(glyph, 16.0, if active { on_accent } else { fg })
+            // Trait du libellé voisin, en Medium (HIG ICO-12).
+            self.icon_named_weighted(glyph, 16.0, ink, iced::font::Weight::Medium)
                 .unwrap_or_else(|| Space::new().into()),
         )
         .center_x(32)
         .center_y(32)
         .style(move |_| container::Style {
             background: Some(
-                if active {
-                    accent
-                } else {
+                design::mix(
                     Color {
                         a: 0.10 * alpha,
                         ..fg
-                    }
-                }
+                    },
+                    accent,
+                    on,
+                )
+                .scale_alpha(beat)
                 .into(),
             ),
             border: Border::default().rounded(16),
@@ -118,12 +150,68 @@ impl App {
         } else {
             menu.clone()
         };
+        // Taille compacte : le symbole seul, qui garde son action ; titre et
+        // état en infobulle (HIG SYS-12).
+        if crate::design_options::flag(&self.cfg.general, "controls.compact") {
+            // L'erreur exacte, que la taille compacte ne montre pas sous la
+            // tuile, passe dans l'infobulle.
+            let tip = match error {
+                Some(e) => format!("{label} · {e}"),
+                None => format!("{label} · {}", detail.replace('\n', " · ")),
+            };
+            let pastille = button(orb)
+                .padding(4)
+                .on_press_maybe((!pending).then_some(action).flatten())
+                .style(move |_, status| iced::widget::button::Style {
+                    background: matches!(
+                        status,
+                        iced::widget::button::Status::Hovered
+                            | iced::widget::button::Status::Pressed
+                    )
+                    .then(|| {
+                        Color {
+                            a: 0.09 * alpha,
+                            ..fg
+                        }
+                        .into()
+                    }),
+                    text_color: fg,
+                    border: Border::default().rounded(design::SMALL_RADIUS),
+                    ..Default::default()
+                });
+            let bg = color(self.cfg.general.theme.bg, 1.0);
+            // Le menu de la commande, sans le bouton « › » : clic droit.
+            let mut pastille = iced::widget::mouse_area(pastille);
+            if can_toggle && let Some(menu) = menu {
+                pastille = pastille.on_right_press(menu);
+            }
+            let compact: Element<'_, Msg> = tooltip(
+                pastille,
+                text(tip)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts_tooltip(11.0))
+                    .color(fg),
+                iced::widget::tooltip::Position::Bottom,
+            )
+            .style(move |_| container::Style {
+                text_color: Some(Color { a: 1.0, ..fg }),
+                background: Some(bg.into()),
+                border: Border::default().rounded(design::SMALL_RADIUS),
+                ..Default::default()
+            })
+            .into();
+            return if self.convex_options().is_some() {
+                super::kinetic::feedback(compact, fg, self.bar_duration(130))
+            } else {
+                compact
+            };
+        }
         let body = row![
             orb,
             column![
                 text(label.to_string())
                     .font(self.ui_font(iced::font::Weight::Medium))
-                    .size(crate::ui::tokens::ts(12.5))
+                    .size(crate::ui::tokens::ts(12.0))
                     .color(fg),
                 text(crate::ui::plugins::bar::surface::truncate(
                     &detail.replace('\n', " · "),
@@ -163,7 +251,7 @@ impl App {
         let details = button(
             text("›")
                 .font(self.font)
-                .size(crate::ui::tokens::ts(19.0))
+                .size(crate::ui::tokens::ts(17.0))
                 .color(fg),
         )
         .padding([8, 4])
@@ -215,12 +303,11 @@ impl App {
         if bar.is_some() {
             header = header.push(
                 button(
-                    text("×")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(18.0))
-                        .color(fg),
+                    // Fermeture : le glyphe du jeu, comme les menus (HIG ICO-07).
+                    crate::ui::icons::glyph("window-close", crate::ui::tokens::ts(16.0), fg)
+                        .expect("glyphe de fermeture"),
                 )
-                .padding([2, 7])
+                .padding([5, 7])
                 .on_press(Msg::ClosePopover)
                 .style(move |_, _| iced::widget::button::Style {
                     text_color: fg,
@@ -305,48 +392,73 @@ impl App {
         {
             let mode = self.monitor_mode(monitor);
             let mut modes = row![].spacing(3);
-            for (label, state, command) in [
+            // Chaque segment nomme ce que le mode montre, d'un nom (HIG
+            // SEL-06) ; son info-bulle, le nom entier du mode (HIG SEL-05).
+            for (label, name, state, command) in [
                 (
-                    "Masqué",
+                    "Fenêtres",
+                    "Fenêtres seules",
                     DesktopMode::NoDesktop,
                     crate::control::Command::Hide,
                 ),
                 (
                     "Lanceur",
+                    "Lanceur seul",
                     DesktopMode::LauncherOnly,
                     crate::control::Command::LauncherOnly,
                 ),
                 (
-                    "Complet",
+                    "Bureau",
+                    "Bureau complet",
                     DesktopMode::FullDesktop,
                     crate::control::Command::Show,
                 ),
             ] {
                 let active = mode == state;
+                let (label, name) = (crate::i18n::tr(label), crate::i18n::tr(name));
                 modes = modes.push(
-                    button(
-                        text(label)
+                    tooltip(
+                        button(
+                            // Segments de largeur égale, libellé centré
+                            // (HIG SEL-13).
+                            text(label)
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .color(fg)
+                                .width(Length::Fill)
+                                .align_x(iced::alignment::Horizontal::Center),
+                        )
+                        .padding([8, 6])
+                        .width(Length::Fill)
+                        .on_press(Msg::On(
+                            monitor.to_string(),
+                            Box::new(Msg::Control(command)),
+                        ))
+                        .style(move |_, status| {
+                            iced::widget::button::Style {
+                                background: (active
+                                    || matches!(status, iced::widget::button::Status::Hovered))
+                                .then_some(
+                                    Color {
+                                        a: (if active { 0.13 } else { 0.06 }) * alpha,
+                                        ..fg
+                                    }
+                                    .into(),
+                                ),
+                                text_color: fg,
+                                border: Border::default().rounded(design::SMALL_RADIUS),
+                                ..Default::default()
+                            }
+                        }),
+                        text(name)
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0))
                             .color(fg),
+                        iced::widget::tooltip::Position::Bottom,
                     )
-                    .padding([8, 6])
-                    .width(Length::Fill)
-                    .on_press(Msg::On(
-                        monitor.to_string(),
-                        Box::new(Msg::Control(command)),
-                    ))
-                    .style(move |_, status| iced::widget::button::Style {
-                        background: (active
-                            || matches!(status, iced::widget::button::Status::Hovered))
-                        .then_some(
-                            Color {
-                                a: (if active { 0.13 } else { 0.06 }) * alpha,
-                                ..fg
-                            }
-                            .into(),
-                        ),
-                        text_color: fg,
+                    .style(move |_| container::Style {
+                        text_color: Some(Color { a: 1.0, ..fg }),
+                        background: Some(color(self.cfg.general.theme.bg, 1.0).into()),
                         border: Border::default().rounded(design::SMALL_RADIUS),
                         ..Default::default()
                     }),
@@ -369,5 +481,30 @@ impl App {
             );
         }
         col.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::radio_symbol;
+
+    /// La tuile « Wi-Fi » a un symbole par état de sa radio ; les autres
+    /// commandes gardent celui de leur widget (HIG SYS-08).
+    #[test]
+    fn symbole_de_la_radio_wifi() {
+        assert_eq!(
+            radio_symbol("network", Some(true)),
+            Some("network-wireless-symbolic")
+        );
+        assert_eq!(
+            radio_symbol("network", Some(false)),
+            Some("network-wireless-disabled-symbolic")
+        );
+        assert_eq!(
+            radio_symbol("network", None),
+            None,
+            "état inconnu : le widget décide"
+        );
+        assert_eq!(radio_symbol("bluetooth", Some(true)), None);
     }
 }

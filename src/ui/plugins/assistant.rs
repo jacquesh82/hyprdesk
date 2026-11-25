@@ -10,7 +10,7 @@ pub(in crate::ui) mod providers;
 pub(in crate::ui) mod services;
 
 use crate::i18n::text;
-use iced::widget::{button, column, container, pick_list, radio, row, scrollable, toggler};
+use iced::widget::{button, column, container, pick_list, radio, row, scrollable};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -319,19 +319,23 @@ impl App {
         }
         let ai = g.apps.get("ai").cloned().unwrap_or_default();
         let provider = |label: &'static str, v: &'static str| {
-            radio(
-                label,
-                v,
-                Some(ai.as_str()).filter(|a| *a == v).map(|_| v),
-                |v| wrap(Msg::Provider(v.to_string())),
+            self.focusable(
+                radio(
+                    label,
+                    v,
+                    Some(ai.as_str()).filter(|a| *a == v).map(|_| v),
+                    |v| wrap(Msg::Provider(v.to_string())),
+                )
+                .font(self.font),
             )
-            .font(self.font)
         };
         let mode = |label: &'static str, v: AssistantMode| {
-            radio(crate::i18n::tr(label), v, Some(g.assistant_mode), |v| {
-                wrap(Msg::Mode(v))
-            })
-            .font(self.font)
+            self.focusable(
+                radio(crate::i18n::tr(label), v, Some(g.assistant_mode), |v| {
+                    wrap(Msg::Mode(v))
+                })
+                .font(self.font),
+            )
         };
         let mut col = column![
             self.section("LYRA"),
@@ -354,8 +358,8 @@ impl App {
                 ]
                 .spacing(8),
             ),
-            self.adv(self.field(
-                "Ouvrir l'assistant",
+            self.adv("Ouvrir l'assistant", || self.field(
+                "",
                 "assistant_mode",
                 column![
                     mode(crate::i18n::tr("Dans sa fenêtre"), AssistantMode::Window),
@@ -364,10 +368,10 @@ impl App {
                 .spacing(8),
             )),
             row![
-                button(text("Ouvrir l'assistant").font(self.font).size(crate::ui::tokens::ts(13.0)))
+                self.focusable(button(text("Ouvrir l'assistant").font(self.font).size(crate::ui::tokens::ts(13.0)))
                     .padding([6, 14])
-                    .on_press(wrap(Msg::Open)),
-                button(
+                    .on_press(wrap(Msg::Open))),
+                self.focusable(button(
                     text(if p.assistant.show_context {
                         crate::i18n::tr("Masquer le contexte")
                     } else {
@@ -378,7 +382,7 @@ impl App {
                 )
                 .padding([6, 14])
                 .style(button::secondary)
-                .on_press(wrap(Msg::ToggleContext)),
+                .on_press(wrap(Msg::ToggleContext))),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -457,10 +461,12 @@ impl App {
         let mut halo = row![].spacing(14);
         for (id, label) in halos {
             halo = halo.push(
-                radio(crate::i18n::tr(label), id, halo_cur, |v: &'static str| {
-                    wrap(Msg::VoiceHalo(v))
-                })
-                .text_size(13),
+                self.focusable(
+                    radio(crate::i18n::tr(label), id, halo_cur, |v: &'static str| {
+                        wrap(Msg::VoiceHalo(v))
+                    })
+                    .text_size(13),
+                ),
             );
         }
         let color_cur = Some(if c.voice_halo_color == "accent" {
@@ -474,10 +480,12 @@ impl App {
             ("accent", "Accent du thème"),
         ] {
             halo_color = halo_color.push(
-                radio(crate::i18n::tr(label), id, color_cur, |v: &'static str| {
-                    wrap(Msg::VoiceHaloColor(v))
-                })
-                .text_size(13),
+                self.focusable(
+                    radio(crate::i18n::tr(label), id, color_cur, |v: &'static str| {
+                        wrap(Msg::VoiceHaloColor(v))
+                    })
+                    .text_size(13),
+                ),
             );
         }
         column![
@@ -496,32 +504,43 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
-            toggler(c.voice)
-                .label(crate::i18n::tr("Écouter le mot « Lyra »"))
-                .text_size(13)
-                .on_toggle(|_| UiMsg::Panorama(PMsg::VoiceToggle)),
+            self.focusable(
+                self.toggle(c.voice)
+                    .label(crate::i18n::tr("Écouter le mot « Lyra »"))
+                    .text_size(13)
+                    .on_toggle(|_| UiMsg::Panorama(PMsg::VoiceToggle))
+            ),
             row![
                 text(crate::i18n::tr("Micro"))
                     .font(self.font)
                     .size(crate::ui::tokens::ts(13.0))
                     .width(80),
-                pick_list(options, current, |m: Mic| wrap(Msg::VoiceMic(m.0)))
-                    .text_size(13)
-                    .width(Length::Fill),
-                button(
-                    text("Actualiser")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .on_press(UiMsg::Panorama(PMsg::MicsRefresh)),
-                button(
-                    text("Tester la voix")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .on_press_maybe(crate::voice::ready().then_some(UiMsg::Panorama(PMsg::VoiceTest))),
+                self.choosable(
+                    pick_list(options, current, |m: Mic| wrap(Msg::VoiceMic(m.0)))
+                        .text_size(13)
+                        .width(Length::Fill)
+                ),
+                self.focusable(
+                    button(
+                        text("Actualiser")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press(UiMsg::Panorama(PMsg::MicsRefresh))
+                ),
+                self.focusable_when(
+                    button(
+                        text("Tester la voix")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .on_press_maybe(
+                        crate::voice::ready().then_some(UiMsg::Panorama(PMsg::VoiceTest))
+                    ),
+                    (crate::voice::ready().then_some(UiMsg::Panorama(PMsg::VoiceTest))).is_some()
+                ),
             ]
             .spacing(8)
             .align_y(Alignment::Center),

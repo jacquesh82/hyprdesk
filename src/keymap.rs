@@ -74,6 +74,21 @@ pub const LABELS: &[&str] = &[
     "bureau affiché",
 ];
 
+/// Libellés des raccourcis de focus, un par surface du shell (HIG ENT-02) :
+/// barre, dock, centre de notifications, volet des Réglages.
+pub const FOCUS_LABELS: &[&str] = &[
+    "Clavier à la barre",
+    "Clavier au dock",
+    "Clavier au centre de notifications",
+    "Clavier aux Réglages",
+];
+
+/// Libellés des boîtes de dialogue du shell : « Forcer à quitter » (HIG ENT-10).
+pub const DIALOG_LABELS: &[&str] = &["Forcer une application à quitter"];
+
+/// Libellé du raccourci de l'accès clavier complet (HIG ENT-01).
+pub const ACCESS_LABEL: &str = "Accès clavier complet";
+
 /// Combinaison comparable : (masque des modificateurs, touche en minuscules).
 pub fn norm(combo: &str) -> Option<(u32, String)> {
     parse_combo(combo)
@@ -145,6 +160,54 @@ pub fn actions(k: &Keys) -> Vec<Action> {
         "keys.assistant",
         LABELS[11],
         &k.assistant,
+        Everywhere,
+    );
+    // Un raccourci par surface du shell (HIG ENT-02). Aucun ne bascule de
+    // mode ni ne referme : le clavier va à la surface, qui le garde ou le rend.
+    push(
+        "focus-bar",
+        "keys.focus_bar",
+        FOCUS_LABELS[0],
+        &k.focus_bar,
+        Everywhere,
+    );
+    push(
+        "focus-dock",
+        "keys.focus_dock",
+        FOCUS_LABELS[1],
+        &k.focus_dock,
+        Everywhere,
+    );
+    push(
+        "focus-notifications",
+        "keys.focus_notifications",
+        FOCUS_LABELS[2],
+        &k.focus_notifications,
+        Everywhere,
+    );
+    push(
+        "focus-settings",
+        "keys.focus_settings",
+        FOCUS_LABELS[3],
+        &k.focus_settings,
+        Everywhere,
+    );
+    // Forcer une application à quitter (HIG ENT-10) : la boîte s'ouvre partout,
+    // le mode du bureau ne change pas.
+    push(
+        "force-quit",
+        "keys.force_quit",
+        DIALOG_LABELS[0],
+        &k.force_quit,
+        Everywhere,
+    );
+    // Accès clavier complet (HIG ENT-01) : bascule partout, sans changer de
+    // mode ; l'affichage à l'écran dit le nouvel état.
+    push(
+        "keyboard-access",
+        "keys.keyboard_access",
+        ACCESS_LABEL,
+        &k.keyboard_access,
         Everywhere,
     );
     // Verrouillage non réglé : celui de hyprland.lua hors du bureau, celui
@@ -821,9 +884,13 @@ hl.bind(mainMod .. " + Tab", function()
 
     #[test]
     fn lanceur_unifie_ou_non() {
-        let k = Keys::default();
+        // Le lanceur sur SUPER + R, que tient rofi dans le hyprland.lua d'essai.
+        let k = Keys {
+            search: "SUPER + R".into(),
+            ..Keys::default()
+        };
         let src = parse_source(LUA);
-        // Unifié (par défaut) : SUPER + R pris à hyprland.lua, rien en conflit.
+        // Unifié : SUPER + R pris à hyprland.lua, rien en conflit.
         let (r, plan) = analyse(&k, true, &binds(), &src);
         assert!(plan.take.iter().any(|t| t == "SUPER + R"), "{plan:?}");
         assert!(plan.outside("search", "SUPER + R") && plan.desktop("search", "SUPER + R"));
@@ -869,20 +936,23 @@ hl.bind(mainMod .. " + Tab", function()
         let i = r.issue_for("keys.overview").unwrap();
         assert!(matches!(i.kind, Kind::Universal(_)), "{i:?}");
         assert!(!plan.outside("overview", "Print") && !plan.desktop("overview", "Print"));
-        // SUPER + Tab de hyprland.lua face à la vue d'ensemble par défaut : conflit hors du bureau.
+        // SUPER + Tab de hyprland.lua face au commutateur par défaut (HIG
+        // ENT-06) : conflit hors du bureau.
         let (r, plan) = analyse(&Keys::default(), true, &binds(), &src);
-        let i = r.issue_for("keys.overview").unwrap();
+        let i = r.issue_for("keys.switch").unwrap();
         assert!(matches!(&i.kind, Kind::Hyprland(h) if h.what == "function" && h.line == Some(10)));
-        assert!(
-            !plan.outside("overview", "SUPER + Tab") && plan.desktop("overview", "SUPER + Tab")
-        );
+        assert!(!plan.outside("switch", "SUPER + Tab") && plan.desktop("switch", "SUPER + Tab"));
+        // Le lanceur par défaut, unifié, prend SUPER + Space à window.float
+        // (HIG ENT-09) : pas de conflit.
+        assert!(r.issue_for("keys.search").is_none(), "{r:?}");
+        assert!(plan.take.iter().any(|t| t == "SUPER + Space"), "{plan:?}");
         // Prise en main : plus de conflit, la combinaison est déliée.
         let taken = Keys {
             take: vec!["SUPER + Tab".into()],
             ..Keys::default()
         };
         let (r, plan) = analyse(&taken, true, &binds(), &src);
-        assert!(r.issue_for("keys.overview").is_none());
+        assert!(r.issue_for("keys.switch").is_none());
         assert!(plan.take.iter().any(|t| t == "SUPER + Tab"));
         // Une combinaison prise sans action de hyprdesk derrière n'est pas déliée.
         let useless = Keys {
@@ -890,6 +960,19 @@ hl.bind(mainMod .. " + Tab", function()
             ..Keys::default()
         };
         assert!(!wanted(&useless, true).iter().any(|t| t == "SUPER + V"));
+    }
+
+    /// Les raccourcis par défaut sont ceux de macOS (HIG ENT-06, ENT-09,
+    /// PAT-14 ; décision D2), sans doublon entre eux.
+    #[test]
+    fn raccourcis_facon_macos() {
+        let k = Keys::default();
+        assert_eq!(
+            [&k.switch, &k.search, &k.overview, &k.settings].map(String::as_str),
+            ["SUPER + Tab", "SUPER + Space", "CTRL + Up", "SUPER + comma"]
+        );
+        let (r, _) = analyse(&k, true, &Value::Null, &[]);
+        assert!(r.issues.is_empty(), "{r:?}");
     }
 
     #[test]
@@ -922,8 +1005,92 @@ hl.bind(mainMod .. " + Tab", function()
 
     #[test]
     fn libelles_traduits() {
-        let missing = crate::i18n::untranslated("keymap", LABELS.iter().copied());
+        let missing = crate::i18n::untranslated(
+            "keymap",
+            LABELS
+                .iter()
+                .chain(FOCUS_LABELS)
+                .chain(DIALOG_LABELS)
+                .chain(&[ACCESS_LABEL])
+                .copied(),
+        );
         assert!(missing.is_empty(), "{missing:?}");
+    }
+    #[test]
+    fn raccourcis_de_focus() {
+        // HIG ENT-02 : un par surface, partout, sur le modèle de macOS.
+        let acts = actions(&Keys::default());
+        let focus: Vec<(&str, &str, &str)> = acts
+            .iter()
+            .filter(|a| a.id.starts_with("focus-"))
+            .map(|a| (a.id, a.label, a.combo.as_str()))
+            .collect();
+        assert_eq!(
+            focus,
+            [
+                ("focus-bar", FOCUS_LABELS[0], "CTRL + F2"),
+                ("focus-dock", FOCUS_LABELS[1], "CTRL + F3"),
+                ("focus-notifications", FOCUS_LABELS[2], "CTRL + F8"),
+                ("focus-settings", FOCUS_LABELS[3], "CTRL + F6"),
+            ]
+        );
+        assert!(
+            acts.iter()
+                .filter(|a| a.id.starts_with("focus-"))
+                .all(|a| a.scope.outside() && a.scope.desktop())
+        );
+        // Coupé (`none`) : plus aucun raccourci de dock.
+        let mut k = Keys::default();
+        k.focus_dock.clear();
+        assert!(!actions(&k).iter().any(|a| a.id == "focus-dock"));
+    }
+    #[test]
+    fn raccourci_forcer_a_quitter() {
+        // HIG ENT-10 : le modèle Option-Command-Esc, partout, sous son libellé.
+        let acts = actions(&Keys::default());
+        let a = acts
+            .iter()
+            .find(|a| a.id == "force-quit")
+            .expect("force-quit");
+        assert_eq!(
+            (a.key, a.label, a.combo.as_str()),
+            ("keys.force_quit", DIALOG_LABELS[0], "ALT + SUPER + Escape")
+        );
+        assert!(a.scope.outside() && a.scope.desktop());
+        // Combinaison par défaut libre : aucune autre action de hyprdesk ne la
+        // partage (ni la sortie de secours, ni un raccourci de focus).
+        assert_eq!(
+            acts.iter()
+                .filter(|x| norm(&x.combo) == norm(&a.combo))
+                .count(),
+            1
+        );
+        let mut k = Keys::default();
+        k.force_quit.clear();
+        assert!(!actions(&k).iter().any(|a| a.id == "force-quit"));
+    }
+    #[test]
+    fn raccourci_acces_clavier() {
+        // HIG ENT-01 : le modèle Control-F1, partout, libre par défaut.
+        let acts = actions(&Keys::default());
+        let a = acts
+            .iter()
+            .find(|a| a.id == "keyboard-access")
+            .expect("keyboard-access");
+        assert_eq!(
+            (a.key, a.label, a.combo.as_str()),
+            ("keys.keyboard_access", ACCESS_LABEL, "CTRL + F1")
+        );
+        assert!(a.scope.outside() && a.scope.desktop());
+        assert_eq!(
+            acts.iter()
+                .filter(|x| norm(&x.combo) == norm(&a.combo))
+                .count(),
+            1
+        );
+        let mut k = Keys::default();
+        k.keyboard_access.clear();
+        assert!(!actions(&k).iter().any(|a| a.id == "keyboard-access"));
     }
     #[test]
     fn raccourci_absent_des_fichiers() {

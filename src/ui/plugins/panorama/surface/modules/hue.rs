@@ -181,7 +181,7 @@ impl App {
         let dim = fx::alpha(fg, 0.65);
         let t = d.text_scale;
         let title = text(crate::i18n::tr("Lumières"))
-            .size(16.0 * t)
+            .size(15.0 * t)
             .font(iced::Font {
                 weight: iced::font::Weight::Semibold,
                 ..self.panorama_font()
@@ -234,7 +234,7 @@ impl App {
         col = column![
             row![
                 text(crate::i18n::tr("Lumières"))
-                    .size(16.0 * t)
+                    .size(15.0 * t)
                     .font(iced::Font {
                         weight: iced::font::Weight::Semibold,
                         ..self.panorama_font()

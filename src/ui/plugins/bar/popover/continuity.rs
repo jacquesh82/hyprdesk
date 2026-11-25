@@ -238,6 +238,28 @@ impl Palette {
         }
     }
 
+    /// Bouton entre ses deux états, `on` de 0 (éteint) à 1 (allumé), fond
+    /// et encre fondus, puis atténué de `beat` (HIG SYS-06, SYS-07).
+    fn button_mix(self, on: f32, beat: f32, radius: f32, status: button::Status) -> button::Style {
+        let (off, lit) = (
+            self.button(false, radius, status),
+            self.button(true, radius, status),
+        );
+        let fill = |s: &button::Style| match s.background {
+            Some(iced::Background::Color(c)) => c,
+            _ => Color::TRANSPARENT,
+        };
+        button::Style {
+            background: Some(
+                crate::ui::design::mix(fill(&off), fill(&lit), on)
+                    .scale_alpha(beat)
+                    .into(),
+            ),
+            text_color: crate::ui::design::mix(off.text_color, lit.text_color, on),
+            ..lit
+        }
+    }
+
     fn scroll(self, theme: &Theme, status: scrollable::Status) -> scrollable::Style {
         let mut style = scrollable::default(theme, status);
         style.vertical_rail.background = None;
@@ -339,10 +361,12 @@ impl App {
             cards = cards.push(row(elements).spacing(GAP));
         }
 
+        // Quatre groupes de contrôles, numérotés dans l'ordre de lecture :
+        // Ctrl+Tab et Ctrl+Maj + Tab passent de l'un au suivant (HIG ENT-11).
         let body: Element<'_, Msg> = if side {
             let main = column![
-                controls,
-                scrollable(cards)
+                keyboard::group(1, controls),
+                scrollable(keyboard::group(2, cards))
                     .id(keyboard::SCROLL)
                     .height(Length::Fill)
                     .width(Length::Fill)
@@ -351,14 +375,28 @@ impl App {
             .spacing(GAP)
             .width(Length::Fill)
             .height(Length::Fill);
-            row![shortcuts, main, sound].spacing(GAP).into()
+            row![
+                keyboard::group(0, shortcuts),
+                main,
+                keyboard::group(3, sound)
+            ]
+            .spacing(GAP)
+            .into()
         } else {
-            scrollable(column![controls, shortcuts, sound, cards].spacing(GAP))
-                .id(keyboard::SCROLL)
-                .style(move |theme, status| pal.scroll(theme, status))
-                .height(Length::Fill)
-                .width(Length::Fill)
-                .into()
+            scrollable(
+                column![
+                    keyboard::group(0, controls),
+                    keyboard::group(1, shortcuts),
+                    keyboard::group(2, sound),
+                    keyboard::group(3, cards)
+                ]
+                .spacing(GAP),
+            )
+            .id(keyboard::SCROLL)
+            .style(move |theme, status| pal.scroll(theme, status))
+            .height(Length::Fill)
+            .width(Length::Fill)
+            .into()
         };
         container(body)
             .id(keyboard::PANE)
@@ -419,8 +457,22 @@ impl App {
             .center_x(Length::Fill)
             .center_y(Length::Fill);
         let b = self.dash_button(pal, centered.into(), action.as_ref(), selected, Some(size));
+        self.dash_tooltip(
+            pal,
+            crate::ui::focus::press(b, action, if selected { pal.ink } else { pal.fg }),
+            label,
+        )
+    }
+
+    /// Info-bulle d'une commande du tableau de bord : son libellé suit le curseur.
+    fn dash_tooltip<'a>(
+        &'a self,
+        pal: Palette,
+        content: Element<'a, Msg>,
+        label: impl Into<String>,
+    ) -> Element<'a, Msg> {
         tooltip(
-            keyboard::press(b, action, if selected { pal.ink } else { pal.fg }),
+            content,
             self.dash_label(label, 12.0, pal.fg),
             tooltip::Position::FollowCursor,
         )
@@ -529,9 +581,9 @@ impl App {
         cols: usize,
     ) -> Element<'_, Msg> {
         let clock = self
-            .dash_label(format_now("%H:%M"), 27.0, pal.fg)
+            .dash_label(format_now("%H:%M"), 26.0, pal.fg)
             .font(self.title_font());
-        let date = self.dash_label(format_now("%A %-d %B"), 14.0, pal.muted);
+        let date = self.dash_label(format_now("%A %-d %B"), 13.0, pal.muted);
         let close = self.dash_icon_button(
             pal,
             ("window-close-symbolic", "×", tr("Fermer")),
@@ -565,20 +617,28 @@ impl App {
             "Bluetooth",
             "bluetooth-symbolic",
         );
+        // Allumée, la tuile nomme sa fin et un clic l'éteint ; éteinte, elle
+        // ouvre le choix de la fin — choisir, c'est allumer (HIG PAT-04).
         let silence = self.toasts.dnd;
         let silence_icon = if silence {
             "notifications-disabled-symbolic"
         } else {
             "preferences-system-notifications-symbolic"
         };
+        let silence_label = match self.toasts.dnd_until {
+            Some(until) => crate::tr!(
+                "Silence · jusqu'à {hour}",
+                hour = crate::notifications::silence_end_label(until)
+            ),
+            None => tr("Silence").to_string(),
+        };
         let silence_button = if self.toasts.active || self.preview {
-            self.dashboard_pill(
-                pal,
-                silence_icon,
-                tr("Silence"),
-                silence,
-                Some(Msg::Control(Command::Notifications("dnd".into()))),
-            )
+            let action = if silence {
+                Msg::Control(Command::Notifications("dnd off".into()))
+            } else {
+                Msg::OpenPopover(bar, "silence".into(), Request::Silence)
+            };
+            self.dashboard_pill(pal, silence_icon, &silence_label, silence, Some(action))
         } else if let Some(action) = self
             .control_source("notifications")
             .and_then(|widget| Self::dashboard_widget_menu(bar, widget))
@@ -622,24 +682,67 @@ impl App {
         selected: bool,
         action: Option<Msg>,
     ) -> Element<'_, Msg> {
-        let fg = if selected {
-            pal.ink
-        } else if action.is_some() {
+        self.dashboard_pill_mix(
+            pal,
+            (icon, label),
+            (if selected { 1.0 } else { 0.0 }, 1.0),
+            action,
+        )
+    }
+
+    /// Pilule d'une commande à bascule : `on` de 0 à 1 pendant le passage
+    /// d'un état à l'autre (HIG SYS-06), `beat` la pulsation d'une action en
+    /// cours (HIG SYS-07).
+    fn dashboard_pill_mix(
+        &self,
+        pal: Palette,
+        (icon, label): (&str, &str),
+        (on, beat): (f32, f32),
+        action: Option<Msg>,
+    ) -> Element<'_, Msg> {
+        let rest = if action.is_some() || beat < 1.0 {
             pal.fg
         } else {
             pal.muted
         };
-        let body = row![
-            self.dash_icon(icon, "•", 17.0, fg),
-            self.dash_label(label, 13.0, fg)
-                .font(self.ui_font(iced::font::Weight::Semibold))
-        ]
-        .align_y(Alignment::Center)
-        .spacing(7);
-        let button = self
-            .dash_button(pal, body.into(), action.as_ref(), selected, None)
+        let fg = crate::ui::design::mix(rest, pal.ink, on).scale_alpha(beat);
+        // Sans libellé (taille compacte, HIG SYS-12) : le symbole seul, dans
+        // une pilule carrée.
+        let compact = label.is_empty();
+        let body: Element<'_, Msg> = if compact {
+            container(self.dash_icon(icon, "•", 17.0, fg))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .into()
+        } else {
+            row![
+                self.dash_icon(icon, "•", 17.0, fg),
+                self.dash_label(label, 13.0, fg)
+                    .font(self.ui_font(iced::font::Weight::Semibold))
+            ]
+            .align_y(Alignment::Center)
+            .spacing(7)
+            .into()
+        };
+        let button = button(body)
+            .padding(if compact { [0, 0] } else { [7, 11] })
+            .width(if compact {
+                Length::Fixed(39.0)
+            } else {
+                Length::Shrink
+            })
+            .on_press_maybe(action.clone())
+            .style(move |_, status| {
+                if on <= 0.0 && beat >= 1.0 {
+                    pal.button(false, 15.0, status)
+                } else if on >= 1.0 && beat >= 1.0 {
+                    pal.button(true, 15.0, status)
+                } else {
+                    pal.button_mix(on, beat, 15.0, status)
+                }
+            })
             .height(39);
-        keyboard::press(button, action, if selected { pal.ink } else { pal.fg })
+        crate::ui::focus::press(button, action, crate::ui::design::mix(pal.fg, pal.ink, on))
     }
 
     fn dashboard_connection(
@@ -687,22 +790,41 @@ impl App {
                 )
             })
         };
-        let label = if pending {
+        // Pendant l'action, la pilule pulse au lieu de « Wi-Fi … », sauf
+        // sans transition (HIG SYS-07) ; l'état change en fondu (HIG SYS-06).
+        let pulse = if pending {
+            self.pending_pulse(&widget.id)
+        } else {
+            None
+        };
+        let label = if pending && pulse.is_none() {
             format!("{} …", tr(label))
         } else {
             tr(label).into()
         };
-        let pill = self.dashboard_pill(
+        let on = self.toggle_progress(&widget.id, active);
+        // Symbole de la radio Wi-Fi quand son état est connu (HIG SYS-08).
+        let icon = crate::ui::controls::radio_symbol(type_id, rich.and_then(|r| r.toggled))
+            .or_else(|| rich.and_then(|r| r.icon.as_deref()))
+            .unwrap_or(fallback);
+        // Taille compacte : le symbole seul, le titre passe en infobulle
+        // (HIG SYS-12).
+        let compact = crate::design_options::flag(&self.cfg.general, "controls.compact");
+        let pill = self.dashboard_pill_mix(
             pal,
-            rich.and_then(|r| r.icon.as_deref()).unwrap_or(fallback),
-            &label,
-            active,
+            (icon, if compact { "" } else { &label }),
+            (on, pulse.unwrap_or(1.0)),
             (!pending).then_some(action),
         );
         let detail = error.map(str::to_owned).or_else(|| match value {
             Some(Value::Error(e)) => Some(e.clone()),
             _ => rich.and_then(|r| r.tooltip.clone()),
         });
+        let detail = if compact {
+            Some(detail.map_or_else(|| label.clone(), |d| format!("{label} · {d}")))
+        } else {
+            detail
+        };
         let pill = match detail {
             Some(detail) => tooltip(
                 pill,
@@ -774,7 +896,7 @@ impl App {
                         .center_x(53)
                         .center_y(47)
                         .style(move |_| pal.surface(pal.dark, 16.0)),
-                    keyboard::adjust(control, level, 1.0, set, Some(commit), pal.fg),
+                    crate::ui::focus::adjust(control, level, 1.0, set, Some(commit), pal.fg),
                     label
                 ]
                 .align_x(Alignment::Center)
@@ -791,7 +913,7 @@ impl App {
                     self.dash_label(tr("Luminosité"), 12.0, pal.fg),
                     row![
                         icon,
-                        keyboard::adjust(control, level, 1.0, set, Some(commit), pal.fg),
+                        crate::ui::focus::adjust(control, level, 1.0, set, Some(commit), pal.fg),
                         label
                     ]
                     .spacing(8)
@@ -883,12 +1005,12 @@ impl App {
             Some(
                 column![
                     tooltip(
-                        keyboard::press(action, Some(mute), pal.fg),
+                        crate::ui::focus::press(action, Some(mute), pal.fg),
                         self.dash_label(title, 12.0, pal.fg),
                         tooltip::Position::Left
                     )
                     .style(move |_| pal.surface(pal.dark, 8.0)),
-                    keyboard::adjust(adjust, value, 1.5, set, None, pal.fg)
+                    crate::ui::focus::adjust(adjust, value, 1.5, set, None, pal.fg)
                 ]
                 .align_x(Alignment::Center)
                 .spacing(2)
@@ -903,7 +1025,7 @@ impl App {
                 row![
                     action,
                     self.dash_label(title, 12.0, pal.fg).width(112),
-                    keyboard::adjust(adjust, value, 1.5, set, None, pal.fg)
+                    crate::ui::focus::adjust(adjust, value, 1.5, set, None, pal.fg)
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center)
@@ -974,7 +1096,7 @@ impl App {
             })
             .width(size)
             .height(size),
-            self.dash_label(super::super::surface::truncate(title, 32), 21.0, pal.fg)
+            self.dash_label(super::super::surface::truncate(title, 32), 22.0, pal.fg)
                 .font(self.title_font()),
             self.dash_label(super::super::surface::truncate(artist, 40), 13.0, pal.muted),
             center,
@@ -1017,7 +1139,7 @@ impl App {
             36.0,
         );
         let month = self
-            .dash_label(month.to_uppercase(), 14.0, pal.fg)
+            .dash_label(month.to_uppercase(), 13.0, pal.fg)
             .font(self.title_font())
             .width(Length::Fill)
             .align_x(Alignment::Center);
@@ -1051,7 +1173,7 @@ impl App {
                         ..pal.muted
                     }
                 };
-                let label = self.dash_label(date.day().to_string(), 14.0, fg);
+                let label = self.dash_label(date.day().to_string(), 13.0, fg);
                 container(
                     container(label)
                         .center_x(cell_height)
@@ -1091,44 +1213,100 @@ impl App {
         ]
         .spacing(6)
         .align_y(Alignment::Center);
-        let mut items = column![].spacing(7);
-        for n in self.toasts.history.iter().take(12) {
-            let title = super::super::surface::truncate(&n.summary, 42);
-            let detail = if n.body.is_empty() {
-                n.app.clone()
-            } else {
-                super::super::surface::truncate(&n.body.replace('\n', " "), 74)
-            };
-            items = items.push(
-                container(
+        // Aperçus masqués (HIG SYS-05) : un texte générique au lieu du corps.
+        let masque = crate::design_options::flag(&self.cfg.general, "notifications.hide_previews");
+        let history = &self.toasts.history;
+        let mut items = column![].spacing(8);
+        // Une boîte par application, son nom en en-tête (HIG LAY-02). La boîte
+        // porte le seul cadre : les tuiles n'ont plus de fond au repos.
+        for (app, ranks) in crate::ui::toasts::app_groups(&history[..history.len().min(12)]) {
+            let mut tiles = column![].width(Length::Fill);
+            for i in ranks {
+                let n = &history[i];
+                let title = super::super::surface::truncate(&n.summary, 42);
+                // Détail : le corps seul ; le nom de l'application est en en-tête.
+                let detail = if n.body.is_empty() {
+                    None
+                } else if masque {
+                    Some(crate::i18n::tr("Notification").to_string())
+                } else {
+                    Some(super::super::surface::truncate(
+                        &n.body.replace('\n', " "),
+                        74,
+                    ))
+                };
+                // Tuile cliquable quand elle mène quelque part : l'action de
+                // l'application, ou l'application elle-même. Une tuile du centre
+                // comme les autres, au clavier aussi.
+                let press = crate::ui::toasts::card_press(n);
+                let mut caption =
+                    column![self.dash_label(title, 13.0, pal.fg).font(self.title_font())]
+                        .spacing(2);
+                if let Some(detail) = detail {
+                    caption = caption.push(self.dash_label(detail, 12.0, pal.muted));
+                }
+                let card = button(
                     row![
-                        self.dash_icon(
-                            "preferences-system-notifications-symbolic",
-                            "•",
-                            18.0,
-                            pal.muted
-                        ),
-                        column![
-                            self.dash_label(title, 14.0, pal.fg).font(self.title_font()),
-                            self.dash_label(detail, 12.0, pal.muted)
-                        ]
-                        .spacing(2)
+                        self.notif_icon(n, crate::ui::toasts::CARD_ICON, pal.muted),
+                        caption
                     ]
                     .align_y(Alignment::Center)
-                    .spacing(9),
+                    .spacing(12),
                 )
                 .width(Length::Fill)
                 .padding([8, 10])
+                .on_press_maybe(press.clone())
+                .style(move |_, status: button::Status| {
+                    // Survol et appui se voient sur le fond de la boîte.
+                    let bg = matches!(status, button::Status::Hovered | button::Status::Pressed)
+                        .then(|| pal.hover.into());
+                    button::Style {
+                        background: bg,
+                        border: Border::default().rounded(12.0),
+                        text_color: pal.fg,
+                        ..Default::default()
+                    }
+                });
+                // Clic droit sur la tuile : son menu court, celui des cartes
+                // de notification du centre (HIG ENT-07).
+                let card: Element<'_, Msg> = iced::widget::mouse_area(card)
+                    .on_right_press(Msg::Toasts(crate::ui::toasts::TMsg::Menu(n.id)))
+                    .into();
+                tiles = tiles.push(crate::ui::focus::press(card, press, pal.fg));
+            }
+            items = items.push(
+                container(
+                    column![
+                        container(
+                            self.dash_label(app, 11.0, pal.muted)
+                                .font(self.title_font()),
+                        )
+                        .padding([2, 10]),
+                        tiles,
+                    ]
+                    .spacing(4)
+                    .width(Length::Fill),
+                )
+                .padding(4)
+                .width(Length::Fill)
                 .style(move |_| pal.surface(pal.inset, 12.0)),
             );
         }
         let body: Element<'_, Msg> = if self.toasts.history.is_empty() {
             let (icon, label) = if dnd {
-                ("notifications-disabled-symbolic", tr("Ne pas déranger"))
+                // Le Silence à fin programmée dit quand il s'éteint (HIG PAT-04).
+                let label = match self.toasts.dnd_until {
+                    Some(until) => crate::tr!(
+                        "Ne pas déranger · jusqu'à {hour}",
+                        hour = crate::notifications::silence_end_label(until)
+                    ),
+                    None => tr("Ne pas déranger").to_string(),
+                };
+                ("notifications-disabled-symbolic", label)
             } else {
                 (
                     "preferences-system-notifications-symbolic",
-                    tr("Aucune notification"),
+                    tr("Aucune notification").to_string(),
                 )
             };
             container(
@@ -1202,9 +1380,9 @@ impl App {
             let max = dashboard.traffic.iter().fold(1.0f32, |max, &v| max.max(v));
             column![
                 row![
-                    self.dash_label(format!("↓ {}", rate(rx)), 14.0, pal.fg)
+                    self.dash_label(format!("↓ {}", rate(rx)), 13.0, pal.fg)
                         .width(Length::Fill),
-                    self.dash_label(format!("↑ {}", rate(tx)), 14.0, pal.fg)
+                    self.dash_label(format!("↑ {}", rate(tx)), 13.0, pal.fg)
                         .align_x(Alignment::End),
                 ],
                 self.dashboard_trace(pal, &dashboard.traffic, max, 37.0)
@@ -1276,7 +1454,7 @@ impl App {
             let cell = self
                 .dash_label(
                     super::super::surface::truncate(&w.name, 4),
-                    14.0,
+                    13.0,
                     if active { pal.ink } else { pal.fg },
                 )
                 .width(Length::Fill)
@@ -1286,10 +1464,16 @@ impl App {
                 .width(Length::Fill)
                 .height(43)
                 .padding([4, 3]);
-            line = line.push(keyboard::press(
-                button,
-                Some(action),
-                if active { pal.ink } else { pal.fg },
+            // La cellule ne garde que quatre signes du nom : l'info-bulle dit
+            // lequel (HIG SEL-05).
+            line = line.push(self.dash_tooltip(
+                pal,
+                crate::ui::focus::press(
+                    button,
+                    Some(action),
+                    if active { pal.ink } else { pal.fg },
+                ),
+                w.name.clone(),
             ));
         }
         if spaces.len() > 5 || spaces.is_empty() {
@@ -1307,21 +1491,48 @@ impl App {
         }
         let desktop = self.monitor_mode(monitor);
         let mut modes = row![].spacing(4);
-        for (label, state, command) in [
-            ("Masqué", DesktopMode::NoDesktop, Command::Hide),
-            ("Lanceur", DesktopMode::LauncherOnly, Command::LauncherOnly),
-            ("Complet", DesktopMode::FullDesktop, Command::Show),
+        // Chaque segment nomme ce que le mode montre, d'un nom (HIG SEL-06) ;
+        // son info-bulle, le nom entier du mode (HIG SEL-05).
+        for (label, name, state, command) in [
+            (
+                "Fenêtres",
+                "Fenêtres seules",
+                DesktopMode::NoDesktop,
+                Command::Hide,
+            ),
+            (
+                "Lanceur",
+                "Lanceur seul",
+                DesktopMode::LauncherOnly,
+                Command::LauncherOnly,
+            ),
+            (
+                "Bureau",
+                "Bureau complet",
+                DesktopMode::FullDesktop,
+                Command::Show,
+            ),
         ] {
             let active = desktop == state;
-            let content = self.dash_label(tr(label), 10.0, if active { pal.ink } else { pal.fg });
+            // Segments de largeur égale, libellé centré, comme le widget
+            // `controls` (HIG SEL-13).
+            let content = self
+                .dash_label(tr(label), 10.0, if active { pal.ink } else { pal.fg })
+                .width(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Center);
             let action = Msg::On(monitor.into(), Box::new(Msg::Control(command)));
             let button = self
                 .dash_button(pal, content.into(), Some(&action), active, None)
-                .padding([3, 7]);
-            modes = modes.push(keyboard::press(
-                button,
-                Some(action),
-                if active { pal.ink } else { pal.fg },
+                .padding([3, 7])
+                .width(Length::Fill);
+            modes = modes.push(self.dash_tooltip(
+                pal,
+                crate::ui::focus::press(
+                    button,
+                    Some(action),
+                    if active { pal.ink } else { pal.fg },
+                ),
+                tr(name),
             ));
         }
         self.dash_card(

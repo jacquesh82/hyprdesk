@@ -149,7 +149,8 @@ Clés par paquet :
 | Paquet | Clés |
 |---|---|
 | `desktop` | `show_on`, `mode`, `glass_opacity`, `icon_scope`, `icon_double_click`, `float_launched`, `font`, `font_size` |
-| `keys` | `suspend_binds`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave`, `keys.switch`, `keys.search`, `keys.overview`, `keys.take`, `keys.media`, `keys.essentials`, `keys.essentials_off` |
+| `keys` | `suspend_binds`, `keys.toggle`, `keys.launcher`, `keys.hide`, `keys.settings`, `keys.lock`, `keys.leave`, `keys.switch`, `keys.search`, `keys.overview`, `keys.focus_bar`, `keys.focus_dock`, `keys.focus_notifications`, `keys.focus_settings`, `keys.force_quit`, `keys.keyboard_access`, `keys.take`, `keys.media`, `keys.essentials`, `keys.essentials_off` |
+| `input` | `keyboard_access` |
 | `icons` | `grid.icon_size`, `grid.cell`, `icon_theme` |
 | `dock` | `running_apps`, `launcher_group` |
 | `launcher` | `apps_style`, `apps_suggestions`, `apps_categories`, `apps_unified`, `launcher.<forme>` |
@@ -182,7 +183,7 @@ libellés de groupes sont uniques). Tiroir large : les onglets du paquet
 choisi s'affichent sous lui, en sous-entrées ; tiroir étroit : en pastilles
 au-dessus de la page.
 
-« Configuration avancée » (en-tête du tiroir, clé `advanced_settings`) : cochée,
+« Configuration avancée » (dans le corps du tiroir, clé `advanced_settings`) : cochée,
 tout est affiché ; décochée, l'essentiel. Sont alors masqués les paquets de
 `ADVANCED_ONLY`, les onglets de `ADVANCED_TABS`, et les champs qu'une vue
 entoure de `self.adv(…)`. Rien ne disparaît de la configuration : seul
@@ -192,11 +193,14 @@ Marquage, partout (tiroir large ou étroit) : fiole cyan (icône
 `hyprdesk-advanced`) à côté d'un onglet avancé, et, configuration avancée
 affichée, à côté de chaque paquet qui contient de l'avancé avec leur nombre
 (`plugins::adv_count` : onglets avancés, sections de `ADVANCED_PLACES`,
-appels `self.adv(…)` comptés dans `ADV_SOURCES`) ; pastille « Avancé » en
-tête de page, cadre cyan autour d'une section avancée. Règle : un onglet fait seulement d'options brutes de
+groupes repliés de `FOLDED_GROUPS`, appels `self.adv(…)` comptés dans
+`ADV_SOURCES`) ; pastille « Avancé » en
+tête de page ; section avancée repliée derrière un triangle de divulgation
+intitulé (`self.adv("Titre", …)`, HIG LAY-01). Règle : un onglet fait seulement d'options brutes de
 Hyprland, de fichiers ou de réglages d'expert est avancé (● ci-dessous) ;
 sur une page de base, les options brutes de Hyprland (`hyprset::GROUPS` hors
-`BASIC_GROUPS`) sont encadrées par `App::hyprset_tab`. Le test
+`BASIC_GROUPS`) se replient derrière leurs triangles (`App::hyprset_tab`,
+`App::hyprset_folded`). Le test
 `options_brutes_marquees_avancees` le vérifie.
 
 ### Onglets des paquets chargés
@@ -250,7 +254,7 @@ chaque clé CLI pointe vers un paquet existant.
 | `icons` | Icônes | raccourcis d'applications, taille, thème | `launch.rs`, `layout.rs` |
 | `dock` | Dock | fenêtres affichées, regroupement, style | — (widget, § 3) |
 | `launcher` | Lanceur | présentation, suggestions, forme, raccourci | `search.rs` |
-| `theme` | Thème | couleurs, fonds, effet de chaque endroit (opacité, flou), mode du bureau, voile du verrouillage ; thèmes livrés et « Mes thèmes » | `theme.rs`, `config::Theme` |
+| `theme` | Thème | couleurs, fonds, effet de chaque endroit (opacité, flou), mode du bureau, voile du verrouillage ; thèmes livrés et « Thèmes personnels » | `theme.rs`, `config::Theme` |
 | `apptheme` | Modules du thème | les modules du moteur de thème qui portent le thème jusqu'à d'autres logiciels (kitty : `~/.config/kitty/hyprdesk-theme.conf`, inclus à la fin de kitty.conf, relu par SIGUSR1) ; une application = un module `apptheme/<id>.rs` qui expose `TARGET`, listé dans `apptheme::TARGETS` | `apptheme/` |
 | `wallpaper` | Fond d'écran | image, diaporama, couleur ; portée | `config::WallpaperRule` |
 | `widgets` | Widgets | activation, placement | `widgets/` (§ 2) |
@@ -263,6 +267,7 @@ chaque clé CLI pointe vers un paquet existant.
 | `share` | Partage | export / import d'un setup ou du thème seul (archive) | `share.rs` |
 | `plugins` | Plugins | état et activation des paquets, plugins Lua : actifs, tiers, ajout, retrait | `widgets/plugins.rs` |
 | `about` | À propos | version, système, Hyprland, LYRA, fichiers de configuration, dépendances, thème SmartUI ; copie pour un rapport de bogue | `doctor.rs` |
+| `notifications` | Notifications | par application : l'autorisation d'afficher (interrupteur « Autoriser », coupé = révoquée) et le style de remise (bannières, alertes, aucune) ; effacement de l'historique, à confirmation. La page relit l'état gardé à chaque ouverture et écrit dans le fichier des autorisations, celui que lit la réception | `notifications.rs` (`Authorizations`, `Delivery`) |
 
 Le **domaine** (modèle, Lua, règles Hyprland, `monitors.lua`) ne dépend pas de
 l'interface. Le paquet fait le lien entre les deux. C'est ce qui permettra plus
@@ -305,6 +310,12 @@ identifiants (`bar:<zone>:<n>`) et ne comptent pas.
    génération).
 5. **Rendu** : `ui/widget_view.rs` traduit la valeur (`widgets::Value` : texte,
    lignes système, média, contenu riche) en éléments iced, dans sa carte.
+   L'horloge, le calendrier, le système et le média ont en propre une option
+   `family` (`small`, `medium` par défaut, `large`, `xlarge`) : chaque taille
+   ajoute une couche d'information (`clock_layers`, `calendar_months`,
+   `media_layers`, `widgets::system_items` pour les lignes relevées) au lieu
+   d'agrandir la précédente. Elle n'est pas une option commune : les plugins
+   et les widgets commande ou Lua n'ont qu'une taille.
 
 ### Plugins Lua
 
@@ -417,7 +428,7 @@ d'applications qu'ouvre son bouton est le paquet `launcher` :
   - `none` : une entrée par fenêtre ;
   - `app` : une entrée par application, c'est-à-dire par classe de fenêtre,
     donc par binaire. Des points indiquent le nombre de fenêtres, et un clic
-    passe de l'une à l'autre ;
+    donne le focus à la plus récemment utilisée ;
   - `workspace` : les fenêtres rangées sous le numéro de leur workspace.
 - **Règle d'or.** L'utiliser ne change jamais le mode du bureau :
   - en `launcher-only`, un clic donne le focus à la fenêtre ;
@@ -548,7 +559,7 @@ propose deux portées : **tout le setup**, ou **le thème seul**.
 
 - **L'archive** (tout le setup) contient tout ce que tiennent hyprdesk et
   Hyprland (MLG-203), avec un `manifest.json` :
-  - `hyprdesk.lua`, `settings.lua`, les plugins tiers, « Mes thèmes »
+  - `hyprdesk.lua`, `settings.lua`, les plugins tiers, « Thèmes personnels »
     (`hyprdesk/themes/`), les calibrations d'écran (`hyprdesk/calibration/`) ;
   - `hypr/` : `hyprland.lua`, chacun de ses `require` locaux, suivis de
     proche en proche dans le texte sans rien exécuter (`binds.lua`,
@@ -602,8 +613,8 @@ d'icônes, modules du thème (cibles et options).
   écrans restent en place. Une archive de thème s'importe toujours ainsi ;
   le thème d'une archive complète aussi, sur demande (`--theme`). Un fond
   qui n'est ni dans l'archive ni présent sur la machine est écarté.
-- **Mes thèmes** : des archives de thème rangées dans `hyprdesk/themes/`
-  (paquet Thème : « Enregistrer dans Mes thèmes », un clic pour appliquer).
+- **Thèmes personnels** : des archives de thème rangées dans `hyprdesk/themes/`
+  (paquet Thème : « Enregistrer dans les thèmes personnels », un clic pour appliquer).
   Les thèmes livrés (`theme::PRESETS`) changent couleurs et effets, pas les
   fonds.
 
@@ -625,7 +636,7 @@ Une **scène** est une image pensée pour toute la disposition des écrans.
   « Créer depuis une image » dans le paquet Thème) : couleurs extraites de
   l'image (surfaces dans la teinte des ombres, accent dans la teinte vive
   dominante), scène étalée, surfaces translucides et floutées ; rangé dans
-  Mes thèmes. La source peut être une image, ou un **pack** (dossier ou
+  Thèmes personnels. La source peut être une image, ou un **pack** (dossier ou
   `.zip`) dont le `manifest.json` désigne la scène maîtresse (`master`) et
   son nom (`theme`) : les découpes figées du pack sont ignorées, la découpe
   se fait selon les écrans réels.

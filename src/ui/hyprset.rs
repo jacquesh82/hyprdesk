@@ -1,7 +1,7 @@
 //! Rendu unique d'une option de Hyprland dans les Réglages (MLG-137) :
 //! effets (`crate::fx`), layouts (`crate::tiling`) et autres options
 //! (`crate::hyprset`) passent par `App::opt_field`. Chaque nature d'option a
-//! son contrôle (interrupteur, curseur, liste, saisie avec aperçu de couleur
+//! son contrôle (interrupteur, curseur, liste, saisie et puits de couleur
 //! ou de dégradé), et l'origine de la valeur est dite : « réglé ici » (avec
 //! Rétablir), la ligne de hyprland.lua qui la définit, ou la valeur par
 //! défaut de Hyprland.
@@ -9,9 +9,11 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use iced::widget::{Space, button, column, container, pick_list, row, slider, text_input, toggler};
+use iced::widget::{Space, button, column, container, pick_list, row, text_input};
 use iced::{Alignment, Color, Element, Length, Task};
 
+use super::color_picker::{Picker, PickerMsg, well};
+use super::panel::{SliderLook, SliderSpec, slider_band};
 use super::{App, Msg as UiMsg, color};
 use crate::config::Rgba;
 use crate::i18n::text;
@@ -35,10 +37,17 @@ pub enum Msg {
     /// Curseur en mouvement : appliqué à chaud, enregistré au relâchement.
     Drag(Store, String, f64),
     Commit,
-    /// Saisie en cours (couleur, dégradé, côtés, texte).
-    Draft(String, String),
+    /// Saisie en cours (couleur, dégradé, côtés, texte), validée à chaque
+    /// frappe (HIG DAT-02).
+    Draft(Store, String, String),
     /// Saisie validée (Entrée).
     Submit(Store, String),
+    /// Ouvre ou referme le sélecteur de couleur d'une option : rang de la
+    /// couleur dans un dégradé (HIG SEL-02).
+    OptPickerOpen(Store, String, usize),
+    OptPicker(PickerMsg),
+    OptPickerApply,
+    OptPickerCancel,
     /// Valeurs en vigueur des options `hypr` (`hl.get_config`).
     Current(BTreeMap<String, String>),
     /// Ce que définit hyprland.lua (`crate::hyprsrc`).
@@ -61,6 +70,9 @@ pub enum Msg {
         String,
         Option<serde_json::Value>,
     ),
+    /// Saisie refusée d'un champ d'élément (nombre attendu) : (liste, indice,
+    /// chemin pointé, texte, message). Le texte reste au champ, rien n'est écrit.
+    SpecDraft(super::hyprlists::List, usize, String, String, String),
     SpecAdd(super::hyprlists::List),
     SpecDel(super::hyprlists::List, usize),
     /// Déplace un élément (−1 : vers le haut, +1 : vers le bas).
@@ -96,6 +108,16 @@ impl std::fmt::Display for Choice {
 }
 
 /// Option du registre de son magasin.
+/// Message à montrer pendant la saisie d'une option : sa valeur est analysée
+/// à chaque frappe (HIG DAT-02), avec le rendu de la validation par Entrée.
+/// Un champ vidé retire l'option et une option inconnue n'a pas d'erreur.
+fn draft_error(store: Store, path: &str, draft: &str) -> Option<String> {
+    if draft.trim().is_empty() {
+        return None;
+    }
+    registry(store, path).and_then(|o| o.parse(draft).err())
+}
+
 pub fn registry(store: Store, path: &str) -> Option<&'static Opt> {
     match store {
         Store::Fx => crate::fx::opt(path),
@@ -110,6 +132,21 @@ fn swatches(v: &OptValue) -> Vec<Rgba> {
         OptValue::Color(c) => vec![*c],
         OptValue::Gradient(cs, _) => cs.clone(),
         _ => Vec::new(),
+    }
+}
+
+/// La couleur choisie remplace celle de son rang dans la valeur en cours
+/// d'une option ; sans valeur posée, elle devient celle de l'option couleur
+/// (HIG SEL-02).
+fn with_color(now: Option<OptValue>, rank: usize, c: Rgba) -> Option<OptValue> {
+    match now {
+        Some(OptValue::Color(_)) if rank == 0 => Some(OptValue::Color(c)),
+        Some(OptValue::Gradient(mut cs, angle)) if rank < cs.len() => {
+            cs[rank] = c;
+            Some(OptValue::Gradient(cs, angle))
+        }
+        None if rank == 0 => Some(OptValue::Color(c)),
+        _ => None,
     }
 }
 
@@ -134,6 +171,33 @@ impl App {
             Store::Hypr => self.hypr_current.get(path),
         }
         .cloned()
+    }
+
+    /// Valeur en cours d'une option couleur ou dégradé : celle de la saisie,
+    /// sinon la valeur réglée ici, sinon celle en vigueur dans Hyprland.
+    fn opt_value_now(&self, store: Store, path: &str) -> Option<OptValue> {
+        let o = registry(store, path)?;
+        let shown = self.opt_drafts.get(path).cloned().unwrap_or_else(|| {
+            self.opt_ours(store, path)
+                .map(|v| v.display())
+                .unwrap_or_default()
+        });
+        o.parse(&shown)
+            .ok()
+            .or_else(|| self.opt_ours(store, path))
+            .or_else(|| self.opt_theirs(store, path).and_then(|s| o.parse(&s).ok()))
+    }
+
+    /// Referme le sélecteur quand la couleur de son option change sans lui
+    /// (HIG SEL-02).
+    fn opt_picker_stale(&mut self, store: Store, path: &str) {
+        if self
+            .opt_picker
+            .as_ref()
+            .is_some_and(|(s, p, _, _)| *s == store && p == path)
+        {
+            self.opt_picker = None;
+        }
     }
 
     fn edit_store(&mut self, store: Store, f: impl FnOnce(&mut BTreeMap<String, OptValue>)) {
@@ -184,7 +248,8 @@ impl App {
                 text(crate::i18n::tr("réglé ici"))
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
-                    .color(color(self.cfg.general.theme.accent, 1.0)),
+                    .color(color(self.cfg.general.theme.accent, 1.0))
+                    .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
                 button(
                     text(crate::i18n::tr("Rétablir"))
                         .font(self.font)
@@ -198,11 +263,25 @@ impl App {
             .align_y(Alignment::Center)
             .into()
         } else {
+            // Chemin et ligne d'origine : un mot plus long que la ligne se
+            // coupe, la rangée grandit en hauteur (HIG TYP-08).
             text(self.opt_origin_text(&path))
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
+                .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
                 .into()
+        };
+        // À côté d'un curseur, l'origine reste sur la ligne de celui-ci,
+        // au-dessus de son échelle (HIG SEL-09).
+        let origin = match &o.kind {
+            Kind::Num { min, max, step } => container(origin)
+                .padding(iced::Padding {
+                    bottom: slider_band((*min, *max), *step),
+                    ..iced::Padding::ZERO
+                })
+                .into(),
+            _ => origin,
         };
         let mut body = column![
             row![container(control).width(Length::Fill), origin]
@@ -210,12 +289,27 @@ impl App {
                 .align_y(Alignment::Center)
         ]
         .spacing(4);
+        // Sélecteur de l'option, dessous sa rangée (HIG SEL-02).
+        if let Some((s, p, _, pk)) = self.opt_picker.as_ref()
+            && *s == store
+            && p == &path
+        {
+            body = body.push(pk.view(
+                self.font,
+                color(self.cfg.general.theme.fg, 1.0),
+                dim,
+                |m| wrap(Msg::OptPicker(m)),
+                wrap(Msg::OptPickerApply),
+                wrap(Msg::OptPickerCancel),
+            ));
+        }
         if let Some(e) = self.opt_errors.get(&path) {
             body = body.push(
                 text(e.clone())
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
-                    .color(crate::ui::tone::danger()),
+                    .color(crate::ui::tone::danger())
+                    .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
             );
         }
         self.field(o.label, "", body)
@@ -236,7 +330,7 @@ impl App {
                     Some(OptValue::Bool(b)) => *b,
                     _ => matches!(theirs, Some("true") | Some("1")),
                 };
-                toggler(on)
+                self.toggle(on)
                     .on_toggle(move |v| wrap(Msg::Set(store, p.clone(), Some(OptValue::Bool(v)))))
                     .into()
             }
@@ -247,23 +341,19 @@ impl App {
                 };
                 // Curseur extensible, plafonné : en colonne étroite il cède sa
                 // place plutôt que de pousser la valeur sur l'origine.
-                row![
-                    container(
-                        slider((*min as f32)..=(*max as f32), v as f32, move |x| wrap(
-                            Msg::Drag(store, p.clone(), x as f64)
-                        ))
-                        .step(*step as f32)
-                        .on_release(wrap(Msg::Commit))
-                    )
-                    .width(Length::Fill)
-                    .max_width(240),
-                    text(format!("{}", (v * 100.0).round() / 100.0))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center)
-                .into()
+                let spec = SliderSpec::new(
+                    format!("{store:?}.{p}"),
+                    (*min, *max),
+                    *step,
+                    move |x| wrap(Msg::Drag(store, p.clone(), x)),
+                    wrap(Msg::Commit),
+                );
+                self.slider(
+                    &spec,
+                    v,
+                    |x| format!("{}", (x * 100.0).round() / 100.0),
+                    SliderLook::capped(13.0, 240, Alignment::Center),
+                )
             }
             Kind::IntChoice(list) => {
                 let choices: Vec<Choice> = list
@@ -308,41 +398,53 @@ impl App {
                 let placeholder = theirs
                     .map(str::to_string)
                     .unwrap_or_else(|| crate::i18n::tr(hint).to_string());
-                let preview: Vec<Rgba> = o
-                    .parse(&shown)
-                    .ok()
-                    .or_else(|| ours.cloned())
+                // Puits de couleur (HIG SEL-02) : chaque couleur en cours en est
+                // un, qui ouvre le sélecteur ; sans couleur posée, le puits
+                // d'une couleur reste vide.
+                let preview: Vec<Rgba> = self
+                    .opt_value_now(store, path)
                     .map(|v| swatches(&v))
                     .unwrap_or_default();
                 let p2 = p.clone();
-                let mut r = row![
+                let fg = color(self.cfg.general.theme.fg, 1.0);
+                let mut r = row![].spacing(8).align_y(Alignment::Center);
+                let well_of = |rank: usize, c: Rgba| {
+                    let lit = self
+                        .opt_picker
+                        .as_ref()
+                        .is_some_and(|(s, q, i, _)| *s == store && q == path && *i == rank);
+                    well(
+                        c,
+                        22.0,
+                        lit,
+                        fg,
+                        Color { a: 0.3, ..fg },
+                        wrap(Msg::OptPickerOpen(store, p2.clone(), rank)),
+                    )
+                };
+                if matches!(&o.kind, Kind::Color) {
+                    r = r.push(well_of(
+                        0,
+                        preview.first().copied().unwrap_or(Rgba(0, 0, 0, 0)),
+                    ));
+                }
+                let p3 = p.clone();
+                r = r.push(
                     container(
                         text_input(&placeholder, &shown)
-                            .on_input(move |s| wrap(Msg::Draft(p2.clone(), s)))
+                            .on_input(move |s| wrap(Msg::Draft(store, p3.clone(), s)))
                             .on_submit(wrap(Msg::Submit(store, p)))
                             .font(self.font)
                             .size(crate::ui::tokens::ts(13.0))
-                            .width(Length::Fill)
+                            .width(Length::Fill),
                     )
                     .width(Length::Fill)
                     .max_width(280),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center);
-                for c in preview {
-                    let c = color(c, 1.0);
-                    r = r.push(
-                        container(Space::new().width(16).height(16)).style(move |_| {
-                            container::Style {
-                                background: Some(c.into()),
-                                border: iced::Border::default().rounded(4).width(1).color(Color {
-                                    a: 0.3,
-                                    ..Color::WHITE
-                                }),
-                                ..Default::default()
-                            }
-                        }),
-                    );
+                );
+                if matches!(&o.kind, Kind::Gradient) {
+                    for (rank, c) in preview.iter().enumerate() {
+                        r = r.push(well_of(rank, *c));
+                    }
                 }
                 r.into()
             }
@@ -360,9 +462,12 @@ impl App {
             .iter()
             .find(|c| Some(&c.value) == now.as_ref())
             .cloned();
+        // Option non posée dans hyprland.lua : Hyprland garde sa valeur par
+        // défaut, que la liste annonce (HIG SEL-14).
         pick_list(choices, sel, move |c: Choice| {
             wrap(Msg::Set(store, path.clone(), Some(c.value)))
         })
+        .placeholder(crate::i18n::tr("Par défaut"))
         .font(self.font)
         .width(280)
         .into()
@@ -438,6 +543,7 @@ impl App {
     pub(in crate::ui) fn hyprset_update(&mut self, msg: Msg) -> Task<UiMsg> {
         match msg {
             Msg::Set(store, path, v) => {
+                self.opt_picker_stale(store, &path);
                 self.opt_drafts.remove(&path);
                 self.opt_errors.remove(&path);
                 self.edit_store(store, |m| match v {
@@ -458,8 +564,16 @@ impl App {
                 self.apply()
             }
             Msg::Commit => self.commit(),
-            Msg::Draft(path, s) => {
-                self.opt_errors.remove(&path);
+            Msg::Draft(store, path, s) => {
+                self.opt_picker_stale(store, &path);
+                match draft_error(store, &path, &s) {
+                    Some(e) => {
+                        self.opt_errors.insert(path.clone(), e);
+                    }
+                    None => {
+                        self.opt_errors.remove(&path);
+                    }
+                }
                 self.opt_drafts.insert(path, s);
                 Task::none()
             }
@@ -478,6 +592,43 @@ impl App {
                         Task::none()
                     }
                 }
+            }
+            // Puits de couleur (HIG SEL-02) : le sélecteur part de la couleur
+            // du puits, ou du fond du thème si le puits est vide.
+            Msg::OptPickerOpen(store, path, rank) => {
+                let open = self
+                    .opt_picker
+                    .as_ref()
+                    .is_some_and(|(s, p, i, _)| *s == store && p == &path && *i == rank);
+                let initial = self
+                    .opt_value_now(store, &path)
+                    .map(|v| swatches(&v))
+                    .and_then(|cs| cs.get(rank).copied())
+                    .unwrap_or(self.cfg.general.background);
+                self.opt_picker = (!open).then(|| (store, path, rank, Picker::new(initial)));
+                Task::none()
+            }
+            Msg::OptPicker(m) => {
+                if let Some((_, _, _, pk)) = self.opt_picker.as_mut() {
+                    pk.update(m);
+                }
+                Task::none()
+            }
+            Msg::OptPickerCancel => {
+                self.opt_picker = None;
+                Task::none()
+            }
+            // « Appliquer » passe par la saisie suivie de sa validation.
+            Msg::OptPickerApply => {
+                let Some((store, path, rank, pk)) = self.opt_picker.take() else {
+                    return Task::none();
+                };
+                let next = with_color(self.opt_value_now(store, &path), rank, pk.color());
+                let Some(text) = next.map(|v| v.display()) else {
+                    return Task::none();
+                };
+                self.hyprset_update(Msg::Draft(store, path.clone(), text))
+                    .chain(self.hyprset_update(Msg::Submit(store, path)))
             }
             Msg::Current(m) => {
                 self.hypr_current = m;
@@ -520,19 +671,23 @@ pub fn cursor_themes() -> Vec<String> {
 }
 
 impl App {
+    /// Légende d'un réglage : elle enveloppe, même au milieu d'un mot long
+    /// (HIG TYP-08).
     fn small(&self, s: String) -> Element<'_, UiMsg> {
         text(s)
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(self.ink().dim)
+            .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
             .into()
     }
 
     /// Sections du registre `hyprset` rangées sous `key` (`fenetres`,
     /// `groupes`, `curseur`, `gestes`, `comportement-fenetres`, `avance`,
     /// `permissions`). Options brutes de Hyprland : affichées seulement en
-    /// configuration avancée, encadrées en cyan, sauf sur une page avancée
-    /// ou pour un groupe de base (`hyprset::BASIC_GROUPS`).
+    /// configuration avancée, repliées derrière un triangle de divulgation
+    /// intitulé (`hyprset_folded`), sauf sur une page avancée ou pour un
+    /// groupe de base (`hyprset::BASIC_GROUPS`).
     pub(in crate::ui) fn hyprset_tab(&self, key: &str) -> Element<'_, UiMsg> {
         let on_advanced_page = self
             .panel
@@ -541,8 +696,19 @@ impl App {
         if crate::hyprset::BASIC_GROUPS.contains(&key) || on_advanced_page {
             self.hyprset_groups(key)
         } else {
-            self.adv(self.hyprset_groups(key))
+            self.hyprset_folded(key)
         }
+    }
+
+    /// Sections du registre rangées sous `key`, chacune derrière son triangle de
+    /// divulgation, intitulé par son titre (HIG LAY-01).
+    pub(in crate::ui) fn hyprset_folded(&self, key: &str) -> Element<'_, UiMsg> {
+        let mut col = column![].spacing(14);
+        for (_, title, paths) in crate::hyprset::GROUPS.iter().filter(|(k, _, _)| *k == key) {
+            let fields = column(paths.iter().map(|p| self.opt_field(Store::Hypr, p))).spacing(14);
+            col = col.push(self.adv(title, || fields));
+        }
+        col.into()
     }
 
     /// Sections du registre rangées sous `key`, sans cadre.
@@ -580,7 +746,8 @@ impl App {
             self.field(
                 "Bordures aux couleurs du thème",
                 "",
-                toggler(self.hypr_cfg().theme_borders).on_toggle(|v| wrap(Msg::ThemeBorders(v))),
+                self.toggle(self.hypr_cfg().theme_borders)
+                    .on_toggle(|v| wrap(Msg::ThemeBorders(v))),
             ),
             self.small(
                 crate::i18n::tr(
@@ -625,10 +792,23 @@ impl App {
                         .font(self.font)
                         .size(crate::ui::tokens::ts(13.0))
                         .width(Length::Fill),
-                    button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
+                    // Retrait : le glyphe du jeu, comme les menus (HIG ICO-07).
+                    // Bouton à glyphe seul : son infobulle nomme l'action (HIG LAY-12).
+                    iced::widget::tooltip(
+                        button(
+                            crate::ui::icons::glyph(
+                                "window-close",
+                                crate::ui::tokens::ts(14.0),
+                                self.ink().fg,
+                            )
+                            .expect("glyphe de fermeture"),
+                        )
                         .padding([2, 10])
                         .style(button::text)
                         .on_press(wrap(Msg::Env(i, None))),
+                        text("Retirer").font(self.font),
+                        iced::widget::tooltip::Position::Bottom,
+                    ),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -651,10 +831,16 @@ impl App {
                 .filter_map(|c| c.args.first().and_then(|a| a.as_str()).map(str::to_string))
                 .collect();
             if !computed.is_empty() {
-                col = col.push(self.small(crate::tr!(
-                    "Calculées dans hyprland.lua : {list}",
-                    list = computed.join(", ")
-                )));
+                // À sélectionner et à copier (HIG LAY-05).
+                col = col.push(
+                    super::selectable::selectable(crate::tr!(
+                        "Calculées dans hyprland.lua : {list}",
+                        list = computed.join(", ")
+                    ))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(self.ink().dim),
+                );
             }
         }
         col.into()
@@ -676,25 +862,26 @@ impl App {
                 "Thème",
                 "",
                 pick_list(themes, theme, |t| wrap(Msg::CursorTheme(t)))
+                    // Ni variable ni réglage : le thème par défaut (HIG SEL-14).
+                    .placeholder(crate::i18n::tr("Par défaut"))
                     .font(self.font)
                     .width(320),
             ),
             self.field(
                 "Taille",
                 "",
-                row![
-                    slider(16.0f32..=96.0, size as f32, |x| wrap(Msg::CursorSize(
-                        x as f64
-                    )))
-                    .step(2.0_f32)
-                    .on_release(wrap(Msg::CursorCommit))
-                    .width(240),
-                    text(format!("{size:.0}"))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0)),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
+                self.slider(
+                    &SliderSpec::new(
+                        "cursor_size",
+                        (16.0, 96.0),
+                        2.0,
+                        |x| wrap(Msg::CursorSize(x)),
+                        wrap(Msg::CursorCommit),
+                    ),
+                    size,
+                    |x| format!("{x:.0}"),
+                    SliderLook::fixed(13.0, 240, Alignment::Center),
+                ),
             ),
             self.small(
                 crate::i18n::tr(
@@ -804,5 +991,65 @@ fn set_env(h: &mut crate::hyprset::Hypr, k: &str, v: &str) {
     match h.env.iter_mut().find(|(n, _)| n == k) {
         Some(e) => e.1 = v.to_string(),
         None => h.env.push((k.to_string(), v.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// La saisie est validée à chaque frappe : le message paraît dès que la
+    /// valeur est invalide (HIG DAT-02) ; une valeur valide, un champ vidé
+    /// ou une option inconnue n'en montre pas.
+    #[test]
+    fn la_saisie_est_validee_a_chaque_frappe() {
+        let (store, path) = [
+            (Store::Fx, crate::fx::OPTIONS.iter()),
+            (Store::Tiling, crate::tiling::OPTIONS.iter()),
+            (Store::Hypr, crate::hyprset::OPTIONS.iter()),
+        ]
+        .into_iter()
+        .find_map(|(store, mut opts)| {
+            opts.find(|o| matches!(o.kind, Kind::Color))
+                .map(|o| (store, o.path()))
+        })
+        .expect("une option couleur");
+        assert!(
+            draft_error(store, &path, "rouge").is_some(),
+            "valeur invalide : le message paraît sans attendre Entrée"
+        );
+        assert!(
+            draft_error(store, &path, "#ff0000").is_none(),
+            "valeur valide : pas de message"
+        );
+        assert!(draft_error(store, &path, "").is_none(), "champ vidé");
+        assert!(
+            draft_error(store, "option.inconnue", "rouge").is_none(),
+            "option inconnue"
+        );
+    }
+
+    /// HIG SEL-02 : la couleur choisie remplace celle de son rang ; sans
+    /// valeur posée, elle devient celle de l'option couleur ; un rang hors
+    /// dégradé ou une option d'une autre nature ne donnent rien.
+    #[test]
+    fn le_puits_pose_la_couleur_de_son_rang() {
+        let a = Rgba(1, 2, 3, 0xff);
+        let b = Rgba(9, 9, 9, 0xff);
+        assert_eq!(with_color(None, 0, b), Some(OptValue::Color(b)));
+        assert_eq!(
+            with_color(Some(OptValue::Color(a)), 0, b),
+            Some(OptValue::Color(b))
+        );
+        assert_eq!(
+            with_color(Some(OptValue::Gradient(vec![a, a], 45)), 1, b),
+            Some(OptValue::Gradient(vec![a, b], 45))
+        );
+        assert_eq!(
+            with_color(Some(OptValue::Gradient(vec![a], 45)), 1, b),
+            None
+        );
+        assert_eq!(with_color(Some(OptValue::Str("x".into())), 0, b), None);
+        assert_eq!(with_color(None, 1, b), None);
     }
 }

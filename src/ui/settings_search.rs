@@ -40,6 +40,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("modules", include_str!("plugins/modules.rs")),
     ("modules", include_str!("plugins/panorama/modules.rs")),
     ("network", include_str!("plugins/network.rs")),
+    ("notifications", include_str!("plugins/notifications.rs")),
     ("panorama", include_str!("plugins/panorama.rs")),
     ("panorama", include_str!("plugins/panorama/design.rs")),
     ("passwords", include_str!("plugins/passwords.rs")),
@@ -112,6 +113,7 @@ fn literal(s: &str, start: usize) -> Option<(String, usize)> {
 const PATTERNS: &[&str] = &[
     "text(\"",
     "self.field(\"",
+    ".adv(\"",
     "self.section(\"",
     "section(crate::i18n::tr(\"",
     "field(crate::i18n::tr(\"",
@@ -410,6 +412,32 @@ pub fn block(e: &Entry) -> Vec<&'static Entry> {
     v
 }
 
+/// Résultats pour le lanceur (`:r`) : [`search`], classés pour une liste
+/// courte — les entrées les plus parlantes d'abord (page, onglet, libellé,
+/// aide ; le libellé le plus court) — et non groupés par paquet comme au
+/// tiroir, qui les montre sous leur en-tête.
+pub fn launcher(query: &str, visible: impl Fn(&str) -> bool) -> Vec<&'static Entry> {
+    let mut r = search(query, visible);
+    r.sort_by_key(|e| (e.kind, e.text.chars().count()));
+    r
+}
+
+/// Préfixe du lanceur : « :r fond d'écran ».
+pub const PREFIX: &str = ":r";
+/// Sa forme longue : « :reglages fond d'écran ».
+pub const PREFIX_LONG: &str = ":reglages";
+
+/// Mode réglages du lanceur (`:r`, `:reglages`) : la requête sans son
+/// préfixe. Il tient seul ou suivi d'une espace — « :rouge » n'est pas ce
+/// mode (HIG PAT-13).
+pub fn query(q: &str) -> Option<&str> {
+    let rest = q.trim_start();
+    let rest = rest
+        .strip_prefix(PREFIX_LONG)
+        .or_else(|| rest.strip_prefix(PREFIX))?;
+    (rest.is_empty() || rest.starts_with(' ')).then(|| rest.trim())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,6 +468,30 @@ mod tests {
                 .all(|e| e.page != "colors")
         );
         assert!(INDEX.len() > 300, "{}", INDEX.len());
+    }
+
+    /// Le lanceur (`:r`) trouve dans le même index, avec le filtre du tiroir.
+    #[test]
+    fn prefixe_du_mode_reglages_du_lanceur() {
+        assert_eq!(query(":r fond"), Some("fond"));
+        assert_eq!(query(":reglages fond d'écran"), Some("fond d'écran"));
+        assert_eq!(query(":r"), Some(""));
+        assert_eq!(query("  :r   "), Some(""));
+        assert_eq!(query(":rouge"), None); // « :rouge » ≠ « :r » seul
+        assert_eq!(query("fond"), None);
+        assert_eq!(query(":clip x"), None);
+        // Le lanceur trouve dans le même index que le tiroir ; sa liste
+        // courte met les pages devant : pour « fond d'écran », la page
+        // « Fond d'écran » est la première ligne.
+        let r = launcher("fond d'écran", |_| true);
+        assert_eq!(r[0].kind, Kind::Page, "{r:?}");
+        assert!(
+            r.iter()
+                .any(|e| e.page == "wallpaper" && e.kind == Kind::Page),
+            "{r:?}"
+        );
+        // Sans préfixe ni mots : rien à ouvrir.
+        assert!(launcher("   ", |_| true).is_empty());
     }
 
     /// Un réglage trouvé vient avec son bloc : la section qui le montre.

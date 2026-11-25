@@ -53,9 +53,11 @@ editing it (`hyprland.lua.avant-hyprdesk-*.bak`). The final report shows
 which components are running and any actions still needed.
 
 On the first launch, a visual setup wizard walks through the essentials:
-language, screens, keyboard, theme and wallpaper, bar, desktop, performance,
-sleep, and default apps. Each choice applies at once. Reopen it from the
-**Assistant** button of Settings or with `hyprdesk wizard`.
+language, screens, keyboard, and default apps. Each choice applies at once;
+the Close button of its header, or Esc, leaves it at any step. Customization
+waits: theme and wallpaper, bar, desktop, performance, and sleep keep their
+defaults. The **Assistant** button of Settings or `hyprdesk wizard` reopen
+the wizard with every step.
 
 ### Installer options
 
@@ -169,6 +171,77 @@ takes it if nobody else holds it. This covers the notification daemon
 already-registered one keeps the session), and the tray's
 StatusNotifierWatcher.
 
+When hyprdesk serves notifications, each one appears at the top right of the
+active screen, in a card of the theme. A critical notification stays there
+until it is closed; the others stay at least for the set duration (“Display
+time”): an app can ask for longer, never for less. A low-urgency notification
+shows no bubble and goes
+straight to the history (the `notifications` widget), like every notification
+under Do Not Disturb, except the critical one. An action or a dismissal its
+application did not receive is reported by a Hyprland notification, with its
+cause.
+
+The history is read in the bar's Notifications card (the `notifications`
+widget), the Notifications card of the Continuité control centre and Panorama's
+right pane. It is grouped by application: one box per application, its name as
+the heading, the most recent on top.
+
+An action can declare itself destructive — erase, discard — by prefixing its
+key with `destructive:` (`destructive:erase`, for example with `notify-send -A
+"destructive:erase=Erase everything"`): the freedesktop specification defines
+nothing here, this is the hyprdesk convention. Its button stands apart from
+the others, in red like a destructive menu entry, and the application receives
+the key as is when it is invoked.
+
+Silence (Do not disturb) picks its end when it is turned on, from the Continuity
+control center: one hour, until this evening (6 PM) or until turned off. It
+turns itself off at its deadline, and its tile says until when ("Silence ·
+until 18:00"). From the command line: `hyprdesk notifications dnd on
+[1h|soir]`.
+
+When Silence ends — at its deadline or when you turn it off — a hyprdesk bubble
+sums up what it held: "3 notifications during Do Not Disturb", and "from 2
+apps" when they come from several. A click on that bubble opens the
+notifications list and closes it; with nothing held, nothing appears.
+
+The first notification from an application asks, in its bubble, for the
+permission to send you notifications: "Decline" or "Allow", above its content.
+The bubble stays until you answer or close it; closed without an answer,
+nothing is recorded and the next notification asks again. "Decline": nothing
+more from that application, neither bubble nor history. Until the permission is
+given, nothing enters the history.
+
+Settings → Notifications (System group) takes these decisions back, application
+by application: the "Allow" switch, once off, revokes the permission like a
+decline; the delivery style says what becomes of a notification from the
+application — "Banners" (the bubble goes away after its delay), "Alerts" (the
+bubble stays until closed) or "None" (history only, no bubble). A critical
+notification keeps its rules whatever the style. The page also clears the
+history ("Clear history", to be confirmed).
+
+The first critical notification from an application explains, in its bubble,
+that it gets through Silence and stays until it is closed; its "Block during
+Silence" button denies the bypass to that application: under Silence, its
+critical notifications then go to the history alone. Closing the bubble without
+blocking keeps the bypass. `hyprdesk config reset all --yes` forgets these
+decisions.
+
+Every notification kept in the history is **unread** until you open a list: the
+Notifications card of the bar, the Continuity control center or the
+notifications pane of Panorama. Their count sits in a small oval laid on the
+clock of the bar, at its corner nearest the edge of the screen ("99+" beyond
+99); the clock's tooltip gives the count. A low-urgency notification, or one
+received under Silence without a bubble, counts; a transient notification does
+not. Without a clock in the bar, the lists remain the source. The published
+state (`$XDG_RUNTIME_DIR/hyprdesk-notifications.txt`) carries the count in its
+`unread=N` line; `count=N` remains the length of the history.
+
+With the `island` bar style, a living bubble replaces the clock in the central
+pill. A click on the pill then opens the notification in full — its body and
+its actions — with "All notifications" and "Calendar" at the foot of the card:
+a critical bubble holds the pill until it is closed, so the clock's calendar
+stays within reach. Without a living bubble, the click opens the calendar.
+
 **Orchestrated**: the external tool stays and hyprdesk drives it. This
 covers `hypridle` (config written and supervised), `cliphist` +
 `wl-clipboard` (the clipboard history behind `:clip`), `hyprsunset` (night
@@ -177,12 +250,37 @@ dock, and launcher are native too. The Hyprland configuration page reports
 duplicate bars (waybar, ags, eww), and an existing launcher binding is
 taken over.
 
+From the dock or the app grid, the chosen icon pulses until its window
+opens. A refused launch or an application that cannot be found is reported at
+once by a Hyprland notification. With no window at all after five seconds, a
+quieter notification suggests launching the application again.
+
+You can also drag an application from a file manager (its `.desktop` file)
+onto the dock: the dock is outlined in the accent color, and the application
+is pinned at the end of the dock when you drop it.
+
+Removing an application from the dock, or an icon or a widget from the
+desktop, shows an “Undo removal” bubble: while it is there, it puts the item
+back in its place. It follows the notification timeout, and only exists when
+hyprdesk shows notifications.
+
+A file on the desktop takes the icon of its type from the icon theme. If
+the theme has none, it takes the icon of the application that opens it,
+with its extension (`MD`, `ZIP`…) in a capsule along the bottom.
+
 ## The desktop and its modes
 
 When your tiled windows fill the screen, press `SUPER + D` twice (dock, then
 full desktop) to reach your wallpaper, icons, and widgets. Your windows float
 above the desktop while you use it and return to their tiled layout when you
 leave.
+
+A fullscreen window does not hide the dock for good: it tucks away at the
+screen edge and appears over the window when the pointer touches that edge.
+A window that is only maximized leaves it in place. The bar does the same:
+in full screen it tucks away at its edge and comes back on hover, menus
+included. A menu open when full screen starts or ends closes. A bar set to
+the overlay layer stays visible.
 
 Desktop modes are saved per workspace across sessions. With multiple monitors,
 each screen follows the workspace it displays. Use **Settings → Desktop →
@@ -196,17 +294,132 @@ Shift + Tab to move between items, Home and End to jump to either end, and
 Enter or Space to activate an item. Escape closes the dock or returns focus
 to the full desktop.
 
+**Keyboard navigation in the control center.** Tab and Shift + Tab move from
+one control to the next; Ctrl + Tab and Ctrl + Shift + Tab jump to the first
+control of the next or previous group; Page Up and Page Down scroll the
+cards.
+
+**Control center toggles.** Wi-Fi, Bluetooth and the other toggles fade
+from off to on; while a toggle is in progress, the control gently pulses
+until the answer arrives. With the “None” transition (Settings → Animations
+→ Desktop), the change is immediate and the control shows “In progress…”.
+**Theme → Components → Quick settings → Compact controls** reduces Wi-Fi and
+Bluetooth to their symbol: hovering shows the title and state, a click
+toggles, and a right click (or the “›” button of the Continuity center) opens
+the menu.
+
+**The keyboard on every surface.** Four shortcuts put the keyboard on a
+shell surface without closing anything or changing mode: `CTRL + F2` goes to
+the bar of the active screen, `CTRL + F3` to the dock (hidden desktop: it
+appears under the windows, which stay in place), `CTRL + F8` gives the
+keyboard to the banners on screen, otherwise opens the notification center, `CTRL + F6` opens the Settings drawer and focuses its
+first field. Pressed twice, the bar and the dock return the keyboard to the
+windows; the center and the drawer, which stay open, keep it. A bar menu
+opened from the keyboard selects its first entry: Up and Down, Tab and
+Shift + Tab, Home and End move from one entry to the next, Right opens a
+submenu and moves into it, Left moves back out, Enter or Space activate the
+entry, Escape closes the menu; a screen reader announces the selected entry.
+In the Help menu, the search field keeps the keyboard: Up and Down move to
+its entries, Tab returns to the field.
+In the drawer,
+Tab and Shift + Tab never leave it: they go through its fields and the
+commands of its header (Close, Guided tour, Assistant, clear the search),
+which the focus ring points out and Enter or Space activate; a mouse click
+removes the ring.
+
+**Guided tour.** Each block of the tour ends with a try: a real gesture,
+such as switching modes, opening the workspaces screen or the applications
+grid (“Try it”, or your shortcut), or changing one of the settings shown in
+the drawer behind. “Done” confirms it; “Next” is always available.
+
+**Full Keyboard Access.** On by default, it lets Tab reach every control in
+Settings, not only text fields. `CTRL + F1` toggles it anywhere (`hyprdesk
+keyboard-access`) and the on-screen display announces “Full Keyboard Access:
+on” or “off”; when off, Tab only goes to text fields. In the drawer, Tab also goes through
+the page navigation and its tabs, and the content scrolls to the control it
+reaches; Ctrl + Tab jumps from the navigation to the content and back. On a
+slider, the arrow keys change the value by the setting's step, Enter opens its
+field; on a pop-up list, they move to the next option without opening it. The setting lives in
+**Settings → Keyboard and mouse → Keyboard** (`keyboard_access`), the shortcut
+in **Settings → Shortcuts** (`keys.keyboard_access`).
+
+**Notifications from the keyboard.** In the notification center, Tab and
+Shift + Tab move from one card to the next without leaving the center: Enter
+opens what the card announces (or its short menu when it leads nowhere), and
+the ring also reaches “Close”, the actions and the footer links. With banners
+on screen, `CTRL + F8` first gives them the keyboard: Tab goes through their
+controls, Enter activates, Esc returns the keyboard to the windows; pressed
+again, it returns it and opens the center. While you go through them, banners
+do not expire; choosing an action or the last banner leaving also returns the
+keyboard.
+
+**Keyboard navigation in the bar.** The arrow keys, Tab and Shift + Tab move
+from one activable module to the next: those a left click opens (menus, volume,
+clock…). Enter or Space opens the chosen module; its menu takes the keyboard,
+the bar gets it back when the menu closes; Escape returns it to the windows.
+
+**Force an application to quit.** `ALT + SUPER + Escape` opens the "Force
+Quit" dialog: one row per application — its icon, its name, its number of
+windows —, the active application selected first (`hyprdesk force-quit` from
+the command line). Up and Down arrows move between rows; Enter or the button
+asks for confirmation — "Force “foot” to quit (3 windows)?" — and a second
+Enter kills its windows; Escape or "Cancel" first steps back from the
+confirmation, then closes the dialog. Under Hyprland, an application class
+often gathers several processes: they are all killed, hence the number. The
+shortcut is set in **Settings → Shortcuts** (`keys.force_quit`), in every
+desktop mode.
+
+### Screen reader (Orca)
+
+hyprdesk describes its surfaces to a screen reader over the accessibility bus
+(AT-SPI), with nothing to set: as soon as Orca starts — even after the
+desktop —, the daemon registers with it; without a screen reader, nothing is
+served. Orca reads:
+
+- the **menu bar**: its modules and their menus, the entry selected with the
+  keyboard, submenus; the **dock** (alone or inside the bar): its
+  applications and workspace titles, the slot selected with the keyboard;
+- the **launcher** (its field and the selected result) and the **window
+  switcher** (the selected window);
+- **Settings**: the search field, the pages, the page title and tabs, then
+  its content — row labels, sliders (named by their label, their value as
+  description), switches (checked or not, dimmed when they cannot be used),
+  advanced sections (expanded or collapsed);
+- the **lock screen**: the password field when focused, its state and the
+  indicators shown below it.
+
+Buttons, menu entries, Settings pages and tabs can also be activated through
+the screen reader's action, like a click. `hyprdesk a11y dump` prints the
+tree as Orca receives it.
+
+What Orca does not read yet: typing in a field (the typed text, the password
+character by character: no `Text` interface); a slider's value is read as its
+description, with no `Value` interface to change it from the screen reader;
+the controls inside Settings pages (sliders, switches, disclosure triangles)
+cannot be activated through the screen reader's action, only with the
+keyboard; drop-down lists, buttons and fields inside those pages are read
+only through the label of their row, and section titles, radio buttons and
+the "Advanced configuration" switch are not read; a page's content follows
+the order in which the page builds it, which sometimes differs from the
+display (Plugins, Widgets); a control without a label of its own (a custom
+animation row: switch and slider) is not shown; separate windows (greeter,
+myMFA) and Panorama cards are not described.
+
 ## Shortcuts and binds.lua
+
+Wherever hyprdesk writes a shortcut, its modifiers come in this order: CTRL,
+ALT, SHIFT, SUPER. The configuration accepts a combination in any order.
 
 **Settings → Shortcuts** and `hyprdesk keys` show every active binding,
 outside the full desktop and with the desktop shown, with its source line in
 `hyprland.lua`. hyprdesk respects existing bindings unless you assign them to
-hyprdesk or leave its default `SUPER + R` override enabled.
+hyprdesk or leave its default `SUPER + Space` override enabled.
 
 Where `hyprland.lua` lacks an essential shortcut, hyprdesk sets it on a free
 combination, without editing the file. Essentials cover windows, workspaces,
 screens, and screenshots: workspaces 1 to 10, previous workspace, maximize,
-pin, swap, group tabs, next screen, `Print` captures… Each one can be turned
+minimize (`SUPER + M`), pin, swap, group tabs, next screen, `Print`
+captures… Each one can be turned
 off in **Settings → Shortcuts → Windows and workspaces**. To change a
 hyprdesk shortcut or an adjustable essential, press **Capture** and then the
 new combination; **Default** sets it back.
@@ -227,10 +440,25 @@ and disabled bindings are kept. A hand-written file is copied
 
 ## Tuning Hyprland from Settings
 
+- **Know where you are.** The drawer title names the package on show
+  (“Bar”, “Desktop”…); “Settings” stays as the overline.
+- **Find a setting.** The search field in the Settings header filters
+  settings as you type; the navigation column then keeps only the packages
+  with a match, each with its count. As soon as it holds a query, a Clear
+  button on the right erases it and returns to the field. The launcher
+  finds them too: `:r opacity` (or `:reglages opacity`) lists the matching
+  pages, tabs and labels; Enter or a click closes the launcher and opens
+  the drawer on the package, the words highlighted. A slider value can be
+  typed too: a click on it opens a field; Enter sets and saves it, Escape
+  closes it.
 - **Make the desktop yours.** Set wallpapers and slideshows per screen or
   workspace, add app and file shortcuts, and build a theme from an image.
   Drag modules to rearrange the bar, or use the dock to group windows by
   app. Theme modules carry the theme to kitty and to GTK, Qt and iced apps.
+- **Pick a colour.** Wherever a colour is set (theme, bar, wallpaper,
+  Hyprland options, Panorama), the swatch of the current colour opens the
+  colour picker: it highlights as soon as you click it, **Apply** sets the
+  chosen colour and **Cancel** closes it without changing anything.
 - **Screens and input.** Arrange monitors and set the keyboard and
   touchpad. Display layout changes revert after 12 seconds unless you keep
   them.
@@ -241,25 +469,85 @@ and disabled bindings are kept. A hand-written file is copied
   window to the next zone.
 - **Look and behaviour.** Adjust animations, borders, gaps, window rules,
   groups, cursor, touchpad gestures (fingers and direction → workspace,
-  move, resize, fullscreen…), environment, and idle delays. hyprdesk writes
-  them to generated files loaded by `hyprland.lua`.
-- **Advanced settings** (switch in the Settings header) show what only an
+  move, resize, fullscreen…, or a hyprdesk surface), environment, and idle delays. hyprdesk writes
+  them to generated files loaded by `hyprland.lua`. **Reduce motion**
+  (Theme → Accessibility) overrides the animations set here: windows and layers no longer slide or grow,
+  workspaces switch with a fade, and the dock no longer magnifies on hover.
+- **System gestures.** As on macOS, four gestures are set from the start in
+  **Settings → Keyboard and mouse → Gestures**: three fingers up open the
+  overview, four fingers pinched in the applications, spread out the
+  desktop, four fingers to the left the notification center. A gesture
+  already set on the same fingers and an overlapping direction (vertical
+  covers up) keeps its place; a deleted gesture is not set again, and
+  “Defaults…” brings them back.
+- **Advanced settings** (switch in the body of Settings) show what only an
   expert needs, marked in cyan: a flask next to the tab and, with the count
   of advanced settings, next to each package that holds some, an
-  *Advanced* badge on the page, a cyan frame around advanced sections.
-  Behind it: animation curves, desktop transitions, window behaviour and
+  *Advanced* badge on the page. A page's advanced sections fold away
+  behind a titled disclosure triangle (“▸”): a click unfolds the section
+  in the page, with no frame; a search unfolds them all, to show its
+  matches. Behind it: animation curves, desktop transitions, window
+  behaviour and
   groups, layer and workspace rules, per-device settings (speed,
   acceleration, scrolling, layout for one keyboard or mouse), environment
   variables, **Hyprland plugins** (hyprpm: enable or disable each plugin,
   update, add a repository, reload at startup) and **permissions** (allow,
   deny or ask for screen capture, plugin loading and keyboards, with the
-  recommended ones in one click).
+  recommended ones in one click). In the rule lists, a numeric field refuses
+  any other text: the entry stays in the field and the error shows underneath.
 - **Performance.** Pick a rendering profile (Performance, Balanced, or
   Visual quality) to trade effects for CPU and GPU load. **Settings →
   Performance → Graphics card** shows which card Hyprland renders on and
   warns when your screens are plugged into another one. It can pin
   Hyprland to a card (`hyprland_gpu`). hyprdesk renders on the same card by
   default, and its renderer and worker threads can be changed there.
+
+### Bar menus
+
+The bar starts with four menus, in every style: **hyprdesk**, **Window**,
+**Workspaces** and **Help**. They belong to the bar, not to the module catalogue: always
+first, never folded into “More commands”, and Settings → Bar does not move
+them.
+
+- **hyprdesk** gathers the shell commands: About hyprdesk, Settings…, Lock,
+  Move to trash, Workspaces, Organise windows…, then Sleep…, Restart… and
+  Shut down… Restart, Shut down and Move to trash ask for confirmation.
+  “Move to trash” targets the selected desktop icon (click or arrow keys)
+  when it is a file or a folder; otherwise it stays visible and inactive.
+- **Window** is the menu of the active window, the same as the one on its
+  title in the bar. A right-click on a window in the spaces overview opens
+  this menu for that window. Without an active window it stays visible and
+  inactive.
+  “Close all windows” closes the windows of its application; inactive when
+  it has only one.
+- **Workspaces** is the workspace card of the screen.
+- **Help** comes last. The search field at its top receives the keyboard:
+  pressing Enter opens the Settings search on the words typed. Then come
+  “Guided tour…” (the tour of Settings), “Keyboard shortcuts” (its shortcuts
+  page) and “Documentation”, which opens the shell guide when the package
+  installed it (`/usr/share/doc/hyprdesk/GUIDE.md`); otherwise it stays
+  visible and inactive. The menu ends with “About hyprdesk”.
+
+These commands also remain where they already were: the window title, the
+control center, the workspace card.
+
+A right-click opens a short menu too — two commands at most, each of them
+also found elsewhere in the interface; a command that does not apply is left
+out. On the title or the background of a card in the spaces overview:
+“Show space”, “Rename…”. On a notification card in the notification center:
+“Open” (when the card leads somewhere) and “Close”. On a bar module: “Mute”
+or “Unmute”, then “Sound settings…” (volume), “Energy settings…” (brightness),
+“Date and time settings…” (clock and calendar), “Mark all as read” (left out
+without an unread notification) and “Do not disturb” (notifications widget
+without a `menu` function); on the title of the active window, the **Window**
+menu.
+
+A line followed by a “›” chevron opens a submenu, one level only. It opens on
+hover (on click, on a touchscreen), in a column beside the list, which stays
+in place; near the right edge of the screen, the column opens on the left.
+“Move to workspace”, in the **Window** menu, lists every other workspace
+there. The notification area menus keep the application's first-level submenus
+as submenus; the levels below stay flattened into headers (“File › Recent”).
 
 ### Bar styles
 
@@ -290,7 +578,14 @@ and no second floating dock is created on these screens.
   default, suspending, hibernating, locking, turning off the laptop display,
   or ignoring the lid event. hyprdesk locks before suspending.
 - **Lock** sets up the lock screen and enrolls or deletes your fingerprints
-  with fprintd, without leaving hyprdesk.
+  with fprintd, without leaving hyprdesk. The background dimming is a floor:
+  over an image as over a colour, the veil rises on its own to a 4.5:1
+  contrast with the text, and deepens after 20 s without input, leaving the
+  text untouched. With **Reduce motion** (Theme → Accessibility), the content
+  no longer drifts, and the Play and pause media key acts like the button of
+  the track in progress. The text follows the size you set (Theme →
+  Accessibility), on the lock screen as on the login screen once its profile
+  is installed again.
 - **Hyprland configuration** flags errors, duplicate bindings or startup
   entries, and programs that overlap with built-in services. **Tidy
   everything** backs up `hyprland.lua` and applies the fixes marked safe.
@@ -343,13 +638,34 @@ The dock's loupe (or `:f` in the launcher, or `hyprdesk files`) searches an
 index of all your files, home and mounted volumes (NTFS, FAT…) included, by
 name, path, or category: answers come back in a few milliseconds. Filter by
 kind (files, folders, links) and by category (documents, images, videos,
-programs…).
+programs…). The selected result carries a preview: an image's
+thumbnail, a text's first lines, and the modification date. When no
+application opens the file, a notification tells why.
+
+The launcher's search field carries the loupe in every mode (including `:f`,
+`:clip`, `:2fa`, `:mdp`, `:r`) and, as soon as it holds a query, a Clear button on
+the right: one click erases the query and returns to the field.
+
+At the bottom of the launcher, a one-sentence tip sometimes presents one of
+its modes (`:f`, `:r`, `:clip`): at most one a day, each only once, and never
+again for a mode you have already typed. The workspaces screen does the same
+for dragging a window onto another workspace, and so do the hover bubble
+of a dock icon, for its right-click menu, and the Widgets page of Settings,
+for dragging a widget on the desktop.
+
+A window dropped onto another workspace comes back with “Undo move”, in
+the line that then takes the tip's place; Escape, during the drag, stops it
+without closing the workspaces screen.
 
 The index runs in the background, kept fresh by inotify and a periodic
 rescan. Tune it in **Settings → File index**: roots, exclusions by name or
 regular expression, ignored extensions and categories, maximum file size.
 From a terminal: `hyprdesk index query <word>`, `index status` (JSON), and
 `index rebuild`; add `--json` for structured results.
+
+An opening that cannot be carried out (no application for this kind of
+file, an unreachable path…) is reported by a Hyprland notification, with
+its cause.
 
 ## Panorama
 
@@ -428,7 +744,16 @@ use in `~/.local/share/hyprdesk/voice` (~350 MB, no root); see
 **SmartUI design** redraws app icons in a consistent style. Approved icons form
 the `hyprdesk-smartui` icon theme under `~/.local/share/icons`, used across the
 desktop, dock, app launcher, bar, and notifications. Automatic generation is
-enabled by default when LYRA is installed.
+enabled by default when LYRA is installed. The default style asks for a
+full-bleed square, without rounded corners, highlights or shadows: hyprdesk
+applies its single mask, the same for every app icon.
+
+**Icon appearance** (Settings → Theme → Colors, or
+`hyprdesk config set icons.appearance auto|default|dark|tinted`) matches app
+icons to the theme: *Automatic* darkens them with a dark theme, *Dark* always
+does, *Tinted* turns them to grayscale colored with the accent. Each icon keeps
+its design. An SVG the mask cannot cut, or a compressed one (`.svgz`), stays as
+it is.
 
 ![LYRA’s drawer showing a live preview and an approval prompt for a command](../assets/screenshots/assistant-chat.png)
 
@@ -453,7 +778,8 @@ log in. hyprdesk is its interface:
   hyprdesk’s own style answers applications asking for the vault.
 - **The launcher** finds codes and passwords with `:2fa` and `:mdp`. The
   daemon itself does the copying, and a copied password clears from the
-  clipboard after 30 seconds.
+  clipboard after 30 seconds. A refused copy is reported by a Hyprland
+  notification, with its cause.
 - **Settings → Passwords** creates the vault, or installs the backup of the
   [myMFA web app](https://app.mymfa.mindlog.today). It can also take the
   Secret Service over from gnome-keyring (importing its secrets, then
@@ -464,13 +790,33 @@ log in. hyprdesk is its interface:
 ## Widgets and plugins
 
 Enable widgets in **Settings → Widgets** or add them to your Lua configuration.
+Each row of the gallery shows a preview of the widget with simulated data
+(the time, the date, two gauges, a song…); a command, Lua or plugin widget,
+whose output is only known once it runs, shows a placeholder shape.
 The built-in widgets are `clock`, `calendar`, `system`, `media` (MPRIS),
 `command` (periodic shell output), `lua` (output of an inline function), and
 `controls` (the control center). Desktop widgets default to the primary
 screen. You can target a specific output or all outputs and choose whether a
-widget moves or hides when a screen is unplugged.
+widget moves or hides when a screen is unplugged. Clicking a widget's
+background opens its content: the clock and calendar open the bar's Calendar
+card, the system widget opens Settings → Performance, and the media widget
+brings the current player forward; its buttons keep their action.
+
+The clock, calendar, system and media widgets come in four sizes (**Widget
+size** in a widget's details, or the `family` option: `small`, `medium`,
+`large`, `xlarge`). Each size adds information instead of enlarging the
+previous one; **Medium**, the default, is the usual layout. **Text size**
+remains a separate setting.
+
+| Widget | Small | Medium | Large | Extra large |
+| --- | --- | --- | --- | --- |
+| Clock | the time | + the date | + day of the year and week | + the month grid |
+| Calendar | the day and its date | the month | + next month | + the next two months |
+| System | the first gauge | the chosen readings | + load and uptime | + the root disk |
+| Media | cover art and play/pause | + title, artist, controls | + progress | + album and player |
 
 ```lua
+hd.widget("clock", { family = "large" })
 hd.widget("clock", { screen = "DP-2", if_missing = "primary" })
 hd.widget("calendar", { screen = "DP-2", if_missing = "hide" })
 hd.widget("controls", {})
@@ -493,7 +839,7 @@ To add a Lua widget or plugin, see [Writing a plugin](WRITING_PLUGINS.md).
 | `removable` | Open and eject removable drives | udisks2 |
 | `nightlight` | Night light on demand or on a schedule | hyprsunset |
 | `vkbd` | On-screen keyboard | wvkbd |
-| `notifications` | Recent notifications and Do Not Disturb | hyprdesk or wayle |
+| `notifications` | Recent notifications (click one to run its default action, or to open its app) and Do Not Disturb | hyprdesk or wayle |
 | `session` | Lock, suspend, log out, reboot, and power off | systemd, hyprdesk lock |
 | `gpu` | Switch a passthrough GPU live between VFIO and the NVIDIA driver (hidden without passthrough) | vfio-pci, nvidia |
 

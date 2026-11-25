@@ -5,7 +5,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, row, toggler};
+use iced::widget::{button, column, pick_list, row};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -134,11 +134,13 @@ impl App {
             self.field(
                 "Fuseau",
                 "",
-                pick_list(s.zones.clone(), Some(s.timezone.clone()), |z| wrap(
-                    Msg::Zone(z)
-                ))
-                .font(self.font)
-                .width(Length::Fixed(320.0)),
+                self.choosable(
+                    pick_list(s.zones.clone(), Some(s.timezone.clone()), |z| wrap(
+                        Msg::Zone(z)
+                    ))
+                    .font(self.font)
+                    .width(Length::Fixed(320.0))
+                ),
             ),
             self.section("Horloge"),
         ]
@@ -147,7 +149,7 @@ impl App {
             col = col.push(self.field(
                 "Mise à l'heure automatique (réseau)",
                 "",
-                toggler(s.ntp).on_toggle(|v| wrap(Msg::Ntp(v))),
+                self.focusable(self.toggle(s.ntp).on_toggle(|v| wrap(Msg::Ntp(v)))),
             ));
             col = col.push(
                 text(if s.synced {
@@ -185,13 +187,15 @@ impl App {
                         .size(crate::ui::tokens::ts(12.0))
                         .color(crate::ui::tone::warning())
                         .width(Length::Fill),
-                    button(
-                        text("Relire")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([4, 10])
-                    .on_press(UiMsg::Panel(PanelMsg::Tab(INFO.id))),
+                    self.focusable(
+                        button(
+                            text("Relire")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([4, 10])
+                        .on_press(UiMsg::Panel(PanelMsg::Tab(INFO.id)))
+                    ),
                 ]
                 .align_y(Alignment::Center),
             );

@@ -111,6 +111,10 @@ pub struct Typography {
     /// Mesures (horloges, monitoring) (MLG-282).
     #[serde(default = "ref_metric")]
     pub metric: f32,
+    /// Infobulles (nom d'une icône du dock…), sur le corps de légende
+    /// (HIG TYP-19).
+    #[serde(default = "ref_tooltip")]
+    pub tooltip: f32,
     pub weight: u16,
     pub title_weight: u16,
     pub line_height: f32,
@@ -126,6 +130,7 @@ pub const REF_TITLE: f32 = 17.0;
 pub const REF_DISPLAY: f32 = 34.0;
 pub const REF_LABEL: f32 = 12.0;
 pub const REF_METRIC: f32 = 34.0;
+pub const REF_TOOLTIP: f32 = 11.0;
 
 fn ref_label() -> f32 {
     REF_LABEL
@@ -133,6 +138,10 @@ fn ref_label() -> f32 {
 
 fn ref_metric() -> f32 {
     REF_METRIC
+}
+
+fn ref_tooltip() -> f32 {
+    REF_TOOLTIP
 }
 
 impl Default for Typography {
@@ -146,8 +155,10 @@ impl Default for Typography {
             title: REF_TITLE,
             display: REF_DISPLAY,
             metric: REF_METRIC,
+            tooltip: REF_TOOLTIP,
             weight: 400,
-            title_weight: 700,
+            // Titres en semibold : Bold reste au titre de page (HIG TYP-05).
+            title_weight: 600,
             line_height: 1.3,
             tabular_numbers: false,
         }
@@ -855,12 +866,16 @@ pub fn typography(f: Option<&Fonts>) -> Typography {
         t.title = REF_TITLE * k;
         t.display = REF_DISPLAY * k;
         t.metric = REF_METRIC * k;
+        t.tooltip = REF_TOOLTIP * k;
     }
     if let Some(v) = f.sizes.get("label") {
         t.label = size(*v);
     }
     if let Some(v) = f.sizes.get("metric") {
         t.metric = size(*v);
+    }
+    if let Some(v) = f.sizes.get("tooltip") {
+        t.tooltip = size(*v);
     }
     if let Some(v) = f.sizes.get("caption") {
         t.caption = size(*v);
@@ -963,10 +978,30 @@ mod tests {
         }));
         assert_eq!(t.body, 15.0);
         assert!((t.caption - REF_CAPTION * 15.0 / 13.0).abs() < 1e-4);
+        // Infobulles : suivent le corps, comme la légende (HIG TYP-19).
+        assert!((t.tooltip - REF_TOOLTIP * 15.0 / 13.0).abs() < 1e-4);
+        assert_eq!(Typography::default().tooltip, 11.0);
         assert_eq!(t.display, 40.0);
         assert!((t.scaled(13.0) - 15.0).abs() < 1e-4);
         assert!((t.scaled(34.0) - 40.0).abs() < 1e-4);
         assert_eq!(Typography::default().scaled(14.0), 14.0);
+    }
+
+    /// HIG TYP-05 : les titres sont en semibold par défaut ; un pack peut
+    /// toujours graisser davantage ses titres.
+    #[test]
+    fn titres_en_semibold_par_defaut() {
+        use crate::theme_engine::manifest::WeightSpec;
+        assert_eq!(Typography::default().title_weight, 600);
+        assert_eq!(typography(None).title_weight, 600);
+        let t = typography(Some(&Fonts {
+            title_weight: Some(WeightSpec::Name("bold".into())),
+            ..Default::default()
+        }));
+        assert_eq!(
+            t.title_weight, 700,
+            "le pack qui graisse ses titres l'impose"
+        );
     }
 
     #[test]

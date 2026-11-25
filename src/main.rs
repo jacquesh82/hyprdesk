@@ -884,7 +884,7 @@ fn main() -> ExitCode {
                 }
             }
         }
-        // Thèmes : créer depuis une scène, lister « Mes thèmes », appliquer.
+        // Thèmes : créer depuis une scène, lister « Thèmes personnels », appliquer.
         "theme" => match args.get(1).map(String::as_str) {
             Some("new") => {
                 let Some(src) = args[2..]
@@ -1242,6 +1242,11 @@ fn main() -> ExitCode {
             match sub.as_slice() {
                 [] | ["list"] => match std::fs::read_to_string(notifications::state_path()) {
                     Ok(s) => {
+                        // Fin programmée du Silence (HIG PAT-04).
+                        let until = s
+                            .lines()
+                            .find_map(|l| l.strip_prefix("dnd_until="))
+                            .and_then(|u| u.parse::<i64>().ok());
                         for line in s.lines() {
                             if let Some(n) = line.strip_prefix("n=") {
                                 let mut f = n.splitn(3, '\t');
@@ -1259,7 +1264,19 @@ fn main() -> ExitCode {
                                     }
                                 );
                             } else if line == "dnd=1" {
-                                println!("{}", hyprdesk::i18n::tr("Ne pas déranger : activé"));
+                                match until {
+                                    Some(t) => println!(
+                                        "{}",
+                                        hyprdesk::tr!(
+                                            "Ne pas déranger : activé, jusqu’à {hour}",
+                                            hour = notifications::silence_end_label(t)
+                                        )
+                                    ),
+                                    None => println!(
+                                        "{}",
+                                        hyprdesk::i18n::tr("Ne pas déranger : activé")
+                                    ),
+                                }
                             }
                         }
                         ExitCode::SUCCESS
@@ -1274,7 +1291,21 @@ fn main() -> ExitCode {
                         ExitCode::FAILURE
                     }
                 },
-                ["dnd"] | ["dnd", "on" | "off"] | ["clear"] => {
+                ["dnd"] | ["dnd", "on" | "off"] | ["dnd", "on", "1h" | "soir"] | ["clear"] => {
+                    // « Jusqu'à ce soir » est déjà passé, le soir (HIG PAT-04).
+                    if sub.last() == Some(&"soir")
+                        && notifications::SilenceEnd::Evening
+                            .deadline(chrono::Local::now())
+                            .is_none()
+                    {
+                        eprintln!(
+                            "{}",
+                            hyprdesk::i18n::tr(
+                                "il est déjà soir : « 1h » pour une heure, rien pour jusqu’à désactivation"
+                            )
+                        );
+                        return ExitCode::FAILURE;
+                    }
                     match control::send(control::Command::Notifications(sub.join(" "))) {
                         Ok(_) => ExitCode::SUCCESS,
                         Err(e) => {
@@ -1284,7 +1315,12 @@ fn main() -> ExitCode {
                     }
                 }
                 _ => {
-                    eprintln!("usage : hyprdesk notifications [list | dnd [on|off] | clear]");
+                    eprintln!(
+                        "{}",
+                        hyprdesk::i18n::tr(
+                            "usage : hyprdesk notifications [list | dnd [on [1h|soir] | off] | clear]"
+                        )
+                    );
                     ExitCode::from(2)
                 }
             }

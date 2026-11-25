@@ -23,6 +23,65 @@ use crate::launch::{self};
 /// Onglet du tiroir : l'identifiant d'un paquet de réglages (`plugins::BUILTIN`).
 pub type Tab = &'static str;
 
+/// Identifiant du champ de recherche des Réglages : il reprend le focus après
+/// un effacement.
+const SEARCH_ID: &str = "hyprdesk-panel-search";
+
+/// Identifiant du champ de la valeur d'un curseur (HIG SEL-08) : un seul
+/// champ à la fois, il prend le focus à l'ouverture.
+const SLIDER_ID: &str = "hyprdesk-panel-slider";
+
+/// Largeur du champ de la valeur d'un curseur : le nombre, aligné à droite
+/// (HIG SEL-08).
+const SLIDER_FIELD_W: f32 = 72.0;
+
+/// Taille de référence des bornes sous un curseur des Réglages (HIG SEL-09) :
+/// la légende, comme les aides du tiroir.
+const SCALE_SIZE: f32 = 11.0;
+/// Écart du curseur à son échelle (px).
+const SCALE_GAP: f32 = 4.0;
+/// Hauteur d'une graduation (px).
+const TICK_H: f32 = 4.0;
+/// Rayon de la poignée d'un curseur du tiroir (style par défaut d'iced) :
+/// la poignée parcourt le rail de `r` à `largeur - r`, les graduations aussi.
+const HANDLE_R: f32 = 7.0;
+
+/// Hauteur d'une ligne de bornes sous un curseur (HIG SEL-09).
+pub(in crate::ui) fn scale_line_h() -> f32 {
+    (crate::ui::tokens::ts(SCALE_SIZE) * 1.3).round()
+}
+
+/// Nombre de pas d'un curseur gradué : dix au plus (HIG SEL-09), sinon aucun.
+fn graduations(range: (f64, f64), step: f64) -> Option<usize> {
+    let n = (range.1 - range.0).abs() / step;
+    let entier = n.round();
+    (step > 0.0 && n.is_finite() && (n - entier).abs() < 1e-6 && (1.0..=10.0).contains(&entier))
+        .then_some(entier as usize)
+}
+
+/// Hauteur que l'échelle ajoute sous un curseur (bornes, et graduations s'il
+/// en a) : la valeur et les voisins d'une rangée centrée la gardent sous eux
+/// pour rester sur la ligne du curseur.
+pub(in crate::ui) fn slider_band(range: (f64, f64), step: f64) -> f32 {
+    let ticks = graduations(range, step).map_or(0.0, |_| TICK_H + SCALE_GAP);
+    scale_line_h() + SCALE_GAP + ticks
+}
+
+/// Un voisin d'un curseur dans une rangée centrée (HIG SEL-09) : libellé,
+/// bouton, interrupteur… garde sous lui la place de l'échelle et reste ainsi
+/// sur la ligne du curseur.
+pub(in crate::ui) fn beside_slider<'a, M: 'a>(
+    spec: &SliderSpec,
+    el: impl Into<Element<'a, M>>,
+) -> Element<'a, M> {
+    container(el)
+        .padding(iced::Padding {
+            bottom: slider_band(spec.range, spec.step),
+            ..iced::Padding::ZERO
+        })
+        .into()
+}
+
 /// Messages du tiroir : ceux de la coquille, et ceux des paquets (enveloppés).
 #[derive(Debug, Clone)]
 pub enum PanelMsg {
@@ -32,13 +91,25 @@ pub enum PanelMsg {
     SubTab(Tab, &'static str),
     /// Configuration avancée (tous les détails) ou de base (l'essentiel).
     Advanced(bool),
+    /// Section avancée dépliée ou repliée : sa clé (HIG LAY-01).
+    AdvToggle(String),
     /// Visite guidée.
     Tour(super::tour::TourMsg),
     Close,
     /// Fin d'un glissé de curseur : on enregistre.
     Commit,
+    /// La valeur d'un curseur devient un champ, qui prend le focus (HIG SEL-08).
+    SliderEdit(Box<SliderEdit>),
+    /// Saisie en cours dans le champ de la valeur d'un curseur.
+    SliderDraft(String),
+    /// Entrée dans le champ : la valeur lue est posée, puis enregistrée.
+    SliderSubmit,
+    /// Le champ de la valeur se referme sans rien changer (Échap, autre page).
+    SliderClose,
     /// Message d'un paquet de réglages.
     Plugin(PluginMsg),
+    /// Le clavier vient au volet : son premier contrôle prend le focus (HIG ENT-02).
+    FocusFirst,
     /// Recherche d'un réglage (texte tapé).
     Search(String),
     /// Résultat choisi : paquet et onglet.
@@ -68,6 +139,11 @@ pub struct Panel {
     pub workspaces: plugins::workspaces::State,
     /// Étape de la visite guidée en cours.
     pub tour: Option<usize>,
+    /// L'essai de commande du bloc en cours est fait (HIG DAT-11).
+    pub tour_tried: bool,
+    /// Réglages à l'entrée dans le bloc : un réglage changé depuis fait
+    /// l'essai de réglage (une valeur, pas un simple enregistrement).
+    pub tour_from: Option<Box<crate::settings::Settings>>,
     pub layouts: plugins::layouts::State,
     pub animations: plugins::animations::State,
     pub sound: plugins::sound::State,
@@ -77,6 +153,7 @@ pub struct Panel {
     pub network: plugins::network::State,
     pub bluetooth: plugins::bluetooth::State,
     pub datetime: plugins::datetime::State,
+    pub notifications: plugins::notifications::State,
     pub input: plugins::input::State,
     pub autostart: plugins::autostart::State,
     pub hyprconfig: plugins::hyprconfig::State,
@@ -104,6 +181,245 @@ pub struct Panel {
     pub defaults_ask: Option<Tab>,
     /// Résultat de la dernière remise par défaut d'une page.
     pub defaults_done: Option<(Tab, Result<String, String>)>,
+    /// Valeur d'un curseur en cours de saisie (HIG SEL-08) : un seul à la fois,
+    /// le champ se referme en changeant de page.
+    pub slider: Option<SliderEdit>,
+    /// Le volet tient le clavier : vrai dès son apparition (Hyprland le donne
+    /// à une couche « à la demande » qui paraît), faux dès qu'une fenêtre le
+    /// reprend (HIG ENT-02).
+    pub keyboard: bool,
+}
+
+/// Identifiant du volet aux opérations de focus : elles y restent bornées,
+/// sans aller aux autres surfaces (HIG ENT-02).
+pub(super) const PANEL_ID: &str = "hyprdesk-panel";
+/// La navigation des pages et le contenu du tiroir, défilés à part.
+const NAV_SCROLL_ID: &str = "hyprdesk-panel-nav";
+const CONTENT_SCROLL_ID: &str = "hyprdesk-panel-content";
+/// Les groupes du parcours au clavier du tiroir, dans l'ordre de lecture :
+/// Ctrl+Tab passe au premier contrôle du suivant (HIG ENT-01).
+const PANEL_GROUPS: [&str; 2] = ["hyprdesk-panel-group-nav", "hyprdesk-panel-group-content"];
+
+/// Curseur des Réglages dont la valeur se saisit au clavier (HIG SEL-08) :
+/// ce qu'il faut pour poser la valeur tapée comme un glissé puis son
+/// relâchement. Un par site d'[`App::slider`].
+#[derive(Clone)]
+pub struct SliderSpec {
+    /// Clé du curseur : le champ ouvert est celui-là seul. Le plus souvent un
+    /// littéral ; le nom d'une option pour les curseurs d'options de design.
+    pub(in crate::ui) key: Arc<str>,
+    /// Domaine du curseur (bornes) et pas de son incrément.
+    pub(in crate::ui) range: (f64, f64),
+    pub(in crate::ui) step: f64,
+    /// Pose la valeur, comme pendant un glissé. Une fermeture : le site dont
+    /// le message emporte une donnée du rendu (une forme, une étape, une
+    /// clé d'écran) la garde ici, comme son glissé la portait déjà.
+    pub(in crate::ui) pose: Arc<dyn Fn(f64) -> Msg + Send + Sync>,
+    /// Enregistre, comme au relâchement. Sans la valeur : posée juste avant,
+    /// elle ne doit pas être écrasée par celle d'avant la saisie.
+    pub(in crate::ui) save: Msg,
+    /// Nom lu par le lecteur d'écran (HIG ACC-01) quand le curseur n'est pas
+    /// dans une `field`, dont le libellé le nomme sinon.
+    pub(in crate::ui) name: Option<Arc<str>>,
+}
+
+impl SliderSpec {
+    pub(in crate::ui) fn new(
+        key: impl Into<Arc<str>>,
+        range: (f64, f64),
+        step: f64,
+        pose: impl Fn(f64) -> Msg + Send + Sync + 'static,
+        save: Msg,
+    ) -> Self {
+        SliderSpec {
+            key: key.into(),
+            range,
+            step,
+            pose: Arc::new(pose),
+            save,
+            name: None,
+        }
+    }
+
+    /// Le curseur nommé pour le lecteur d'écran : le libellé que sa rangée
+    /// affiche à côté de lui, hors d'une `field`.
+    pub(in crate::ui) fn named(self, name: impl Into<Arc<str>>) -> Self {
+        SliderSpec {
+            name: Some(name.into()),
+            ..self
+        }
+    }
+}
+
+/// La fermeture ne se montre pas : clé, domaine, pas et enregistrement.
+/// Écrit sans `debug_struct` : ses `.field("…")` sont pris pour des libellés
+/// à traduire par le relevé du catalogue.
+impl std::fmt::Debug for SliderSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SliderSpec({:?}, {:?}, {:?}, {:?})",
+            self.key, self.range, self.step, self.save
+        )
+    }
+}
+
+/// Présentation d'un curseur de réglage (HIG SEL-08) : celle que sa rangée
+/// avait avant de passer au composant [`App::slider`], pour qu'au repos rien
+/// ne bouge.
+#[derive(Debug, Clone, Copy)]
+pub struct SliderLook {
+    /// Taille du texte de la valeur.
+    pub(in crate::ui) size: f32,
+    /// Largeur du curseur.
+    pub(in crate::ui) width: Length,
+    /// Largeur de la valeur au repos : `Shrink`, ou fixe quand le site la
+    /// fixait.
+    pub(in crate::ui) value_width: Length,
+    /// Alignement du curseur et de sa valeur l'un à l'autre.
+    pub(in crate::ui) align_y: Alignment,
+    /// Écart du curseur à sa valeur : 12 px, sauf le site qui en avait un
+    /// autre.
+    pub(in crate::ui) spacing: u16,
+    /// Encre de la valeur quand le site la donnait : une valeur secondaire en
+    /// a une propre. Sans elle, l'encre du texte.
+    pub(in crate::ui) value_color: Option<Color>,
+    /// Plafond de largeur (en px) d'un curseur souple.
+    pub(in crate::ui) cap: Option<u16>,
+}
+
+impl SliderLook {
+    /// Curseur à largeur fixe (en px), la valeur à sa juste largeur : la
+    /// rangée se resserre sur les deux.
+    pub(in crate::ui) const fn fixed(size: f32, width: u16, align_y: Alignment) -> Self {
+        SliderLook {
+            size,
+            width: Length::Fixed(width as f32),
+            value_width: Length::Shrink,
+            align_y,
+            spacing: 12,
+            value_color: None,
+            cap: None,
+        }
+    }
+
+    /// Curseur souple, qui remplit la place que lui laisse la valeur ; celle-ci
+    /// garde la largeur fixe (en px) du site.
+    pub(in crate::ui) const fn fill(size: f32, value_width: u16, align_y: Alignment) -> Self {
+        SliderLook {
+            size,
+            width: Length::Fill,
+            value_width: Length::Fixed(value_width as f32),
+            align_y,
+            spacing: 12,
+            value_color: None,
+            cap: None,
+        }
+    }
+
+    /// Curseur souple plafonné : il remplit la place que lui laisse la valeur,
+    /// jusqu'à `cap` px — en colonne étroite, il cède sa place plutôt que de
+    /// pousser la valeur. Celle-ci garde sa juste largeur.
+    pub(in crate::ui) const fn capped(size: f32, cap: u16, align_y: Alignment) -> Self {
+        SliderLook {
+            size,
+            width: Length::Fill,
+            value_width: Length::Shrink,
+            align_y,
+            spacing: 12,
+            value_color: None,
+            cap: Some(cap),
+        }
+    }
+
+    /// L'écart que le site mettait déjà entre le curseur et sa valeur.
+    pub(in crate::ui) const fn spacing(mut self, spacing: u16) -> Self {
+        self.spacing = spacing;
+        self
+    }
+
+    /// L'encre que le site donnait à sa valeur.
+    pub(in crate::ui) const fn ink(mut self, color: Color) -> Self {
+        self.value_color = Some(color);
+        self
+    }
+
+    /// La largeur exacte que le site donnait à sa valeur, quand elle suit
+    /// la croissance du texte.
+    pub(in crate::ui) fn value_width(mut self, width: impl Into<Length>) -> Self {
+        self.value_width = width.into();
+        self
+    }
+}
+
+/// Champ de la valeur d'un curseur, ouvert (HIG SEL-08) : un seul à la fois,
+/// refermé en changeant de page.
+#[derive(Debug, Clone)]
+pub struct SliderEdit {
+    /// Le curseur saisi.
+    pub(in crate::ui) spec: SliderSpec,
+    /// Saisie en cours.
+    draft: String,
+}
+
+impl SliderEdit {
+    /// Champ ouvert sur la valeur actuelle du curseur : le nombre seul, ramené
+    /// au pas du curseur — une valeur calculée en `f32` (un volume en pour
+    /// cent) s'ouvre sur « 30 », non sur « 30.000002 ».
+    pub(in crate::ui) fn new(spec: SliderSpec, value: f64) -> Self {
+        let draft = nombre(au_pas(value, spec.range, spec.step));
+        SliderEdit { spec, draft }
+    }
+}
+
+/// Valeur tapée pour un curseur (HIG SEL-08) : point ou virgule décimaux,
+/// l'unité qui suit le nombre est ignorée (`72 px`). La valeur est bornée au
+/// domaine, ramenée au pas. Texte illisible : `None`.
+fn slider_value(saisie: &str, range: (f64, f64), step: f64) -> Option<f64> {
+    // Le nombre en tête de la saisie : signe, chiffres, décimales.
+    let mut nombre = String::new();
+    let mut digits = 0;
+    for (i, c) in saisie.trim().replace(',', ".").char_indices() {
+        match c {
+            '0'..='9' => {
+                digits += 1;
+                nombre.push(c);
+            }
+            '+' | '-' if i == 0 => nombre.push(c),
+            '.' if !nombre.contains('.') => nombre.push(c),
+            _ => break,
+        }
+    }
+    if digits == 0 {
+        return None;
+    }
+    let v: f64 = nombre.parse().ok()?;
+    Some(au_pas(v, range, step))
+}
+
+/// La valeur bornée au domaine et ramenée au pas, comptée depuis le minimum.
+/// Six décimales au plus : pas de bruit d'addition flottante.
+fn au_pas(v: f64, range: (f64, f64), step: f64) -> f64 {
+    let (min, max) = (range.0.min(range.1), range.0.max(range.1));
+    let step = if step.is_finite() && step > 0.0 {
+        step
+    } else {
+        1.0
+    };
+    let snapped = min + ((v.clamp(min, max) - min) / step).round() * step;
+    (snapped * 1e6).round() / 1e6
+}
+
+/// Nombre seul, sans zéro de fin (`48`, `1.5`) : la saisie proposée à
+/// l'ouverture du champ de la valeur d'un curseur (HIG SEL-08).
+fn nombre(v: f64) -> String {
+    let s = format!("{v:.6}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    match s {
+        "" | "-0" => "0",
+        _ => s,
+    }
+    .to_string()
 }
 
 /// Couleurs proposées (palette Dracula PRO), partagées par les paquets.
@@ -128,6 +444,42 @@ pub const DRAWER_W: f32 = 936.0;
 /// sur une colonne étroite.
 pub const CHAT_W: f32 = 780.0;
 const DRAWER_GAP: f32 = 12.0;
+/// Largeur de la navigation du tiroir large, texte au repos.
+const NAV_W: f32 = 166.0;
+/// Ce que la colonne des réglages garde au minimum : la navigation élargie
+/// par le texte ne le prend pas (HIG TYP-08).
+const DETAIL_MIN: f32 = 360.0;
+
+/// La navigation et le contenu du tiroir défilent jusqu'à la commande qui a
+/// le focus, si Tab l'a posé hors de vue (HIG ENT-01).
+fn panel_reveal() -> Task<Msg> {
+    super::focus::reveal(CONTENT_SCROLL_ID).chain(super::focus::reveal(NAV_SCROLL_ID))
+}
+
+/// Le nom d'un curseur du tiroir aux opérations : la saisie de sa valeur
+/// refermée, le focus lui revient (HIG ENT-01).
+fn slider_focus_id(key: &str) -> iced::widget::Id {
+    iced::widget::Id::from(format!("hyprdesk-slider-{key}"))
+}
+
+/// Largeur de la navigation d'un tiroir de `largeur` dont le texte a grandi
+/// de `croissance` : icônes seules en tiroir étroit ; sinon la largeur du
+/// repos, suivie par le texte — un libellé de paquet et son compteur
+/// tiennent côte à côte à toute échelle —, bornée par [`DETAIL_MIN`]
+/// (HIG TYP-08).
+fn nav_width(largeur: f32, croissance: f32) -> f32 {
+    if largeur < 640.0 {
+        return 46.0;
+    }
+    (NAV_W * croissance)
+        .min((largeur - 2.0 * DRAWER_GAP - 48.0 - 24.0 - 14.0 - DETAIL_MIN).max(46.0))
+}
+
+/// Ligne des actions de l'en-tête à côté du titre : elle y tient tant que le
+/// tiroir est large pour le texte (HIG TYP-08).
+fn header_one_line(largeur: f32, croissance: f32) -> bool {
+    largeur >= 880.0 * croissance
+}
 
 impl Panel {
     pub fn new(win: Id) -> Self {
@@ -143,6 +495,8 @@ impl Panel {
             screens: Default::default(),
             workspaces: Default::default(),
             tour: None,
+            tour_tried: false,
+            tour_from: None,
             layouts: Default::default(),
             animations: Default::default(),
             sound: Default::default(),
@@ -153,6 +507,7 @@ impl Panel {
             network: Default::default(),
             bluetooth: Default::default(),
             datetime: Default::default(),
+            notifications: Default::default(),
             input: Default::default(),
             autostart: Default::default(),
             hyprconfig: Default::default(),
@@ -174,6 +529,8 @@ impl Panel {
             about: Default::default(),
             defaults_ask: None,
             defaults_done: None,
+            slider: None,
+            keyboard: true,
         }
     }
 
@@ -185,6 +542,65 @@ impl Panel {
 }
 
 impl App {
+    /// Affiche un paquet dans le tiroir ouvert ; c'est désormais le dernier
+    /// consulté, celui de la réouverture (HIG PAT-09).
+    fn panel_show(&mut self, tab: Tab) -> Task<Msg> {
+        let Some(panel) = self.panel.as_mut() else {
+            return Task::none();
+        };
+        self.panel_tab = tab;
+        panel.tab = tab;
+        // Autre page : la valeur d'un curseur en cours de saisie se referme.
+        panel.slider = None;
+        plugins::on_show(self, tab)
+    }
+
+    /// Referme la valeur d'un curseur en cours de saisie (HIG SEL-08) : la
+    /// page qui la portait change ou disparaît.
+    fn slider_close(&mut self) {
+        if let Some(p) = self.panel.as_mut() {
+            p.slider = None;
+        }
+    }
+
+    /// Paquet où le tiroir rouvre : le dernier consulté, s'il est encore
+    /// affiché (plugin actif, configuration avancée suffisante) ; sinon le
+    /// Bureau.
+    fn panel_restore(&self) -> Tab {
+        if self.setting_visible(self.panel_tab) {
+            self.panel_tab
+        } else {
+            plugins::desktop::INFO.id
+        }
+    }
+
+    /// Entrées de la navigation pour le groupe `ids`, dans son ordre :
+    /// paquets montrés ; pendant une recherche (`found` non vide ou requête
+    /// posée), ceux qui ont une correspondance. Partagé par la vue et l'arbre
+    /// d'accessibilité (HIG ACC-01).
+    pub(in crate::ui) fn nav_items(
+        &self,
+        ids: &[&str],
+        found: &[&'static super::settings_search::Entry],
+    ) -> Vec<&'static plugins::PluginInfo> {
+        let searching = self
+            .panel
+            .as_ref()
+            .is_some_and(|p| !p.search.trim().is_empty());
+        ids.iter()
+            .filter_map(|id| plugins::BUILTIN.iter().find(|i| i.id == *id))
+            .filter(|i| self.setting_visible(i.id))
+            .filter(|i| !searching || found.iter().any(|e| e.page == i.id))
+            .collect()
+    }
+
+    /// Paquet dont les réglages se montrent et se trouvent : plugin actif,
+    /// configuration avancée suffisante. Le tiroir et le lanceur (`:r`) ont
+    /// la même liste (HIG PAT-13).
+    pub(in crate::ui) fn setting_visible(&self, id: &str) -> bool {
+        self.cfg.plugin_on(id) && plugins::visible(id, self.advanced())
+    }
+
     /// Ouvre le tiroir des réglages sur l'écran principal, dans sa propre
     /// surface au-dessus des fenêtres : le mode du bureau ne change pas.
     pub(super) fn open_panel(&mut self) -> Task<Msg> {
@@ -215,6 +631,142 @@ impl App {
     /// Tiroir affiché ou en train de s'ouvrir (pas en train de se fermer).
     pub(super) fn panel_open(&self) -> bool {
         self.panel.is_some() && self.panel_fade.is_none_or(|f| f.to >= 1.0)
+    }
+
+    /// Le clavier va au volet des Réglages (raccourci `keys.focus_settings`,
+    /// HIG ENT-02) : fermé, il s'ouvre ; ouvert, il reste, et garde le clavier
+    /// s'il le tient déjà — le focus reste où il est. Sinon il le reprend : un
+    /// volet ouvert qui ne le tenait plus renaît, Hyprland ne le donnant à une
+    /// couche « à la demande » qu'à son apparition (comme le dock,
+    /// `launcher_grab`). Le focus se pose alors sur son premier contrôle. Le
+    /// mode du bureau ne change pas.
+    pub(super) fn focus_panel(&mut self) -> Task<Msg> {
+        let state = |p: &Panel| (p.surface, p.keyboard);
+        let before = self.panel.as_ref().map(state);
+        let open = self.open_panel();
+        let reborn = self.panel.as_mut().filter(|p| !p.keyboard).map(|p| {
+            let monitor = self.surfaces.get(&p.win).cloned().unwrap_or_default();
+            let old = std::mem::replace(&mut p.surface, Id::unique());
+            p.keyboard = true;
+            (old, p.surface, monitor)
+        });
+        let reborn = match reborn {
+            Some((old, fresh, monitor)) => {
+                Task::batch([iced::window::close(old), self.panel_surface(fresh, monitor)])
+            }
+            None => Task::none(),
+        };
+        // Ouvert et tenant le clavier : rien n'a changé, le focus ne bouge pas.
+        // Au tour suivant : la surface nouvelle existe quand le focus se pose.
+        let first = (self.panel.as_ref().map(state) != before)
+            .then(|| Task::done(Msg::Panel(PanelMsg::FocusFirst)));
+        Task::batch([open, reborn, first.unwrap_or_else(Task::none)])
+    }
+
+    /// Une commande du tiroir dans le parcours au clavier (HIG ENT-01) : Tab
+    /// l'atteint, l'anneau la montre, Entrée ou Espace l'active. Jamais un
+    /// champ de saisie, déjà focalisable. Accès clavier complet coupé
+    /// (`general.keyboard_access`) : la commande est rendue telle quelle, Tab
+    /// ne va plus qu'aux champs.
+    /// Une commande qui peut être inactive (`on` faux : sans message) : hors
+    /// du parcours tant qu'elle l'est, un arrêt de Tab sans effet n'aide pas.
+    pub(in crate::ui) fn focusable_when<'a>(
+        &self,
+        control: impl Into<Element<'a, Msg>>,
+        on: bool,
+    ) -> Element<'a, Msg> {
+        if on {
+            self.focusable(control)
+        } else {
+            control.into()
+        }
+    }
+
+    /// Une liste déroulante du tiroir dans le parcours au clavier (HIG
+    /// ENT-01) : les flèches changent l'option, liste fermée.
+    pub(in crate::ui) fn choosable<'a>(
+        &self,
+        control: impl Into<Element<'a, Msg>>,
+    ) -> Element<'a, Msg> {
+        super::focus::choose(control, self.ink().fg, self.cfg.general.keyboard_access)
+    }
+
+    /// Interrupteur d'un réglage : le `toggler` d'iced, décrit à l'arbre
+    /// d'accessibilité (HIG ACC-01) en `CheckBox`, coché selon `on`, actif
+    /// seulement avec un message (`on_toggle`), nommé par son libellé
+    /// (`label`) ou par celui de la `field` qui l'enveloppe.
+    pub(in crate::ui) fn toggle<'s, 'a>(&'s self, on: bool) -> Switch<'s, 'a> {
+        use crate::a11y::model::{Node, Role, State};
+        let noted = self.a11y_note(|| {
+            let n = Node::new(Role::CheckBox, "");
+            let n = Node {
+                states: n.states.without(State::Enabled).without(State::Sensitive),
+                ..n
+            };
+            if on { n.state(State::Checked) } else { n }
+        });
+        Switch {
+            app: self,
+            noted,
+            toggler: iced::widget::toggler(on),
+        }
+    }
+
+    pub(in crate::ui) fn focusable<'a>(
+        &self,
+        control: impl Into<Element<'a, Msg>>,
+    ) -> Element<'a, Msg> {
+        super::focus::click(control, self.ink().fg, self.cfg.general.keyboard_access)
+    }
+
+    /// `hyprdesk keyboard-access` (raccourci `keys.keyboard_access`, HIG
+    /// ENT-01) : bascule l'accès clavier complet, l'enregistre et l'annonce à
+    /// l'écran. L'annonce dit l'état appliqué : une clé fixée dans
+    /// hyprdesk.lua l'emporte sur la bascule.
+    pub(super) fn keyboard_access_toggle(&mut self) -> Task<Msg> {
+        self.settings.keyboard_access = Some(!self.cfg.general.keyboard_access);
+        let saved = self.commit();
+        let note = if self.cfg.general.keyboard_access {
+            "Accès clavier complet : activé"
+        } else {
+            "Accès clavier complet : désactivé"
+        };
+        let shown = self.show_osd_note("input-keyboard-symbolic", crate::i18n::tr(note).into());
+        Task::batch([saved, shown])
+    }
+
+    /// Le champ de recherche du volet prend le focus, lui seul : les autres
+    /// surfaces perdent le leur (HIG ENT-02). Viser le champ, et non le
+    /// premier focalisable : la croix de l'en-tête, dans le parcours au
+    /// clavier (HIG ENT-01), le précède dans l'arbre.
+    pub(super) fn panel_focus_first(&self) -> Task<Msg> {
+        iced::widget::operation::focus(SEARCH_ID)
+    }
+
+    /// La saisie d'une valeur refermée (Entrée, Échap) : le focus revient au
+    /// curseur qui l'avait ouverte, accès clavier complet activé.
+    fn slider_refocus(&self, key: &str) -> Task<Msg> {
+        if self.cfg.general.keyboard_access {
+            iced::widget::operation::focus(slider_focus_id(key))
+        } else {
+            Task::none()
+        }
+    }
+
+    /// Le contrôle suivant (précédent) du volet prend le focus ; l'opération
+    /// est bornée au volet (HIG ENT-02), elle ne va pas aux autres surfaces.
+    pub(super) fn panel_focus_step(&self, previous: bool) -> Task<Msg> {
+        super::focus::step(iced::widget::Id::new(PANEL_ID), previous).chain(panel_reveal())
+    }
+
+    /// Ctrl+Tab (Ctrl+Maj + Tab) : le focus va au premier contrôle du groupe
+    /// suivant (précédent) du tiroir, la navigation ou le contenu (HIG ENT-01).
+    pub(super) fn panel_focus_jump(&self, previous: bool) -> Task<Msg> {
+        iced::advanced::widget::operate(iced::advanced::widget::operation::scope(
+            iced::widget::Id::new(PANEL_ID),
+            super::focus::jump(&PANEL_GROUPS, previous),
+        ))
+        .chain(panel_reveal())
     }
 
     /// Fond d'écran sous le tiroir, à sa place sur l'écran : ce que son
@@ -267,6 +819,9 @@ impl App {
             return Task::batch([iced::window::close(old), self.open_panel_at(win)]);
         }
         let mut p = Panel::new(win);
+        // Le tiroir rouvre sur le dernier paquet consulté (HIG PAT-09).
+        p.tab = self.panel_restore();
+        let tab = p.tab;
         let mut create = Task::none();
         p.surface = match reuse {
             Some(id) => id,
@@ -293,6 +848,12 @@ impl App {
             k.overview.clone(),
             k.search_desktop.clone(),
             k.assistant.clone(),
+            k.focus_bar.clone(),
+            k.focus_dock.clone(),
+            k.focus_notifications.clone(),
+            k.focus_settings.clone(),
+            k.force_quit.clone(),
+            k.keyboard_access.clone(),
         ];
         self.panel = Some(p);
         let from = self
@@ -323,6 +884,13 @@ impl App {
             // Options de Hyprland : valeurs en vigueur, lignes de hyprland.lua.
             self.load_hypr_current(),
             self.load_hypr_source(),
+            // Paquet rouvert autre que le Bureau : ses données se chargent,
+            // comme à chaque arrivée sur un onglet.
+            if tab == plugins::desktop::INFO.id {
+                Task::none()
+            } else {
+                plugins::on_show(self, tab)
+            },
             Task::perform(
                 async {
                     tokio::task::spawn_blocking(launch::font_families)
@@ -365,7 +933,9 @@ impl App {
                     .size(crate::ui::tokens::ts(12.0))
                     .into()
             });
-        iced::widget::tooltip(
+        // Dans le parcours au clavier (HIG ENT-01) : le clic au centre tombe
+        // sur le bouton.
+        self.focusable(iced::widget::tooltip(
             iced::widget::button(glyph)
                 .padding([4, 8])
                 .style(move |_, st| iced::widget::button::Style {
@@ -388,8 +958,7 @@ impl App {
             crate::i18n::text(crate::i18n::tr("Demander à LYRA de régler le problème"))
                 .font(self.font),
             iced::widget::tooltip::Position::Left,
-        )
-        .into()
+        ))
     }
 
     pub(in crate::ui) fn commit(&mut self) -> Task<Msg> {
@@ -439,15 +1008,10 @@ impl App {
 
     pub(super) fn panel_update(&mut self, msg: PanelMsg) -> Task<Msg> {
         match msg {
-            PanelMsg::Tab(t) => {
-                let Some(panel) = self.panel.as_mut() else {
-                    return Task::none();
-                };
-                panel.tab = t;
-                plugins::on_show(self, t)
-            }
+            PanelMsg::Tab(t) => self.panel_show(t),
             PanelMsg::SubTab(pkg, tab) => {
                 self.subtabs.insert(pkg, tab);
+                self.slider_close();
                 Task::none()
             }
             PanelMsg::Search(q) => {
@@ -455,23 +1019,24 @@ impl App {
                     p.search_list = !q.trim().is_empty();
                     p.search = q;
                 }
+                // La page cède la place aux résultats dès que la requête est écrite.
+                self.slider_close();
                 Task::none()
             }
             PanelMsg::SearchOpen(pkg, tab) => {
                 if let Some(t) = tab {
                     self.subtabs.insert(pkg, t);
                 }
-                let Some(p) = self.panel.as_mut() else {
-                    return Task::none();
-                };
-                p.search_list = false;
-                p.tab = pkg;
-                plugins::on_show(self, pkg)
+                if let Some(p) = self.panel.as_mut() {
+                    p.search_list = false;
+                }
+                self.panel_show(pkg)
             }
             PanelMsg::SearchBack => {
                 if let Some(p) = self.panel.as_mut() {
                     p.search_list = !p.search.trim().is_empty();
                 }
+                self.slider_close();
                 Task::none()
             }
             PanelMsg::SearchClear => {
@@ -479,23 +1044,88 @@ impl App {
                     p.search.clear();
                     p.search_list = false;
                 }
-                Task::none()
+                // Le champ reprend le focus : une nouvelle recherche s'écrit.
+                iced::widget::operation::focus(SEARCH_ID)
             }
+            PanelMsg::FocusFirst => self.panel_focus_first(),
             PanelMsg::Tour(m) => self.tour_update(m),
             PanelMsg::Advanced(v) => {
                 self.settings.advanced_settings = Some(v);
-                // Paquet affiché devenu avancé : retour au Bureau.
+                // Paquet affiché devenu avancé : retour au Bureau, qui reste
+                // celui de la réouverture.
                 if !v
                     && let Some(p) = self.panel.as_mut()
                     && !plugins::visible(p.tab, false)
                 {
+                    self.panel_tab = plugins::desktop::INFO.id;
                     p.tab = plugins::desktop::INFO.id;
                 }
+                self.slider_close();
                 self.commit()
+            }
+            PanelMsg::AdvToggle(key) => {
+                // Dépliée : on la replie ; repliée : on la déplie. Le champ
+                // d'un curseur qu'elle porte se referme avec elle.
+                if !self.adv_open.remove(&key) {
+                    self.adv_open.insert(key);
+                }
+                self.slider_close();
+                Task::none()
             }
             PanelMsg::Close => self.close_panel(),
             PanelMsg::Commit => self.commit(),
-            PanelMsg::Plugin(m) => plugins::update(self, m),
+            PanelMsg::SliderEdit(edit) => {
+                // Un seul champ ouvert à la fois.
+                self.slider_close();
+                let Some(p) = self.panel.as_mut() else {
+                    return Task::none();
+                };
+                p.slider = Some(*edit);
+                // Le champ prend le focus, son nombre sélectionné : la
+                // saisie le remplace.
+                use iced::widget::operation;
+                operation::focus(SLIDER_ID).chain(operation::select_all(SLIDER_ID))
+            }
+            PanelMsg::SliderDraft(s) => {
+                if let Some(e) = self.panel.as_mut().and_then(|p| p.slider.as_mut()) {
+                    e.draft = s;
+                }
+                Task::none()
+            }
+            PanelMsg::SliderSubmit => {
+                let Some(e) = self.panel.as_ref().and_then(|p| p.slider.clone()) else {
+                    return Task::none();
+                };
+                // Illisible : rien, le champ garde la saisie.
+                let Some(v) = slider_value(&e.draft, e.spec.range, e.spec.step) else {
+                    return Task::none();
+                };
+                self.slider_close();
+                // Comme un glissé puis son relâchement : la valeur est posée,
+                // puis enregistrée.
+                let back = self.slider_refocus(&e.spec.key);
+                let save = e.spec.save;
+                self.update_inner((e.spec.pose)(v))
+                    .chain(Task::done(save))
+                    .chain(back)
+            }
+            PanelMsg::SliderClose => {
+                let key = self
+                    .panel
+                    .as_ref()
+                    .and_then(|p| p.slider.as_ref())
+                    .map(|e| e.spec.key.clone());
+                self.slider_close();
+                key.map_or_else(Task::none, |k| self.slider_refocus(&k))
+            }
+            // Un geste dans le paquet referme la valeur en cours de saisie
+            // (HIG SEL-08) : la pose garde la donnée du rendu à l'ouverture
+            // du champ (une forme, une étape), qu'un autre réglage bougé
+            // depuis pourrait rendre périmée.
+            PanelMsg::Plugin(m) => {
+                self.slider_close();
+                plugins::update(self, m)
+            }
             PanelMsg::Defaults(tab) => {
                 let Some(p) = self.panel.as_mut() else {
                     return Task::none();
@@ -555,7 +1185,6 @@ impl App {
     /// Sous l'en-tête : confirmation de la remise (ce qu'elle touche), ou
     /// son résultat ; rien sinon.
     fn defaults_status(&self, p: &Panel) -> Option<Element<'_, Msg>> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
         let tab = p.tab;
         if p.defaults_ask == Some(tab) {
             let mut what = vec![crate::i18n::tr("ses réglages").to_string()];
@@ -573,7 +1202,7 @@ impl App {
                     ))
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
-                    .color(Color { a: 0.8, ..fg }),
+                    .color(self.ink().dim),
                     row![
                         button(text("Confirmer").font(self.font).size(crate::ui::tokens::ts(12.0)))
                             .padding([4, 12])
@@ -584,7 +1213,8 @@ impl App {
                             .style(button::secondary)
                             .on_press(Msg::Panel(PanelMsg::DefaultsCancel)),
                     ]
-                    .spacing(8),
+                    // 12 px entre les deux commandes (HIG ACC-10).
+                    .spacing(12),
                 ]
                 .spacing(8)
                 .into(),
@@ -593,11 +1223,12 @@ impl App {
         match &p.defaults_done {
             Some((t, r)) if *t == tab => {
                 let (msg, c) = match r {
-                    Ok(m) => (m.clone(), Color { a: 0.75, ..fg }),
+                    Ok(m) => (m.clone(), self.ink().dim),
                     Err(e) => (e.clone(), crate::ui::tone::warning()),
                 };
                 Some(
-                    text(msg)
+                    // Chemin de la copie, erreur : à sélectionner et à copier (HIG LAY-05).
+                    super::selectable::selectable(msg)
                         .font(self.font)
                         .size(crate::ui::tokens::ts(12.0))
                         .color(c)
@@ -619,8 +1250,14 @@ impl App {
     /// nombre de colonnes plutôt que de déborder.
     pub(in crate::ui) fn detail_width(&self) -> f32 {
         let w = self.panel_width();
-        let nav = if w >= 640.0 { 166.0 } else { 46.0 };
+        let nav = self.nav_width();
         (w - 2.0 * DRAWER_GAP - 48.0 - nav - 24.0 - 14.0).max(0.0)
+    }
+
+    /// Largeur de la navigation du tiroir, suivie par le texte agrandi
+    /// ([`nav_width`]).
+    fn nav_width(&self) -> f32 {
+        nav_width(self.panel_width(), super::tokens::text_growth())
     }
 
     /// Largeur du tiroir de l'assistant.
@@ -671,32 +1308,33 @@ impl App {
             if plugins::is_advanced(pkg, Some(id)) {
                 content = content.push(plugins::adv_icon(13.0));
             }
-            button(content)
-                .padding([6, 14])
-                .on_press(Msg::Panel(PanelMsg::SubTab(pkg, id)))
-                .style(move |_, status| {
-                    let hover = matches!(status, button::Status::Hovered);
-                    button::Style {
-                        background: Some(
-                            if active {
-                                Color { a: 0.28, ..accent }
-                            } else if hover {
-                                Color { a: 0.08, ..fg }
+            self.focusable(
+                button(content)
+                    .padding([6, 14])
+                    .on_press(Msg::Panel(PanelMsg::SubTab(pkg, id)))
+                    .style(move |_, status| {
+                        let hover = matches!(status, button::Status::Hovered);
+                        button::Style {
+                            background: Some(
+                                if active {
+                                    Color { a: 0.28, ..accent }
+                                } else if hover {
+                                    Color { a: 0.08, ..fg }
+                                } else {
+                                    Color::TRANSPARENT
+                                }
+                                .into(),
+                            ),
+                            text_color: fg,
+                            border: Border::default().rounded(999).width(1).color(if active {
+                                Color { a: 0.7, ..accent }
                             } else {
-                                Color::TRANSPARENT
-                            }
-                            .into(),
-                        ),
-                        text_color: fg,
-                        border: Border::default().rounded(999).width(1).color(if active {
-                            Color { a: 0.7, ..accent }
-                        } else {
-                            Color { a: 0.14, ..fg }
-                        }),
-                        ..Default::default()
-                    }
-                })
-                .into()
+                                Color { a: 0.14, ..fg }
+                            }),
+                            ..Default::default()
+                        }
+                    }),
+            )
         }))
         .spacing(8)
         .wrap()
@@ -716,31 +1354,25 @@ impl App {
         // Entrée d'un paquet.
         // Recherche en cours : résultats, et leur nombre par paquet.
         let query = p.search.trim().to_string();
-        let found = super::settings_search::search(&query, |id| {
-            self.cfg.plugin_on(id) && plugins::visible(id, adv)
-        });
+        let found = super::settings_search::search(&query, |id| self.setting_visible(id));
         let count = |id: &str| found.iter().filter(|e| e.page == id).count();
         let searching = !query.is_empty();
         let entry = |label: &'static str, icon: &'static str, tab: Tab| -> Element<'_, Msg> {
             let active = p.tab == tab;
             let n = count(tab);
-            // Recherche : les paquets sans correspondance s'effacent.
-            let fg = if searching && n == 0 {
-                Color { a: 0.35, ..fg }
-            } else {
-                fg
-            };
-            let glyph: Element<'_, Msg> = super::icons::get(icon)
-                .map(|handle| {
-                    iced::widget::svg(handle)
-                        .width(18)
-                        .height(18)
-                        .style(move |_, _| iced::widget::svg::Style {
-                            color: Some(if active { accent } else { fg }),
-                        })
-                        .into()
-                })
-                .unwrap_or_else(|| Space::new().into());
+            // Trait du libellé voisin, en Medium (HIG ICO-12).
+            let glyph: Element<'_, Msg> =
+                super::icons::get_weighted(icon, iced::font::Weight::Medium)
+                    .map(|handle| {
+                        iced::widget::svg(handle)
+                            .width(18)
+                            .height(18)
+                            .style(move |_, _| iced::widget::svg::Style {
+                                color: Some(if active { accent } else { fg }),
+                            })
+                            .into()
+                    })
+                    .unwrap_or_else(|| Space::new().into());
             let mut content = row![glyph].spacing(10).align_y(Alignment::Center);
             // Tiroir étroit (icônes seules) : la fiole suit l'icône d'un
             // paquet avancé, ou d'un paquet qui contient de l'avancé.
@@ -792,7 +1424,7 @@ impl App {
                     );
                 }
             }
-            button(content)
+            let entry = button(content)
                 .width(Length::Fill)
                 .padding([9, 12])
                 .on_press(Msg::Panel(PanelMsg::Tab(tab)))
@@ -809,21 +1441,19 @@ impl App {
                     text_color: if active { ink.fg } else { fg },
                     border: Border::default().rounded(11),
                     ..Default::default()
-                })
-                .into()
+                });
+            // La navigation des pages, dans le parcours au clavier (HIG ENT-01).
+            self.focusable(entry)
         };
         // Navigation par groupes ; le paquet choisi déploie ses onglets en
         // sous-entrées (tiroir large). Paquets coupés : absents (rallumables
         // dans Plugins) ; paquets avancés : seulement en configuration avancée.
+        // Recherche : la navigation ne garde que les paquets qui ont une
+        // correspondance, avec leur compte (HIG NAV-07).
         let mut nav = column![].spacing(2);
         let mut first = true;
         for g in plugins::GROUPS {
-            let items: Vec<&'static plugins::PluginInfo> = g
-                .ids
-                .iter()
-                .filter_map(|id| plugins::BUILTIN.iter().find(|i| i.id == *id))
-                .filter(|i| self.cfg.plugin_on(i.id) && plugins::visible(i.id, adv))
-                .collect();
+            let items = self.nav_items(g.ids, &found);
             if items.is_empty() {
                 continue;
             }
@@ -863,36 +1493,45 @@ impl App {
                             tab_label = tab_label.push(plugins::adv_icon(13.0));
                         }
                         nav = nav.push(
-                            button(tab_label)
-                                .width(Length::Fill)
-                                .padding(iced::Padding {
-                                    top: 5.0,
-                                    bottom: 5.0,
-                                    left: 40.0,
-                                    right: 8.0,
-                                })
-                                .on_press(Msg::Panel(PanelMsg::SubTab(i.id, t)))
-                                .style(move |_, status| button::Style {
-                                    background: if matches!(
-                                        status,
-                                        button::Status::Hovered | button::Status::Pressed
-                                    ) {
-                                        Some(Color { a: 0.06, ..fg }.into())
-                                    } else {
-                                        None
-                                    },
-                                    text_color: if active { ink.accent } else { ink.dim },
-                                    border: Border::default().rounded(8),
-                                    ..Default::default()
-                                }),
+                            self.focusable(
+                                button(tab_label)
+                                    .width(Length::Fill)
+                                    .padding(iced::Padding {
+                                        top: 5.0,
+                                        bottom: 5.0,
+                                        left: 40.0,
+                                        right: 8.0,
+                                    })
+                                    .on_press(Msg::Panel(PanelMsg::SubTab(i.id, t)))
+                                    .style(move |_, status| button::Style {
+                                        // Onglet courant : le voile de sélection du paquet
+                                        // courant, en permanence (HIG LAY-07).
+                                        background: if active {
+                                            Some(Color { a: 0.16, ..accent }.into())
+                                        } else if matches!(
+                                            status,
+                                            button::Status::Hovered | button::Status::Pressed
+                                        ) {
+                                            Some(Color { a: 0.06, ..fg }.into())
+                                        } else {
+                                            None
+                                        },
+                                        // L'accent sur son propre fond teinté se lit mal :
+                                        // texte plein, comme le paquet choisi.
+                                        text_color: if active { ink.fg } else { ink.dim },
+                                        border: Border::default().rounded(8),
+                                        ..Default::default()
+                                    }),
+                            ),
                         );
                     }
                 }
             }
         }
         let nav = scrollable(nav)
+            .id(NAV_SCROLL_ID)
             .height(Length::Fill)
-            .width(if wide { 166 } else { 46 })
+            .width(self.nav_width())
             .direction(iced::widget::scrollable::Direction::Vertical(
                 iced::widget::scrollable::Scrollbar::new()
                     .width(4)
@@ -901,75 +1540,132 @@ impl App {
         let (mon, ws) = self.panel_ctx().unwrap_or_default();
         let close_icon = super::icons::get("window-close").unwrap();
         let close = tooltip(
-            button(
-                iced::widget::svg(close_icon)
-                    .width(16)
-                    .height(16)
-                    .style(move |_, _| iced::widget::svg::Style { color: Some(fg) }),
-            )
-            .padding(9)
-            .on_press(Msg::Panel(PanelMsg::Close))
-            .style(button::text),
+            self.focusable(
+                button(
+                    iced::widget::svg(close_icon)
+                        .width(16)
+                        .height(16)
+                        .style(move |_, _| iced::widget::svg::Style { color: Some(fg) }),
+                )
+                .padding(9)
+                .on_press(Msg::Panel(PanelMsg::Close))
+                .style(button::text),
+            ),
             text("Fermer · Échap").font(self.font),
             iced::widget::tooltip::Position::Left,
         );
-        // Tiroir étroit : la ligne des actions ne tient plus à côté du titre
-        // (la recherche passait sur « Réglages ») ; elle passe dessous.
-        let one_line = self.panel_width() >= 880.0;
-        let actions = row![
-            iced::widget::text_input(crate::i18n::tr("Rechercher un réglage…"), &p.search)
-                .on_input(|q| Msg::Panel(PanelMsg::Search(q)))
-                .on_submit(match found.first() {
-                    Some(e) => Msg::Panel(PanelMsg::SearchOpen(e.page, e.tab)),
-                    None => Msg::Noop,
+        // Tiroir étroit, ou texte agrandi : la ligne des actions ne tient plus
+        // à côté du titre (la recherche passait sur « Réglages ») ; elle passe
+        // dessous.
+        let one_line = header_one_line(self.panel_width(), super::tokens::text_growth());
+        // Bouton Clear dans le champ, dès que la requête n'est pas vide.
+        let clear = !p.search.is_empty();
+        let input = iced::widget::text_input(crate::i18n::tr("Rechercher un réglage…"), &p.search)
+            .id(SEARCH_ID)
+            .on_input(|q| Msg::Panel(PanelMsg::Search(q)))
+            .on_submit(match found.first() {
+                Some(e) => Msg::Panel(PanelMsg::SearchOpen(e.page, e.tab)),
+                None => Msg::Noop,
+            })
+            // Le texte s'arrête avant le glyphe.
+            .padding(iced::Padding {
+                right: if clear { 30.0 } else { 10.0 },
+                ..iced::Padding::from([6, 10])
+            })
+            .size(crate::ui::tokens::ts(13.0))
+            .font(self.font)
+            .width(if one_line {
+                Length::Fixed(230.0)
+            } else {
+                Length::Fill
+            });
+        let mut layers: Vec<Element<'_, Msg>> = vec![input.into()];
+        if clear {
+            let glyph: Element<'_, Msg> = super::icons::get("window-close")
+                .map(|h| {
+                    iced::widget::svg(h)
+                        .width(14)
+                        .height(14)
+                        .style(move |_, _| iced::widget::svg::Style { color: Some(dim) })
+                        .into()
                 })
-                .padding([6, 10])
-                .size(crate::ui::tokens::ts(13.0))
-                .font(self.font)
-                .width(if one_line {
-                    Length::Fixed(230.0)
-                } else {
-                    Length::Fill
-                }),
-            button(
-                text(crate::i18n::tr("Visite guidée"))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-            )
-            .padding([4, 10])
-            .style(button::text)
-            .on_press(Msg::Panel(PanelMsg::Tour(super::tour::TourMsg::Start))),
-            button(
-                text(crate::i18n::tr("Assistant"))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-            )
-            .padding([4, 10])
-            .style(button::text)
-            .on_press(Msg::Control(crate::control::Command::Wizard)),
-            toggler(adv)
-                .label(crate::i18n::tr("Configuration avancée"))
-                .text_size(12)
-                .font(self.font)
-                .on_toggle(|v| Msg::Panel(PanelMsg::Advanced(v))),
+                .unwrap_or_else(|| {
+                    text("×")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim)
+                        .into()
+                });
+            layers.push(
+                container(tooltip(
+                    self.focusable(
+                        button(glyph)
+                            .padding(2)
+                            .style(button::text)
+                            .on_press(Msg::Panel(PanelMsg::SearchClear)),
+                    ),
+                    text(crate::i18n::tr("Effacer la recherche")).font(self.font),
+                    // En-tête du tiroir : la bulle s'ouvre dessous.
+                    iced::widget::tooltip::Position::Bottom,
+                ))
+                // La couche occupe tout le champ : sinon l'empilement pose le
+                // bouton à gauche.
+                .width(Length::Fill)
+                .align_x(Alignment::End)
+                .padding(iced::Padding {
+                    right: 6.0,
+                    ..iced::Padding::ZERO
+                })
+                .height(Length::Fill)
+                .center_y(Length::Fill)
+                .into(),
+            );
+        }
+        let actions = row![
+            iced::widget::Stack::with_children(layers),
+            self.focusable(
+                button(
+                    text(crate::i18n::tr("Visite guidée"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .style(button::text)
+                .on_press(Msg::Panel(PanelMsg::Tour(super::tour::TourMsg::Start)))
+            ),
+            self.focusable(
+                button(
+                    text(crate::i18n::tr("Assistant"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .style(button::text)
+                .on_press(Msg::Control(crate::control::Command::Wizard))
+            ),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
         let titles = column![
-            text("HYPRDESK")
+            // Le titre nomme le paquet visible, comme une fenêtre macOS nomme
+            // son volet (HIG PAT-16) ; « Réglages » reste en surligne.
+            text("Réglages")
                 .font(self.font)
                 .size(crate::ui::tokens::ts(11.0))
                 .color(self.ink().dim)
                 .font(self.title_font()),
-            text("Réglages")
+            // Titre de page : la seule graisse Bold du tiroir (HIG TYP-05).
+            text(plugins::find(p.tab).map_or("", |i| i.label))
                 .font(self.font)
-                .size(crate::ui::tokens::ts(27.0))
-                .font(self.title_font())
+                .size(crate::ui::tokens::ts(26.0))
+                .font(self.page_title_font())
                 .color(fg),
+            // Aides, états et comptes : la couleur secondaire du thème,
+            // garantie à 4,5:1 sur le fond du tiroir (HIG LAY-08).
             text(crate::tr!("{mon}  ·  Bureau {ws}", mon = mon, ws = ws))
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0))
-                .color(Color { a: 0.65, ..fg }),
+                .color(dim),
         ]
         .spacing(5)
         .width(Length::Fill);
@@ -1013,19 +1709,36 @@ impl App {
                 text("Modifications enregistrées automatiquement")
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
-                    .color(Color { a: 0.6, ..fg }),
+                    .color(dim),
                 Space::new().width(Length::Fill),
                 self.defaults_button(p),
             ]
             .spacing(7)
             .align_y(Alignment::Center),
+            // Sur sa propre ligne dans le corps des Réglages (HIG SEL-03) :
+            // un interrupteur n'a pas sa place dans l'en-tête, qui est la
+            // barre d'outils du tiroir.
+            self.focusable(
+                toggler(adv)
+                    .label(crate::i18n::tr("Configuration avancée"))
+                    .text_size(12)
+                    .font(self.font)
+                    .on_toggle(|v| Msg::Panel(PanelMsg::Advanced(v)))
+            ),
             self.tour_card(),
             self.defaults_status(p),
             self.subtab_bar(p.tab),
+            // Même barre de 4 px que la navigation (HIG PRES-04).
             scrollable(container(content).padding(iced::Padding {
                 right: 14.0,
                 ..iced::Padding::ZERO
             }))
+            .id(CONTENT_SCROLL_ID)
+            .direction(iced::widget::scrollable::Direction::Vertical(
+                iced::widget::scrollable::Scrollbar::new()
+                    .width(4)
+                    .scroller_width(4),
+            ))
             .height(Length::Fill),
         ]
         .spacing(18)
@@ -1034,7 +1747,14 @@ impl App {
             column![
                 header,
                 rule::horizontal(1),
-                row![nav, detail].spacing(24).height(Length::Fill)
+                row![
+                    // Deux groupes, la navigation et le contenu : Ctrl+Tab
+                    // passe de l'un à l'autre (HIG ENT-01).
+                    super::focus::group(PANEL_GROUPS[0], nav),
+                    super::focus::group(PANEL_GROUPS[1], detail)
+                ]
+                .spacing(24)
+                .height(Length::Fill)
             ]
             .spacing(22),
         )
@@ -1082,6 +1802,8 @@ impl App {
             iced::widget::float(mouse_area(card).on_press(Msg::Noop))
                 .translate(move |_, _| iced::Vector::new((1.0 - progress) * 28.0, 0.0)),
         )
+        // Aux opérations, le volet se nomme : le focus y est borné (HIG ENT-02).
+        .id(iced::widget::Id::new(PANEL_ID))
         .width(Length::Fill)
         .height(Length::Fill)
         .align_x(Alignment::End)
@@ -1090,30 +1812,212 @@ impl App {
     }
 
     /// Champ : libellé (et avertissement si hyprdesk.lua surcharge la clé), puis le contrôle.
+    /// Libellé vide : le contrôle seul, avec l'avertissement — le libellé est alors
+    /// l'intitulé du triangle de divulgation d'une section avancée (HIG LAY-01).
     pub(in crate::ui) fn field<'a>(
         &self,
         label: &'a str,
         key: &str,
         control: impl Into<Element<'a, Msg>>,
     ) -> Element<'a, Msg> {
-        let fg = color(self.cfg.general.theme.fg, 1.0);
-        let mut head = row![self.marked(
-            crate::i18n::tr(label),
-            14,
-            Color { a: 0.85, ..fg },
-            self.font
-        )]
-        .spacing(10)
-        .align_y(Alignment::Center);
+        let mut head = row![].spacing(10).align_y(Alignment::Center);
+        let mut titled = false;
+        if !label.is_empty() {
+            head = head.push(self.marked(crate::i18n::tr(label), 13, self.ink().dim, self.font));
+            titled = true;
+        }
         if !key.is_empty() && self.cfg.keys_user.contains(key) {
             head = head.push(
-                text("surchargé dans hyprdesk.lua — sans effet ici")
+                super::selectable::selectable("surchargé dans hyprdesk.lua — sans effet ici")
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
                     .color(crate::ui::tone::warning()),
             );
+            titled = true;
         }
-        column![head, control.into()].spacing(6).into()
+        let control = control.into();
+        // Arbre d'accessibilité : le libellé nomme la commande déposée par
+        // le contrôle, évalué avant cette fonction (HIG ACC-01).
+        let noted = self.a11y_field(label);
+        if !titled {
+            return super::accessible::keep(noted, control);
+        }
+        // L'avis passe sous le libellé quand le texte agrandi (ou une
+        // traduction longue) ne les tient plus côte à côte (HIG TYP-08).
+        let head: Element<'_, Msg> = head.wrap().into();
+        super::accessible::keep(noted, column![head, control].spacing(6).into())
+    }
+
+    /// Curseur d'un réglage et sa valeur, saisissable au clavier (HIG SEL-08).
+    /// Au repos : le curseur, puis sa valeur en texte plein ; un clic sur la
+    /// valeur ouvre un champ. Entrée pose la valeur (`poser`), puis
+    /// l'enregistre (`enregistrer`), comme un glissé puis son relâchement ;
+    /// Échap referme le champ sans rien changer. Le composant parle en `f64`
+    /// (domaine, pas, valeur) : à chaque site de convertir dans `poser`.
+    /// Sa présentation (`look`) est celle que la rangée du site avait déjà :
+    /// au repos, rien ne bouge d'une rangée faite à la main.
+    pub(in crate::ui) fn slider<'a>(
+        &self,
+        spec: &SliderSpec,
+        value: f64,
+        affiche: fn(f64) -> String,
+        look: SliderLook,
+    ) -> Element<'a, Msg> {
+        let (min, max) = spec.range;
+        // Arbre d'accessibilité (HIG ACC-01) : le curseur, sa valeur affichée
+        // en description, nommé par le libellé de la `field` qui l'enveloppe.
+        // Un curseur se dessine donc dans une `field`.
+        let noted = self.a11y_note(|| {
+            crate::a11y::model::Node::new(
+                crate::a11y::model::Role::Slider,
+                spec.name.as_deref().unwrap_or(""),
+            )
+            .key(format!("slider:{}", spec.key))
+            .describe(affiche(value))
+            .state(crate::a11y::model::State::Focusable)
+        });
+        let pose = Arc::clone(&spec.pose);
+        let slider = iced::widget::slider(min as f32..=max as f32, value as f32, move |v| {
+            pose(f64::from(v))
+        })
+        .step(spec.step as f32)
+        .on_release(spec.save.clone())
+        .width(look.width);
+        // Accès clavier complet (HIG ENT-01) : le curseur seul entre dans le
+        // parcours — les flèches le règlent au pas du réglage et
+        // l'enregistrent, Entrée ou Espace ouvrent la saisie de sa valeur. Le
+        // champ ouvert n'est jamais enveloppé : il est déjà focalisable.
+        let slider: Element<'a, Msg> = if self.cfg.general.keyboard_access {
+            let pose = Arc::clone(&spec.pose);
+            super::focus::steps(
+                slider,
+                super::focus::Steps {
+                    value: value as f32,
+                    range: (min as f32, max as f32),
+                    step: spec.step as f32,
+                    change: Box::new(move |v| pose(f64::from(v))),
+                    commit: Some(spec.save.clone()),
+                    enter: Some(Box::new(Msg::Panel(PanelMsg::SliderEdit(Box::new(
+                        SliderEdit::new(spec.clone(), value),
+                    ))))),
+                    id: Some(slider_focus_id(&spec.key)),
+                },
+                self.ink().fg,
+            )
+        } else {
+            slider.into()
+        };
+        // L'échelle du curseur (HIG SEL-09) : le minimum à gauche, le maximum
+        // à droite, dans le format du réglage, sous le curseur seul. Hauteur de
+        // ligne fixée : la valeur, à droite, en tient compte pour rester sur la
+        // ligne du curseur.
+        let dim = self.ink().dim;
+        let echelle_h = scale_line_h();
+        let borne = |v: f64| {
+            text(affiche(v))
+                .font(self.font)
+                .size(crate::ui::tokens::ts(SCALE_SIZE))
+                .line_height(iced::widget::text::LineHeight::Absolute(echelle_h.into()))
+                .color(dim)
+                .wrapping(iced::widget::text::Wrapping::None)
+        };
+        let echelle = row![borne(min), Space::new().width(Length::Fill), borne(max)]
+            .spacing(8)
+            .width(look.width);
+        let mut slider = column![slider].spacing(SCALE_GAP).width(look.width);
+        // Dix pas au plus : un trait sous chaque pas, au droit de la poignée.
+        if let Some(n) = graduations(spec.range, spec.step) {
+            let trait_ = || {
+                container(Space::new().width(1).height(TICK_H)).style(move |_| container::Style {
+                    background: Some(dim.into()),
+                    ..container::Style::default()
+                })
+            };
+            let mut ticks = row![trait_()]
+                .width(look.width)
+                .padding(iced::Padding::from([0.0, HANDLE_R - 0.5]));
+            for _ in 0..n {
+                ticks = ticks.push(Space::new().width(Length::Fill)).push(trait_());
+            }
+            slider = slider.push(ticks);
+        }
+        let slider = slider.push(echelle);
+        // Curseur plafonné : son contenant prend la place libre jusqu'au
+        // plafond, la valeur reste à sa suite.
+        let slider: Element<'_, Msg> = match look.cap {
+            Some(cap) => container(slider)
+                .width(Length::Fill)
+                .max_width(f32::from(cap))
+                .into(),
+            None => slider.into(),
+        };
+        let open = self
+            .panel
+            .as_ref()
+            .and_then(|p| p.slider.as_ref())
+            .filter(|e| e.spec.key == spec.key);
+        let value: Element<'a, Msg> = match open {
+            // La saisie : le nombre seul, aligné à droite, dans le champ de
+            // recherche du tiroir.
+            Some(e) => iced::widget::text_input("", &e.draft)
+                .id(SLIDER_ID)
+                .on_input(|s| Msg::Panel(PanelMsg::SliderDraft(s)))
+                .on_submit(Msg::Panel(PanelMsg::SliderSubmit))
+                .align_x(iced::alignment::Horizontal::Right)
+                // Bas, comme un champ de la HIG : la rangée grandit à peine.
+                .padding(iced::Padding::from([1, 8]))
+                .font(self.font)
+                .size(crate::ui::tokens::ts(look.size))
+                .width(SLIDER_FIELD_W)
+                .into(),
+            None => {
+                let label = text(affiche(value))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(look.size))
+                    // Un nombre tient sur une ligne, même agrandi.
+                    .wrapping(iced::widget::text::Wrapping::None)
+                    .width(look.value_width);
+                // L'encre du site : une valeur secondaire en a une propre.
+                let label = match look.value_color {
+                    Some(ink) => label.color(ink),
+                    None => label,
+                };
+                tooltip(
+                    button(label)
+                        // Un texte plein, sans la marge d'un bouton : au repos, la
+                        // valeur garde la place et la taille qu'elle avait.
+                        .padding(0)
+                        .style(button::text)
+                        .on_press(Msg::Panel(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+                            spec.clone(),
+                            value,
+                        ))))),
+                    crate::i18n::text(crate::i18n::tr("Saisir une valeur")).font(self.font),
+                    // La bulle s'ouvre dessous, sans couvrir le libellé du réglage.
+                    iced::widget::tooltip::Position::Bottom,
+                )
+                .into()
+            }
+        };
+        // La rangée remplit comme son curseur ; un curseur largeur fixe laisse
+        // la rangée se resserrer sur ses deux éléments. Un curseur plafonné
+        // garde une rangée souple : resserrée, elle ne lui laisserait aucune
+        // place, et son contenant s'arrête de lui-même au plafond.
+        let rangee = match look.width {
+            Length::Shrink | Length::Fixed(_) => Length::Shrink,
+            souple => souple,
+        };
+        // La valeur garde sous elle la place de l'échelle : centrée ou en
+        // haut, elle reste sur la ligne du curseur.
+        let value = beside_slider(spec, value);
+        super::accessible::keep(
+            noted,
+            row![slider, value]
+                .spacing(f32::from(look.spacing))
+                .width(rangee)
+                .align_y(look.align_y)
+                .into(),
+        )
     }
 
     /// Couleurs de texte lisibles du tiroir (WCAG AA sur son fond) : texte,
@@ -1132,10 +2036,15 @@ impl App {
     }
 
     pub(in crate::ui) fn section<'a>(&self, title: &'a str) -> Element<'a, Msg> {
-        let accent = color(self.cfg.general.theme.accent, 1.0);
+        // Arbre d'accessibilité : une clôture, sans nœud (HIG ACC-01) ; une
+        // page construit parfois un titre après son contenu, l'ordre de
+        // l'arbre le trahirait.
+        self.a11y_bound();
+        // Titre accentué : l'encre garantie à 4,5:1 (HIG FON-05).
+        let accent = self.ink().accent;
         column![
             Space::new().height(8),
-            self.marked(crate::i18n::tr(title), 16, accent, self.title_font()),
+            self.marked(crate::i18n::tr(title), 15, accent, self.title_font()),
         ]
         .into()
     }
@@ -1154,6 +2063,19 @@ impl App {
         font: iced::Font,
     ) -> Element<'a, Msg> {
         let q = self.search_query();
+        self.marked_with(s, q, size, c, font)
+    }
+
+    /// [`App::marked`] pour la recherche `q` donnée : celle du lanceur
+    /// (`:r`), qui n'est pas celle du tiroir (HIG PAT-13).
+    pub(in crate::ui) fn marked_with<'a>(
+        &self,
+        s: &str,
+        q: &str,
+        size: u32,
+        c: Color,
+        font: iced::Font,
+    ) -> Element<'a, Msg> {
         let hits = if q.is_empty() {
             Vec::new()
         } else {
@@ -1164,6 +2086,7 @@ impl App {
                 .font(font)
                 .size(crate::ui::tokens::ts(size as f32))
                 .color(c)
+                .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
                 .into();
         }
         let accent = color(self.cfg.general.theme.accent, 1.0);
@@ -1198,7 +2121,12 @@ impl App {
                     .color(c),
             );
         }
-        iced::widget::rich_text(spans).into()
+        // Libellés et titres de réglage : un mot plus long que la ligne (nom
+        // d'option, chemin, variable) se coupe, la rangée grandit en hauteur
+        // au lieu d'être rognée (HIG TYP-08).
+        iced::widget::rich_text(spans)
+            .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
+            .into()
     }
 
     /// Bandeau au-dessus d'une page ouverte depuis la recherche.
@@ -1329,7 +2257,7 @@ impl App {
                 col = col.push(
                     button(
                         column![
-                            self.marked(crate::i18n::tr(&e.text), 14, fg, self.font),
+                            self.marked(crate::i18n::tr(&e.text), 13, fg, self.font),
                             iced::widget::text(place)
                                 .font(self.font)
                                 .size(crate::ui::tokens::ts(11.0))
@@ -1469,4 +2397,479 @@ pub(in crate::ui) async fn defaults_job(
     })
     .await
     .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+/// Un `toggler` d'iced et son nœud d'accessibilité ([`App::toggle`]) : les
+/// méthodes du `toggler` dont les pages se servent, dont `label` et
+/// `on_toggle` qui nomment et activent aussi le nœud.
+pub(in crate::ui) struct Switch<'s, 'a> {
+    app: &'s App,
+    noted: Option<super::accessible::Noted>,
+    toggler: iced::widget::Toggler<'a, Msg>,
+}
+
+impl<'a> Switch<'_, 'a> {
+    pub(in crate::ui) fn label(self, label: impl iced::widget::text::IntoFragment<'a>) -> Self {
+        let label = label.into_fragment();
+        self.app.a11y_rename(self.noted.as_ref(), &label);
+        Switch {
+            toggler: self.toggler.label(label),
+            ..self
+        }
+    }
+
+    /// Nom lu par le lecteur d'écran, sans libellé à l'écran : celui que la
+    /// rangée affiche à côté de l'interrupteur (hors d'une `field`).
+    pub(in crate::ui) fn named(self, name: impl AsRef<str>) -> Self {
+        self.app.a11y_rename(self.noted.as_ref(), name.as_ref());
+        self
+    }
+
+    pub(in crate::ui) fn on_toggle(self, f: impl Fn(bool) -> Msg + 'a) -> Self {
+        self.app.a11y_enable(self.noted.as_ref());
+        Switch {
+            toggler: self.toggler.on_toggle(f),
+            ..self
+        }
+    }
+
+    pub(in crate::ui) fn on_toggle_maybe(self, f: Option<impl Fn(bool) -> Msg + 'a>) -> Self {
+        if f.is_some() {
+            self.app.a11y_enable(self.noted.as_ref());
+        }
+        Switch {
+            toggler: self.toggler.on_toggle_maybe(f),
+            ..self
+        }
+    }
+
+    pub(in crate::ui) fn font(self, font: iced::Font) -> Self {
+        Switch {
+            toggler: self.toggler.font(font),
+            ..self
+        }
+    }
+
+    pub(in crate::ui) fn text_size(self, size: impl Into<iced::Pixels>) -> Self {
+        Switch {
+            toggler: self.toggler.text_size(size),
+            ..self
+        }
+    }
+}
+
+impl<'a> From<Switch<'_, 'a>> for Element<'a, Msg> {
+    fn from(s: Switch<'_, 'a>) -> Self {
+        super::accessible::keep(s.noted, s.toggler.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Le tiroir rouvre sur le dernier paquet consulté (HIG PAT-09) ; un
+    /// paquet que la configuration ne montre plus ramène au Bureau.
+    #[test]
+    fn le_tiroir_rouvre_sur_le_dernier_paquet_consulte() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let shown = |app: &App| app.panel.as_ref().map(|p| p.tab);
+        let _ = app.open_panel();
+        assert_eq!(
+            shown(&app),
+            Some(plugins::desktop::INFO.id),
+            "première ouverture : le Bureau"
+        );
+        let _ = app.panel_update(PanelMsg::Tab("bar"));
+        assert_eq!(shown(&app), Some("bar"));
+
+        // Fermé (fin du fondu), puis rouvert : même paquet.
+        app.panel = None;
+        app.panel_fade = None;
+        let _ = app.open_panel();
+        assert_eq!(shown(&app), Some("bar"), "rouvert sur le dernier consulté");
+
+        // « share » n'apparaît qu'en configuration avancée.
+        let _ = app.panel_update(PanelMsg::Tab("share"));
+        app.panel = None;
+        app.panel_fade = None;
+        let _ = app.open_panel();
+        assert_eq!(
+            shown(&app),
+            Some(plugins::desktop::INFO.id),
+            "paquet devenu invisible : le Bureau"
+        );
+    }
+
+    /// La valeur tapée pour un curseur (HIG SEL-08) : lue avec une virgule
+    /// décimale ou une unité, bornée au domaine, ramenée au pas ; illisible,
+    /// refusée.
+    #[test]
+    fn la_valeur_tapee_est_bornee_au_domaine_et_ramenee_au_pas() {
+        let taille = (24.0, 96.0);
+        assert_eq!(slider_value("72", taille, 1.0), Some(72.0));
+        assert_eq!(
+            slider_value(" 72 px ", taille, 1.0),
+            Some(72.0),
+            "l'unité est ignorée"
+        );
+        assert_eq!(
+            slider_value("1", taille, 1.0),
+            Some(24.0),
+            "bornée au domaine"
+        );
+        assert_eq!(
+            slider_value("500", taille, 1.0),
+            Some(96.0),
+            "bornée au domaine"
+        );
+        assert_eq!(
+            slider_value("72,6", taille, 1.0),
+            Some(73.0),
+            "ramenée au pas"
+        );
+        assert_eq!(slider_value("+0,50", (-1.0, 1.0), 0.05), Some(0.5));
+        assert_eq!(slider_value("1500 Hz", (150.0, 1000.0), 10.0), Some(1000.0));
+        assert_eq!(slider_value("0.37", (0.0, 1.0), 0.05), Some(0.35));
+        for illisible in ["", "  ", "px", "-", "+.", "abc", "."] {
+            assert_eq!(slider_value(illisible, taille, 1.0), None, "{illisible:?}");
+        }
+    }
+
+    /// Le champ de la valeur d'un curseur (HIG SEL-08) : un seul à la fois ;
+    /// Entrée le referme, un texte illisible le garde avec sa saisie ; Échap
+    /// et le changement de page le referment.
+    #[test]
+    fn le_champ_de_la_valeur_dun_curseur_se_referme() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.open_panel();
+        let saisie = |app: &App| {
+            app.panel
+                .as_ref()
+                .and_then(|p| p.slider.as_ref())
+                .map(|e| e.draft.clone())
+        };
+        let ouvrir = |app: &mut App, taille: u16| {
+            let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+                plugins::dock::size_spec(),
+                f64::from(taille),
+            ))));
+        };
+        ouvrir(&mut app, 48);
+        assert_eq!(saisie(&app).as_deref(), Some("48"), "le nombre seul");
+        let _ = app.panel_update(PanelMsg::SliderDraft("72 px".into()));
+        assert_eq!(saisie(&app).as_deref(), Some("72 px"));
+        // Texte illisible : le champ garde la saisie.
+        let _ = app.panel_update(PanelMsg::SliderDraft("px".into()));
+        let _ = app.panel_update(PanelMsg::SliderSubmit);
+        assert_eq!(saisie(&app).as_deref(), Some("px"));
+        // Un second champ ouvert remplace le premier : un seul à la fois.
+        ouvrir(&mut app, 60);
+        assert_eq!(saisie(&app).as_deref(), Some("60"));
+        let _ = app.panel_update(PanelMsg::SliderClose);
+        assert_eq!(saisie(&app), None, "Échap referme");
+        ouvrir(&mut app, 48);
+        let _ = app.panel_update(PanelMsg::Tab("bar"));
+        assert_eq!(saisie(&app), None, "changer de paquet referme");
+        // Entrée valide : la valeur est posée comme un glissé, l'unité tapée
+        // est ignorée.
+        ouvrir(&mut app, 48);
+        let _ = app.panel_update(PanelMsg::SliderDraft("72 px".into()));
+        let _ = app.panel_update(PanelMsg::SliderSubmit);
+        assert_eq!(saisie(&app), None, "Entrée valide referme");
+        assert_eq!(
+            app.settings.launcher_size,
+            Some(72),
+            "Entrée pose la valeur"
+        );
+        assert_eq!(app.cfg.general.launcher.size, 72, "le dock la suit");
+        // Hors domaine : bornée.
+        ouvrir(&mut app, 72);
+        let _ = app.panel_update(PanelMsg::SliderDraft("500".into()));
+        let _ = app.panel_update(PanelMsg::SliderSubmit);
+        assert_eq!(app.settings.launcher_size, Some(96), "bornée au domaine");
+    }
+
+    /// Un curseur à pas passé au composant (durée du fondu, `effects.rs`) :
+    /// Entrée ramène la valeur au pas, la pose et l'enregistre comme un
+    /// relâchement ; hors domaine, elle est bornée (HIG SEL-08).
+    #[test]
+    fn la_valeur_saisie_dun_curseur_a_pas_est_ramenee_au_pas() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.open_panel();
+        let saisir = |app: &mut App, texte: &str| {
+            let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+                plugins::effects::fade_spec(),
+                200.0,
+            ))));
+            let _ = app.panel_update(PanelMsg::SliderDraft(texte.into()));
+            let _ = app.panel_update(PanelMsg::SliderSubmit);
+        };
+        saisir(&mut app, "254 ms");
+        assert_eq!(app.settings.fade_ms, Some(250), "ramenée au pas de 10");
+        assert_eq!(app.cfg.general.fade_ms, 250, "posée comme un glissé");
+        saisir(&mut app, "5000");
+        assert_eq!(app.settings.fade_ms, Some(1000), "bornée au domaine");
+    }
+
+    /// Un curseur dont la pose emporte une donnée du rendu — la forme de la
+    /// barre, `bar.rs` (HIG SEL-08) : Entrée pose la forme à jour, ses autres
+    /// champs gardés ; un geste dans le paquet referme le champ, la forme
+    /// qu'il garde pouvant être périmée à Entrée.
+    #[test]
+    fn la_valeur_saisie_dun_curseur_a_forme_pose_la_forme_a_jour() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.open_panel();
+        let saisie = |app: &App| {
+            app.panel
+                .as_ref()
+                .and_then(|p| p.slider.as_ref())
+                .map(|e| e.draft.clone())
+        };
+        let ouvrir = |app: &mut App, marge: u16| {
+            let forme = crate::config::BarShape {
+                side_margin: marge,
+                radius: Some(7),
+                ..Default::default()
+            };
+            let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+                plugins::bar::side_margin_spec(forme),
+                f64::from(marge),
+            ))));
+        };
+        ouvrir(&mut app, 40);
+        assert_eq!(saisie(&app).as_deref(), Some("40"));
+        let _ = app.panel_update(PanelMsg::Plugin(PluginMsg::Bar(plugins::bar::Msg::Margin(
+            8,
+        ))));
+        assert_eq!(saisie(&app), None, "un geste du paquet referme le champ");
+        assert_eq!(
+            app.settings.bar.as_ref().map(|b| b.margin),
+            Some(8),
+            "le geste du paquet est traité"
+        );
+        // Entrée : la valeur tapée, le reste de la forme gardé.
+        ouvrir(&mut app, 40);
+        let _ = app.panel_update(PanelMsg::SliderDraft("150 px".into()));
+        let _ = app.panel_update(PanelMsg::SliderSubmit);
+        assert_eq!(saisie(&app), None, "Entrée valide referme");
+        let barre = app.settings.bar.clone().unwrap_or_default();
+        assert_eq!(barre.shape.side_margin, 150, "Entrée pose la valeur");
+        assert_eq!(
+            barre.shape.radius,
+            Some(7),
+            "le reste de la forme est gardé"
+        );
+        assert_eq!(barre.margin, 8, "la marge posée avant n'est pas reprise");
+    }
+
+    /// La clé d'un curseur peut être le nom d'une option (options de design
+    /// du thème, surcharge d'écran) : deux curseurs de noms différents ne
+    /// sont pas le même champ ouvert (HIG SEL-08).
+    #[test]
+    fn deux_curseurs_de_cle_differente_ne_sont_pas_le_meme_champ() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.open_panel();
+        // Même domaine, même messages : seule la clé les distingue.
+        let spec = |nom: &str| {
+            SliderSpec::new(
+                nom,
+                (0.0, 100.0),
+                1.0,
+                |v| {
+                    plugins::theme::wrap(plugins::theme::Msg::Opacity(
+                        crate::config::Place::Menus,
+                        v as f32 / 100.0,
+                    ))
+                },
+                plugins::theme::wrap(plugins::theme::Msg::Commit),
+            )
+        };
+        let hauteur = spec("screen.DP-1.bar_height");
+        let texte = spec("screen.DP-1.text_scale");
+        let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+            hauteur, 40.0,
+        ))));
+        let ouvert = |app: &App, clef: &str| {
+            app.panel
+                .as_ref()
+                .and_then(|p| p.slider.as_ref())
+                .is_some_and(|e| &*e.spec.key == clef)
+        };
+        assert!(ouvert(&app, "screen.DP-1.bar_height"));
+        assert!(!ouvert(&app, "screen.DP-1.text_scale"));
+        let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(texte, 1.5))));
+        assert!(ouvert(&app, "screen.DP-1.text_scale"));
+        assert!(!ouvert(&app, "screen.DP-1.bar_height"));
+    }
+
+    /// HIG SEL-09 : un curseur de dix pas au plus est gradué, un pas par
+    /// trait ; au-delà, ou sur un domaine vide, seules ses bornes s'affichent.
+    /// L'échelle d'un curseur gradué est plus haute de la graduation et de son
+    /// écart.
+    #[test]
+    fn un_curseur_de_dix_pas_au_plus_est_gradue() {
+        assert_eq!(graduations((1.0, 6.0), 1.0), Some(5), "passes du flou");
+        assert_eq!(graduations((1.0, 4.0), 1.0), Some(3));
+        assert_eq!(graduations((0.0, 1.0), 0.1), Some(10), "dix pas : gradué");
+        assert_eq!(graduations((0.0, 1.0), 0.05), None, "vingt pas");
+        assert_eq!(graduations((24.0, 96.0), 1.0), None);
+        assert_eq!(graduations((5.0, 5.0), 1.0), None, "domaine vide");
+        assert_eq!(
+            graduations((0.0, 1.0), 0.3),
+            None,
+            "pas qui ne tombe pas juste"
+        );
+        assert_eq!(graduations((0.0, 4.0), 0.0), None, "pas nul");
+        assert_eq!(
+            slider_band((1.0, 6.0), 1.0) - slider_band((24.0, 96.0), 1.0),
+            TICK_H + SCALE_GAP
+        );
+        assert_eq!(slider_band((24.0, 96.0), 1.0), scale_line_h() + SCALE_GAP);
+    }
+
+    /// Le volume d'un appareil ou d'une application se saisit en pour cent,
+    /// comme il s'affiche (HIG SEL-08) : « 50 % » pose 0,5 au seul nœud visé ;
+    /// hors domaine, la valeur est bornée au plafond du curseur.
+    #[test]
+    fn le_volume_saisi_en_pour_cent_est_pose_au_noeud_vise() {
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.open_panel();
+        let noeud = |id: u32, volume: f32| plugins::sound::Node {
+            id,
+            name: String::new(),
+            default: false,
+            volume,
+            muted: false,
+        };
+        if let Some(p) = app.panel.as_mut() {
+            p.sound = plugins::sound::State {
+                outputs: vec![noeud(55, 0.45)],
+                inputs: Vec::new(),
+                streams: vec![noeud(78, 0.8)],
+                loaded: true,
+            };
+        }
+        let volume = |app: &App, id: u32| {
+            app.panel
+                .as_ref()
+                .and_then(|p| {
+                    p.sound
+                        .outputs
+                        .iter()
+                        .chain(p.sound.streams.iter())
+                        .find(|n| n.id == id)
+                })
+                .map(|n| n.volume)
+        };
+        // Ouvre le champ du curseur du nœud, tape, valide ; rend le brouillon proposé à l'ouverture.
+        let saisir = |app: &mut App, id: u32, affiche: f64, texte: &str| {
+            let _ = app.panel_update(PanelMsg::SliderEdit(Box::new(SliderEdit::new(
+                plugins::sound::volume_spec(id),
+                affiche,
+            ))));
+            let champ = app
+                .panel
+                .as_ref()
+                .and_then(|p| p.slider.as_ref())
+                .map(|e| e.draft.clone());
+            let _ = app.panel_update(PanelMsg::SliderDraft(texte.into()));
+            let _ = app.panel_update(PanelMsg::SliderSubmit);
+            champ
+        };
+        assert_eq!(
+            saisir(&mut app, 55, f64::from(0.3_f32 * 100.0), "50 %").as_deref(),
+            Some("30"),
+            "le champ s'ouvre sur la valeur affichée, en pour cent, sans bruit flottant"
+        );
+        assert_eq!(volume(&app, 55), Some(0.5), "Entrée pose 50 %");
+        assert_eq!(
+            volume(&app, 78),
+            Some(0.8),
+            "les autres nœuds ne bougent pas"
+        );
+        saisir(&mut app, 55, 50.0, "300");
+        assert_eq!(
+            volume(&app, 55),
+            Some(1.5),
+            "hors domaine : borné au plafond, 150 %"
+        );
+    }
+
+    /// HIG TYP-08 : la navigation suit le texte agrandi sans vider la colonne
+    /// des réglages ; en tiroir très étroit, icônes seules. La ligne des
+    /// actions de l'en-tête passe sous le titre quand le texte ne la tient
+    /// plus à côté.
+    #[test]
+    fn la_navigation_et_letete_suivent_le_texte_agrandi() {
+        const MARGES: f32 = 2.0 * DRAWER_GAP + 48.0 + 24.0 + 14.0;
+        assert_eq!(
+            nav_width(DRAWER_W, 1.0),
+            NAV_W,
+            "au repos : largeur du repos"
+        );
+        assert_eq!(nav_width(DRAWER_W, 2.0), 2.0 * NAV_W, "à 200 % : le double");
+        assert!(
+            DRAWER_W - MARGES - nav_width(DRAWER_W, 2.0) >= DETAIL_MIN,
+            "la colonne des réglages garde sa place"
+        );
+        assert_eq!(
+            nav_width(640.0, 1.0),
+            NAV_W,
+            "tiroir étroit au repos : inchangé"
+        );
+        assert!(
+            (640.0 - MARGES - nav_width(640.0, 2.0) - DETAIL_MIN).abs() < 1e-3,
+            "tiroir étroit et texte agrandi : la colonne garde 360 px"
+        );
+        assert_eq!(
+            nav_width(639.0, 1.0),
+            46.0,
+            "tiroir très étroit : icônes seules"
+        );
+        assert!(
+            header_one_line(DRAWER_W, 1.0),
+            "en-tête sur une ligne au repos"
+        );
+        assert!(
+            !header_one_line(DRAWER_W, 2.0),
+            "à 200 % : les actions passent dessous"
+        );
+    }
 }

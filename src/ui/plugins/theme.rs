@@ -1,6 +1,6 @@
 //! Paquet intégré « Thème » : ce qui se voit. Couleurs, fonds d'écran, effet
 //! de chaque endroit (opacité, flou), mode du bureau, voile du verrouillage ;
-//! thèmes livrés et « Mes thèmes » (archives de thème, `crate::theme`).
+//! thèmes livrés et « Thèmes personnels » (archives de thème, `crate::theme`).
 //!
 //! Le thème s'exporte seul ou avec tout le setup (paquet Partage).
 //!
@@ -10,14 +10,20 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, radio, row, slider, text_input, toggler};
+use iced::widget::{Space, button, column, container, radio, row, text_input};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
-use super::super::panel::{PanelMsg, SWATCHES};
+use super::super::panel::{PanelMsg, SWATCHES, SliderLook, SliderSpec, beside_slider};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::{Effect, Mode, Place, Rgba};
+
+/// Valeur affichée d'un curseur en pour cent (HIG SEL-08) : « 100 % ».
+fn affiche_pourcent(v: f64) -> String {
+    format!("{} %", v.round() as i32)
+}
 use crate::theme::{PRESETS, Saved};
+use crate::ui::color_picker::{Picker, PickerMsg, well};
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "theme",
@@ -106,7 +112,9 @@ pub struct State {
     pub name: Option<String>,
     /// Couleurs en cours de saisie (`#rrggbb`).
     pub hex: BTreeMap<Slot, String>,
-    /// « Mes thèmes ».
+    /// Sélecteur de couleur ouvert, et son emplacement (HIG SEL-02).
+    pub picker: Option<(Slot, Picker)>,
+    /// « Thèmes personnels ».
     pub library: Vec<Saved>,
     /// Packs du moteur de thème (embarqués, installés, `perso`) : les thèmes
     /// livrés (MLG-233).
@@ -126,19 +134,24 @@ pub enum Msg {
     Color(Slot, Rgba),
     Hex(Slot, String),
     HexSubmit(Slot),
+    /// Ouvre ou referme le sélecteur de couleur de l'emplacement (HIG SEL-02).
+    OpenPicker(Slot),
+    Picker(PickerMsg),
+    PickerApply,
+    PickerCancel,
     Name(String),
     NameSubmit,
-    /// Enregistre le thème en place dans « Mes thèmes ».
+    /// Enregistre le thème en place dans « Thèmes personnels ».
     Save,
     /// Source d'un nouveau thème : image, pack `.zip` ou dossier.
     Scene(String),
-    /// Crée un thème depuis cette scène, dans « Mes thèmes ».
+    /// Crée un thème depuis cette scène, dans « Thèmes personnels ».
     CreateFromScene,
     Saved(Result<String, String>),
     Library(Vec<Saved>, Vec<crate::theme_engine::bridge::Entry>),
     /// Applique un thème enregistré.
     Apply(PathBuf),
-    /// Retire un thème de « Mes thèmes » (premier appui : arme ; second : confirme).
+    /// Retire un thème de « Thèmes personnels » (premier appui : arme ; second : confirme).
     Delete(PathBuf),
     Applied(Result<String, String>),
     Opacity(Place, f32),
@@ -166,7 +179,7 @@ pub enum Msg {
     OpenDir,
 }
 
-/// Relit « Mes thèmes » et les packs du moteur.
+/// Relit « Thèmes personnels » et les packs du moteur.
 pub fn load_library(config_path: PathBuf) -> Task<UiMsg> {
     Task::perform(
         async move {
@@ -248,6 +261,36 @@ impl App {
         col.into()
     }
 
+    /// Apparence des icônes d'application (HIG ICO-10), réglage
+    /// `icons.appearance` : un choix aux libellés traduits, que les valeurs
+    /// brutes de `design_fields` ne donneraient pas.
+    fn icon_appearance_field(&self) -> Element<'_, UiMsg> {
+        const LOOKS: [(&str, &str); 4] = [
+            ("auto", "Automatique"),
+            ("default", "Par défaut"),
+            ("dark", "Sombre"),
+            ("tinted", "Teintée"),
+        ];
+        let cur = crate::design_options::choice(&self.cfg.general, "icons.appearance");
+        let current = LOOKS.iter().position(|(v, _)| *v == cur).or(Some(0));
+        row(LOOKS.iter().enumerate().map(|(i, (_, label))| {
+            self.focusable(
+                radio(crate::i18n::tr(label), i, current, |v| {
+                    wrap(Msg::DesignOpt(
+                        "icons.appearance".into(),
+                        LOOKS[v].0.into(),
+                        true,
+                    ))
+                })
+                .font(self.font)
+                .size(crate::ui::tokens::ts(14.0)),
+            )
+        }))
+        .spacing(12)
+        .wrap()
+        .into()
+    }
+
     /// Options du registre `design_options` d'un composant, sous un titre :
     /// Thème → Composants, et la page de son plugin (Dock → Apparence).
     pub(in crate::ui) fn design_fields(
@@ -265,64 +308,63 @@ impl App {
             let field: Element<'_, UiMsg> = match (o.kind, o.value(g)) {
                 (Kind::Bool, OptValue::Bool(b)) => {
                     let n = name.clone();
-                    toggler(b)
-                        .on_toggle(move |v| {
-                            wrap(Msg::DesignOpt(
-                                n.clone(),
-                                if v { "on" } else { "off" }.into(),
-                                true,
-                            ))
-                        })
-                        .into()
+                    self.focusable(self.toggle(b).on_toggle(move |v| {
+                        wrap(Msg::DesignOpt(
+                            n.clone(),
+                            if v { "on" } else { "off" }.into(),
+                            true,
+                        ))
+                    }))
                 }
                 (Kind::Choice(list), OptValue::Str(cur)) => {
                     row(list.iter().enumerate().map(|(i, c)| {
                         let n = name.clone();
                         let current = list.iter().position(|x| *x == cur);
-                        radio(*c, i, current, move |v| {
-                            wrap(Msg::DesignOpt(n.clone(), list[v].to_string(), true))
-                        })
-                        .font(font)
-                        .size(crate::ui::tokens::ts(14.0))
-                        .into()
+                        self.focusable(
+                            radio(*c, i, current, move |v| {
+                                wrap(Msg::DesignOpt(n.clone(), list[v].to_string(), true))
+                            })
+                            .font(font)
+                            .size(crate::ui::tokens::ts(14.0)),
+                        )
                     }))
                     .spacing(12)
                     .wrap()
                     .into()
                 }
                 (Kind::Int(lo, hi), OptValue::Num(v)) => {
-                    let (n, c) = (name.clone(), name.clone());
-                    row![
-                        slider(lo as f64..=hi as f64, v, move |x| {
-                            wrap(Msg::DesignOpt(n.clone(), format!("{}", x.round()), false))
-                        })
-                        .step(1.0)
-                        .on_release(wrap(Msg::DesignOpt(c, format!("{}", v.round()), true)))
-                        .width(220),
-                        text(format!("{}", v.round()))
-                            .font(font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center)
-                    .into()
+                    let (n, key) = (name.clone(), name.clone());
+                    self.slider(
+                        &SliderSpec::new(
+                            key,
+                            (lo as f64, hi as f64),
+                            1.0,
+                            move |x| {
+                                wrap(Msg::DesignOpt(n.clone(), format!("{}", x.round()), false))
+                            },
+                            // Après la pose, l'enregistrement du paquet : le
+                            // message de relâchement portait la valeur d'avant.
+                            wrap(Msg::Commit),
+                        ),
+                        v,
+                        |x| format!("{}", x.round()),
+                        SliderLook::fixed(13.0, 220, Alignment::Center),
+                    )
                 }
                 (Kind::Float(lo, hi), OptValue::Num(v)) => {
-                    let (n, c) = (name.clone(), name.clone());
-                    row![
-                        slider(lo..=hi, v, move |x| {
-                            wrap(Msg::DesignOpt(n.clone(), format!("{x:.2}"), false))
-                        })
-                        .step((hi - lo) / 100.0)
-                        .on_release(wrap(Msg::DesignOpt(c, format!("{v:.2}"), true)))
-                        .width(220),
-                        text(format!("{v:.2}"))
-                            .font(font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center)
-                    .into()
+                    let (n, key) = (name.clone(), name.clone());
+                    self.slider(
+                        &SliderSpec::new(
+                            key,
+                            (lo, hi),
+                            (hi - lo) / 100.0,
+                            move |x| wrap(Msg::DesignOpt(n.clone(), format!("{x:.2}"), false)),
+                            wrap(Msg::Commit),
+                        ),
+                        v,
+                        |x| format!("{x:.2}"),
+                        SliderLook::fixed(13.0, 220, Alignment::Center),
+                    )
                 }
                 (Kind::Text, OptValue::Str(cur)) => {
                     let (n, c) = (name.clone(), name.clone());
@@ -416,166 +458,58 @@ impl App {
             })
         };
         let card_button = |content: Element<'static, UiMsg>, msg: UiMsg| {
-            button(content)
-                .padding(0)
-                .style(|_, _| button::Style::default())
-                .on_press(msg)
+            self.focusable(
+                button(content)
+                    .padding(0)
+                    .style(|_, _| button::Style::default())
+                    .on_press(msg),
+            )
         };
 
         // Thème en place.
-        let name = st.name.clone().unwrap_or_else(|| th.name.clone());
-        let mut current = column![
-            row![
-                preview(th.name.clone(), th.fg, th.bg, th.accent, true),
-                column![
-                    text_input(crate::i18n::tr("Nom du thème"), &name)
-                        .font(font)
-                        .on_input(|v| wrap(Msg::Name(v)))
-                        .on_submit(wrap(Msg::NameSubmit))
-                        .padding(8)
-                        .width(Length::Fill),
-                    row![
-                        button(
-                            text("Enregistrer dans Mes thèmes")
-                                .font(font)
-                                .size(crate::ui::tokens::ts(13.0))
-                        )
-                        .padding([6, 14])
-                        .on_press_maybe((!name.trim().is_empty()).then(|| wrap(Msg::Save))),
-                        text("Exporter : Partage → Thème seul")
-                            .font(font)
-                            .size(crate::ui::tokens::ts(12.0))
-                            .color(dim),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center)
-                    .wrap()
-                    .vertical_spacing(6),
-                ]
-                .spacing(8)
-                .width(Length::Fill),
-            ]
-            .spacing(16)
-            .align_y(Alignment::Center),
-        ]
-        .spacing(8);
-        if let Some(r) = &st.report {
-            current = current.push(match r {
-                Ok(m) => text(m.clone())
-                    .font(font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(accent),
-                Err(e) => text(e.clone())
-                    .font(font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(warn),
-            });
-        }
-
-        // Thèmes livrés : les packs du moteur de thème, qui fait foi.
-        let presets = row(shown_catalog(st).into_iter().map(|e| {
-            use crate::theme_engine::bridge::same_theme;
-            // Variante montrée : celle en place si c'est l'autre, sinon celle
-            // par défaut ; l'autre se choisit sous la tuile (MLG-254).
-            let (shown, alt) = match e.other {
-                Some((_, t)) if same_theme(th, &t) => (t, Some((e.variant, e.theme))),
-                other => (e.theme, other),
-            };
-            let on = same_theme(th, &shown);
-            let name = match e.origin {
-                "bundled" => shown.name.clone(),
-                "user" => crate::tr!("{n} · à vous", n = shown.name),
-                _ => crate::tr!("{n} · installé", n = shown.name),
-            };
-            let card = card_button(
-                preview(name, shown.fg, shown.bg, shown.accent, on).into(),
-                wrap(Msg::Pack(Box::new(shown))),
-            );
-            match alt {
-                Some((v, t)) => column![
-                    card,
-                    button(
-                        text(crate::i18n::tr(if v == "light" {
-                            "Version claire"
-                        } else {
-                            "Version sombre"
-                        }))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(11.0)),
+        // Couleurs, et effets plus bas : construits pour leur seul onglet,
+        // après le choix de l'onglet. L'arbre d'accessibilité ne lit que ce
+        // qui est dessiné (HIG ACC-01).
+        let colors = || {
+            let mut colors = column![].spacing(12);
+            for slot in Slot::ALL {
+                let value = match slot {
+                    Slot::Fg => th.fg,
+                    Slot::Bg => th.bg,
+                    Slot::Accent => th.accent,
+                    Slot::Background => g.background,
+                };
+                let draft = st
+                    .hex
+                    .get(&slot)
+                    .cloned()
+                    .unwrap_or_else(|| crate::settings::hex(value));
+                let swatches = row(slot.swatches().into_iter().map(|c| {
+                    self.focusable(
+                        button(dot(c, 26.0, c == value))
+                            .padding(0)
+                            .style(|_, _| button::Style::default())
+                            .on_press(wrap(Msg::Color(slot, c))),
                     )
-                    .padding([2, 8])
-                    .style(button::text)
-                    .on_press(wrap(Msg::Pack(Box::new(t)))),
-                ]
-                .spacing(2)
-                .align_x(Alignment::Center)
-                .into(),
-                None => card.into(),
-            }
-        }))
-        .spacing(10)
-        .wrap();
-
-        // Mes thèmes.
-        let library: Element<'_, UiMsg> = if st.library.is_empty() {
-            text(
-                "Aucun pour l'instant : enregistrez le thème en place, ou importez une archive \
-                 de thème (Partage).",
-            )
-            .font(font)
-            .size(crate::ui::tokens::ts(12.0))
-            .color(dim)
-            .into()
-        } else {
-            row(st.library.iter().map(|s| {
-                let (f, b, a) = s.summary.colors();
-                let armed = st.pending_delete.as_ref() == Some(&s.path);
-                column![
-                    card_button(
-                        preview(s.summary.name.clone(), f, b, a, false).into(),
-                        wrap(Msg::Apply(s.path.clone())),
-                    ),
-                    self.delete_button(armed, wrap(Msg::Delete(s.path.clone()))),
-                ]
-                .spacing(4)
-                .align_x(iced::Alignment::Center)
-                .into()
-            }))
-            .spacing(10)
-            .wrap()
-            .into()
-        };
-
-        // Couleurs.
-        let mut colors = column![].spacing(12);
-        for slot in Slot::ALL {
-            let value = match slot {
-                Slot::Fg => th.fg,
-                Slot::Bg => th.bg,
-                Slot::Accent => th.accent,
-                Slot::Background => g.background,
-            };
-            let draft = st
-                .hex
-                .get(&slot)
-                .cloned()
-                .unwrap_or_else(|| crate::settings::hex(value));
-            let swatches = row(slot.swatches().into_iter().map(|c| {
-                button(dot(c, 26.0, c == value))
-                    .padding(0)
-                    .style(|_, _| button::Style::default())
-                    .on_press(wrap(Msg::Color(slot, c)))
-                    .into()
-            }))
-            .spacing(8);
-            colors = colors.push(
-                self.field(
-                    slot.label(),
-                    slot.key(),
+                }))
+                .spacing(8);
+                // Puits de couleur (HIG SEL-02) : la pastille de la couleur en
+                // cours ouvre le sélecteur, qui se dessine sous la rangée.
+                let open = st.picker.as_ref();
+                let is_open = open.is_some_and(|(s, _)| *s == slot);
+                let mut line = column![].spacing(8);
+                line = line.push(
                     row![
                         swatches,
                         Space::new().width(Length::Fill),
-                        dot(value, 22.0, false),
+                        well(
+                            value,
+                            22.0,
+                            is_open,
+                            accent,
+                            Color { a: 0.3, ..fg },
+                            wrap(Msg::OpenPicker(slot)),
+                        ),
                         text_input(crate::i18n::tr("#rrggbb"), &draft)
                             .font(font)
                             .size(crate::ui::tokens::ts(13.0))
@@ -586,234 +520,267 @@ impl App {
                     ]
                     .spacing(10)
                     .align_y(Alignment::Center),
-                ),
-            );
-        }
+                );
+                if let Some((_, pk)) = open.filter(|_| is_open) {
+                    line = line.push(pk.view(
+                        font,
+                        fg,
+                        dim,
+                        |m| wrap(Msg::Picker(m)),
+                        wrap(Msg::PickerApply),
+                        wrap(Msg::PickerCancel),
+                    ));
+                }
+                colors = colors.push(self.field(slot.label(), slot.key(), line));
+            }
+            colors
+        };
 
         // Effets de chaque endroit.
-        let percent = |v: f32| {
-            text(format!("{} %", (v * 100.0).round() as i32))
-                .font(font)
-                .size(crate::ui::tokens::ts(13.0))
-                .width(48)
-                .wrapping(iced::widget::text::Wrapping::None)
-        };
-        let mut effects = column![].spacing(12);
-        for place in Place::ALL {
-            let e = th.effect(place);
-            let mut line = row![
-                slider(0..=100u32, (e.opacity * 100.0).round() as u32, move |v| {
-                    wrap(Msg::Opacity(place, v as f32 / 100.0))
-                })
-                .on_release(wrap(Msg::Commit))
-                .width(Length::Fill),
-                percent(e.opacity),
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center);
-            if place.blurrable() {
-                line = line.push(
-                    toggler(e.blur)
-                        .label(crate::i18n::tr("Flou"))
-                        .font(font)
-                        .on_toggle(move |v| wrap(Msg::Blur(place, v))),
+        let effects = || {
+            let percent = |v: f64| format!("{} %", v.round() as i32);
+            let mut effects = column![].spacing(12);
+            for place in Place::ALL {
+                let e = th.effect(place);
+                let spec = SliderSpec::new(
+                    place.as_str(),
+                    (0.0, 100.0),
+                    1.0,
+                    move |v| wrap(Msg::Opacity(place, v.round() as u32 as f32 / 100.0)),
+                    wrap(Msg::Commit),
                 );
-            }
-            // Transparence adaptative : les surfaces posées sur le fond
-            // d'écran (le lanceur l'est toujours ; menus et Réglages
-            // passent devant des fenêtres, invisibles pour hyprdesk).
-            let adaptable = matches!(place, Place::Bar | Place::Widgets);
-            if adaptable {
-                line = line.push(
-                    toggler(e.adaptive.is_some())
-                        .label(crate::i18n::tr("Adaptatif"))
-                        .font(font)
-                        .on_toggle(move |v| wrap(Msg::Adaptive(place, v))),
-                );
-            }
-            let mut cell = column![line].spacing(4);
-            let note = match (place, e.adaptive) {
-                (Place::Launcher, _) => Some(
-                    crate::i18n::tr("Densifié selon le fond d'écran pour rester lisible.")
-                        .to_string(),
-                ),
-                (Place::Bar, Some(max)) => {
-                    let now = self.bar_palette().opacity;
-                    Some(crate::tr!(
-                        "Densifié jusqu'à {max} % si le fond gêne la lecture — en ce moment {now} %.",
-                        max = (max * 100.0).round() as i32,
-                        now = (now * 100.0).round() as i32
-                    ))
+                // Les interrupteurs restent sur la ligne du curseur, au-dessus de
+                // son échelle (HIG SEL-09).
+                let mut line = row![self.slider(
+                    &spec,
+                    f64::from((e.opacity * 100.0).round() as u32),
+                    percent,
+                    SliderLook::fill(13.0, 48, Alignment::Center),
+                ),]
+                .spacing(12)
+                .align_y(Alignment::Center);
+                if place.blurrable() {
+                    line = line.push(beside_slider(
+                        &spec,
+                        self.focusable(
+                            self.toggle(e.blur)
+                                .label(crate::i18n::tr("Flou"))
+                                .font(font)
+                                .on_toggle(move |v| wrap(Msg::Blur(place, v))),
+                        ),
+                    ));
                 }
-                (Place::Widgets, Some(max)) => Some(crate::tr!(
-                    "Densifié jusqu'à {max} % si le fond gêne la lecture.",
-                    max = (max * 100.0).round() as i32
-                )),
-                _ => None,
-            };
-            if let Some(n) = note {
-                cell = cell.push(
-                    text(n)
+                // Transparence adaptative : les surfaces posées sur le fond
+                // d'écran (le lanceur l'est toujours ; menus et Réglages
+                // passent devant des fenêtres, invisibles pour hyprdesk).
+                let adaptable = matches!(place, Place::Bar | Place::Widgets);
+                if adaptable {
+                    line = line.push(beside_slider(
+                        &spec,
+                        self.focusable(
+                            self.toggle(e.adaptive.is_some())
+                                .label(crate::i18n::tr("Adaptatif"))
+                                .font(font)
+                                .on_toggle(move |v| wrap(Msg::Adaptive(place, v))),
+                        ),
+                    ));
+                }
+                let mut cell = column![line].spacing(4);
+                let note = match (place, e.adaptive) {
+                    (Place::Launcher, _) => Some(
+                        crate::i18n::tr("Densifié selon le fond d'écran pour rester lisible.")
+                            .to_string(),
+                    ),
+                    (Place::Bar, Some(max)) => {
+                        let now = self.bar_palette().opacity;
+                        Some(crate::tr!(
+                            "Densifié jusqu'à {max} % si le fond gêne la lecture — en ce moment {now} %.",
+                            max = (max * 100.0).round() as i32,
+                            now = (now * 100.0).round() as i32
+                        ))
+                    }
+                    (Place::Widgets, Some(max)) => Some(crate::tr!(
+                        "Densifié jusqu'à {max} % si le fond gêne la lecture.",
+                        max = (max * 100.0).round() as i32
+                    )),
+                    _ => None,
+                };
+                if let Some(n) = note {
+                    cell = cell.push(
+                        text(n)
+                            .font(font)
+                            .size(crate::ui::tokens::ts(11.0))
+                            .color(self.ink().dim),
+                    );
+                }
+                // Verre du pack (MLG-268) : ce que le thème dessine en plus.
+                let glass = crate::ui::tokens::glass(place);
+                if glass.highlight > 0.0 || glass.refraction > 0.0 || glass.tint_strength > 0.0 {
+                    let pct = |v: f32| (v * 100.0).round() as i32;
+                    cell = cell.push(
+                        text(crate::tr!(
+                            "Verre du thème : reflet {h} %, réfraction {r} %, teinte {t} %.",
+                            h = pct(glass.highlight),
+                            r = pct(glass.refraction),
+                            t = pct(glass.tint_strength)
+                        ))
                         .font(font)
                         .size(crate::ui::tokens::ts(11.0))
                         .color(self.ink().dim),
-                );
+                    );
+                }
+                if place == Place::Settings && self.hypr_blur_off() {
+                    cell = cell.push(
+                        text("Opaque tant que le flou de Hyprland est coupé (Performance).")
+                            .font(font)
+                            .size(crate::ui::tokens::ts(11.0))
+                            .color(self.ink().dim),
+                    );
+                }
+                effects = effects.push(self.field(
+                    place.label(),
+                    &format!("theme.effects.{}", place.as_str()),
+                    cell,
+                ));
             }
-            // Verre du pack (MLG-268) : ce que le thème dessine en plus.
-            let glass = crate::ui::tokens::glass(place);
-            if glass.highlight > 0.0 || glass.refraction > 0.0 || glass.tint_strength > 0.0 {
-                let pct = |v: f32| (v * 100.0).round() as i32;
-                cell = cell.push(
-                    text(crate::tr!(
-                        "Verre du thème : reflet {h} %, réfraction {r} %, teinte {t} %.",
-                        h = pct(glass.highlight),
-                        r = pct(glass.refraction),
-                        t = pct(glass.tint_strength)
+            // Accessibilité (MLG-269, MLG-271) : quel que soit le thème.
+            let pack = crate::ui::tokens::design();
+            let text_scale = SliderSpec::new(
+                "text_scale",
+                (75.0, 200.0),
+                1.0,
+                |v| wrap(Msg::TextScale(v.round() as f32 / 100.0)),
+                wrap(Msg::Commit),
+            );
+            let mut access = column![
+                self.focusable(
+                    self.toggle(g.reduced_transparency)
+                        .label(crate::i18n::tr("Transparence réduite"))
+                        .font(font)
+                        .on_toggle(|v| wrap(Msg::ReducedTransparency(v)))
+                ),
+                self.focusable(
+                    self.toggle(g.reduced_motion)
+                        .label(crate::i18n::tr("Mouvement réduit"))
+                        .font(font)
+                        .on_toggle(|v| wrap(Msg::ReducedMotion(v)))
+                ),
+                self.focusable(
+                    self.toggle(g.increase_contrast)
+                        .label(crate::i18n::tr("Contraste renforcé"))
+                        .font(font)
+                        .on_toggle(|v| wrap(Msg::IncreaseContrast(v)))
+                ),
+                row![
+                    // Sur la ligne du curseur, au-dessus de son échelle (HIG SEL-09).
+                    beside_slider(
+                        &text_scale,
+                        text(crate::i18n::tr("Taille du texte"))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    ),
+                    self.slider(
+                        &text_scale,
+                        f64::from((g.text_scale * 100.0).round()),
+                        affiche_pourcent,
+                        SliderLook::fill(13.0, 48, Alignment::Center),
+                    ),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            ]
+            .spacing(8);
+            if pack.contrast.reduced_transparency || pack.motion.reduced {
+                access = access.push(
+                    text(crate::i18n::tr(
+                        "Le thème en place réduit déjà l'un ou l'autre.",
                     ))
                     .font(font)
                     .size(crate::ui::tokens::ts(11.0))
                     .color(self.ink().dim),
                 );
             }
-            if place == Place::Settings && self.hypr_blur_off() {
-                cell = cell.push(
-                    text("Opaque tant que le flou de Hyprland est coupé (Performance).")
-                        .font(font)
-                        .size(crate::ui::tokens::ts(11.0))
-                        .color(self.ink().dim),
-                );
-            }
-            effects = effects.push(self.field(
-                place.label(),
-                &format!("theme.effects.{}", place.as_str()),
-                cell,
-            ));
-        }
-        // Accessibilité (MLG-269, MLG-271) : quel que soit le thème.
-        let pack = crate::ui::tokens::design();
-        let mut access = column![
-            toggler(g.reduced_transparency)
-                .label(crate::i18n::tr("Transparence réduite"))
-                .font(font)
-                .on_toggle(|v| wrap(Msg::ReducedTransparency(v))),
-            toggler(g.reduced_motion)
-                .label(crate::i18n::tr("Mouvement réduit"))
-                .font(font)
-                .on_toggle(|v| wrap(Msg::ReducedMotion(v))),
-            toggler(g.increase_contrast)
-                .label(crate::i18n::tr("Contraste renforcé"))
-                .font(font)
-                .on_toggle(|v| wrap(Msg::IncreaseContrast(v))),
-            row![
-                text(crate::i18n::tr("Taille du texte"))
-                    .font(font)
-                    .size(crate::ui::tokens::ts(13.0)),
-                slider(75..=200u32, (g.text_scale * 100.0).round() as u32, |v| {
-                    wrap(Msg::TextScale(v as f32 / 100.0))
-                })
-                .on_release(wrap(Msg::Commit))
-                .width(Length::Fill),
-                percent(g.text_scale),
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center),
-        ]
-        .spacing(8);
-        if pack.contrast.reduced_transparency || pack.motion.reduced {
-            access = access.push(
-                text(crate::i18n::tr(
-                    "Le thème en place réduit déjà l'un ou l'autre.",
-                ))
-                .font(font)
-                .size(crate::ui::tokens::ts(11.0))
-                .color(self.ink().dim),
-            );
-        }
-        effects = effects.push(self.field("Accessibilité", "reduced_transparency", access));
-        effects = effects.push(
-            self.field(
-                "Bureau affiché",
-                "mode",
-                row![
-                    radio(
-                        crate::i18n::tr("Fond d'écran"),
-                        Mode::Opaque,
-                        Some(g.mode),
-                        |v| wrap(Msg::Mode(v))
-                    )
-                    .font(font)
-                    .size(crate::ui::tokens::ts(16.0)),
-                    radio(crate::i18n::tr("Verre"), Mode::Glass, Some(g.mode), |v| {
-                        wrap(Msg::Mode(v))
-                    })
-                    .font(font)
-                    .size(crate::ui::tokens::ts(16.0)),
-                ]
-                .spacing(16),
-            ),
-        );
-        if g.mode == Mode::Glass {
+            effects = effects.push(self.field("Accessibilité", "reduced_transparency", access));
             effects = effects.push(
                 self.field(
+                    "Bureau affiché",
+                    "mode",
+                    row![
+                        self.focusable(
+                            radio(
+                                crate::i18n::tr("Fond d'écran"),
+                                Mode::Opaque,
+                                Some(g.mode),
+                                |v| wrap(Msg::Mode(v))
+                            )
+                            .font(font)
+                            .size(crate::ui::tokens::ts(16.0))
+                        ),
+                        self.focusable(
+                            radio(crate::i18n::tr("Verre"), Mode::Glass, Some(g.mode), |v| {
+                                wrap(Msg::Mode(v))
+                            })
+                            .font(font)
+                            .size(crate::ui::tokens::ts(16.0))
+                        ),
+                    ]
+                    .spacing(16),
+                ),
+            );
+            if g.mode == Mode::Glass {
+                effects = effects.push(self.field(
                     "Voile du verre",
                     "glass_opacity",
+                    self.slider(
+                        &SliderSpec::new(
+                            "glass_opacity",
+                            (0.0, 100.0),
+                            1.0,
+                            |v| wrap(Msg::GlassOpacity(v.round() as f32 / 100.0)),
+                            wrap(Msg::Commit),
+                        ),
+                        f64::from((g.glass_opacity * 100.0).round()),
+                        affiche_pourcent,
+                        SliderLook::fill(13.0, 48, Alignment::Center),
+                    ),
+                ));
+            }
+            let lock_dim = SliderSpec::new(
+                "lock_dim",
+                (0.0, 100.0),
+                1.0,
+                |v| wrap(Msg::LockDim(v.round() as f32 / 100.0)),
+                wrap(Msg::Commit),
+            );
+            effects = effects.push(
+                self.field(
+                    "Verrouillage",
+                    "lock_dim",
                     row![
-                        slider(0..=100u32, (g.glass_opacity * 100.0).round() as u32, |v| {
-                            wrap(Msg::GlassOpacity(v as f32 / 100.0))
-                        })
-                        .on_release(wrap(Msg::Commit))
-                        .width(Length::Fill),
-                        percent(g.glass_opacity),
+                        self.slider(
+                            &lock_dim,
+                            f64::from((g.lock.dim * 100.0).round()),
+                            affiche_pourcent,
+                            SliderLook::fill(13.0, 48, Alignment::Center),
+                        ),
+                        // Sur la ligne du curseur, au-dessus de son échelle
+                        // (HIG SEL-09).
+                        beside_slider(
+                            &lock_dim,
+                            self.focusable(
+                                self.toggle(g.lock.blur)
+                                    .label(crate::i18n::tr("Flou"))
+                                    .font(font)
+                                    .on_toggle(|v| wrap(Msg::LockBlur(v)))
+                            )
+                        ),
                     ]
                     .spacing(12)
                     .align_y(Alignment::Center),
                 ),
             );
-        }
-        effects = effects.push(
-            self.field(
-                "Verrouillage",
-                "lock_dim",
-                row![
-                    slider(0..=100u32, (g.lock.dim * 100.0).round() as u32, |v| wrap(
-                        Msg::LockDim(v as f32 / 100.0)
-                    ))
-                    .on_release(wrap(Msg::Commit))
-                    .width(Length::Fill),
-                    percent(g.lock.dim),
-                    toggler(g.lock.blur)
-                        .label(crate::i18n::tr("Flou"))
-                        .font(font)
-                        .on_toggle(|v| wrap(Msg::LockBlur(v))),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
-            ),
-        );
-
-        // Fonds d'écran : réglés dans leur paquet, ils font partie du thème.
-        let walls = self.cfg.wallpapers.len();
-        let wallpapers = row![
-            text(match walls {
-                0 => crate::i18n::tr("Aucun fond d'écran réglé : le fond sans image s'applique.")
-                    .to_string(),
-                1 => crate::i18n::tr("1 règle de fond d'écran.").to_string(),
-                n => crate::tr!("{n} règles de fond d'écran.", n = n),
-            })
-            .font(font)
-            .size(crate::ui::tokens::ts(13.0))
-            .width(Length::Fill),
-            button(
-                text("Choisir les fonds d'écran")
-                    .font(font)
-                    .size(crate::ui::tokens::ts(12.0))
-            )
-            .padding([4, 10])
-            .style(button::secondary)
-            .on_press(wrap(Msg::OpenWallpapers)),
-        ]
-        .spacing(12)
-        .align_y(Alignment::Center);
+            effects
+        };
 
         match self.subtab(INFO.id) {
             "couleurs" => {
@@ -871,9 +838,21 @@ impl App {
                         .into()
                 }))
                 .spacing(4);
-                return column![self.section("Couleurs"), colors, note]
-                    .spacing(14)
-                    .into();
+                return column![
+                    self.section("Couleurs"),
+                    colors(),
+                    note,
+                    self.section("Icônes d'application"),
+                    self.field("Apparence des icônes", "", self.icon_appearance_field()),
+                    text(crate::i18n::tr(
+                        "Automatique : sombres avec un thème sombre. Teintées : de la couleur d'accent. Le dessin de chaque icône reste le même."
+                    ))
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+                ]
+                .spacing(14)
+                .into();
             }
             "texte" => return self.typography(),
             "composants" => return self.design_components(),
@@ -887,13 +866,168 @@ impl App {
                     .font(font)
                     .size(crate::ui::tokens::ts(12.0))
                     .color(dim),
-                    effects,
+                    effects(),
                 ]
                 .spacing(14)
                 .into();
             }
             _ => {}
         }
+
+        let name = st.name.clone().unwrap_or_else(|| th.name.clone());
+        let mut current = column![
+            row![
+                preview(th.name.clone(), th.fg, th.bg, th.accent, true),
+                column![
+                    text_input(crate::i18n::tr("Nom du thème"), &name)
+                        .font(font)
+                        .on_input(|v| wrap(Msg::Name(v)))
+                        .on_submit(wrap(Msg::NameSubmit))
+                        .padding(8)
+                        .width(Length::Fill),
+                    row![
+                        self.focusable_when(
+                            button(
+                                text("Enregistrer dans les thèmes personnels")
+                                    .font(font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                            )
+                            .padding([6, 14])
+                            .on_press_maybe((!name.trim().is_empty()).then(|| wrap(Msg::Save))),
+                            !name.trim().is_empty()
+                        ),
+                        text("Exporter : Partage → Thème seul")
+                            .font(font)
+                            .size(crate::ui::tokens::ts(12.0))
+                            .color(dim),
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center)
+                    .wrap()
+                    .vertical_spacing(6),
+                ]
+                .spacing(8)
+                .width(Length::Fill),
+            ]
+            .spacing(16)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(8);
+        if let Some(r) = &st.report {
+            current = current.push(match r {
+                Ok(m) => text(m.clone())
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(accent),
+                Err(e) => text(e.clone())
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(warn),
+            });
+        }
+
+        // Thèmes livrés : les packs du moteur de thème, qui fait foi.
+        let presets = row(shown_catalog(st).into_iter().map(|e| {
+            use crate::theme_engine::bridge::same_theme;
+            // Variante montrée : celle en place si c'est l'autre, sinon celle
+            // par défaut ; l'autre se choisit sous la tuile (MLG-254).
+            let (shown, alt) = match e.other {
+                Some((_, t)) if same_theme(th, &t) => (t, Some((e.variant, e.theme))),
+                other => (e.theme, other),
+            };
+            let on = same_theme(th, &shown);
+            let name = match e.origin {
+                "bundled" => shown.name.clone(),
+                "user" => crate::tr!("{n} · à vous", n = shown.name),
+                _ => crate::tr!("{n} · installé", n = shown.name),
+            };
+            let card = card_button(
+                preview(name, shown.fg, shown.bg, shown.accent, on).into(),
+                wrap(Msg::Pack(Box::new(shown))),
+            );
+            match alt {
+                Some((v, t)) => column![
+                    card,
+                    self.focusable(
+                        button(
+                            text(crate::i18n::tr(if v == "light" {
+                                "Version claire"
+                            } else {
+                                "Version sombre"
+                            }))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(11.0)),
+                        )
+                        .padding([2, 8])
+                        .style(button::text)
+                        .on_press(wrap(Msg::Pack(Box::new(t))))
+                    ),
+                ]
+                .spacing(2)
+                .align_x(Alignment::Center)
+                .into(),
+                None => card,
+            }
+        }))
+        .spacing(10)
+        .wrap();
+
+        // Thèmes personnels.
+        let library: Element<'_, UiMsg> = if st.library.is_empty() {
+            text(
+                "Aucun pour l'instant : enregistrez le thème en place, ou importez une archive \
+                 de thème (Partage).",
+            )
+            .font(font)
+            .size(crate::ui::tokens::ts(12.0))
+            .color(dim)
+            .into()
+        } else {
+            row(st.library.iter().map(|s| {
+                let (f, b, a) = s.summary.colors();
+                let armed = st.pending_delete.as_ref() == Some(&s.path);
+                column![
+                    card_button(
+                        preview(s.summary.name.clone(), f, b, a, false).into(),
+                        wrap(Msg::Apply(s.path.clone())),
+                    ),
+                    self.delete_button(armed, wrap(Msg::Delete(s.path.clone()))),
+                ]
+                .spacing(4)
+                .align_x(iced::Alignment::Center)
+                .into()
+            }))
+            .spacing(10)
+            .wrap()
+            .into()
+        };
+
+        // Fonds d'écran : réglés dans leur paquet, ils font partie du thème.
+        let walls = self.cfg.wallpapers.len();
+        let wallpapers = row![
+            text(match walls {
+                0 => crate::i18n::tr("Aucun fond d'écran réglé : le fond sans image s'applique.")
+                    .to_string(),
+                1 => crate::i18n::tr("1 règle de fond d'écran.").to_string(),
+                n => crate::tr!("{n} règles de fond d'écran.", n = n),
+            })
+            .font(font)
+            .size(crate::ui::tokens::ts(13.0))
+            .width(Length::Fill),
+            self.focusable(
+                button(
+                    text("Choisir les fonds d'écran")
+                        .font(font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .style(button::secondary)
+                .on_press(wrap(Msg::OpenWallpapers))
+            ),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
+
         column![
             self.section("Thème en place"),
             current,
@@ -903,7 +1037,7 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
             presets,
-            self.section("Mes thèmes"),
+            self.section("Thèmes personnels"),
             row![
                 text(
                     "Appliquer remplace le thème en place (fonds compris) : enregistrez-le \
@@ -913,14 +1047,16 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim)
                 .width(Length::Fill),
-                button(
-                    text("Ouvrir le dossier")
-                        .font(font)
-                        .size(crate::ui::tokens::ts(12.0))
-                )
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press(wrap(Msg::OpenDir)),
+                self.focusable(
+                    button(
+                        text("Ouvrir le dossier")
+                            .font(font)
+                            .size(crate::ui::tokens::ts(12.0))
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::OpenDir))
+                ),
             ]
             .spacing(12)
             .align_y(Alignment::Center),
@@ -935,13 +1071,18 @@ impl App {
                 .on_submit(wrap(Msg::CreateFromScene))
                 .padding(8)
                 .width(Length::Fill),
-                button(
-                    text("Créer le thème")
-                        .font(font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 14])
-                .on_press_maybe((!st.scene.trim().is_empty()).then(|| wrap(Msg::CreateFromScene))),
+                self.focusable_when(
+                    button(
+                        text("Créer le thème")
+                            .font(font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 14])
+                    .on_press_maybe(
+                        (!st.scene.trim().is_empty()).then(|| wrap(Msg::CreateFromScene))
+                    ),
+                    !st.scene.trim().is_empty()
+                ),
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -995,8 +1136,55 @@ impl App {
             Msg::Color(slot, c) => {
                 if let Some(panel) = self.panel.as_mut() {
                     panel.theme.hex.remove(&slot);
+                    // La couleur change sans le sélecteur : il se referme.
+                    panel.theme.picker = None;
                 }
                 self.set_theme_color(slot, c)
+            }
+            // Puits de couleur (HIG SEL-02).
+            Msg::OpenPicker(slot) => {
+                let g = &self.cfg.general;
+                let value = match slot {
+                    Slot::Fg => g.theme.fg,
+                    Slot::Bg => g.theme.bg,
+                    Slot::Accent => g.theme.accent,
+                    Slot::Background => g.background,
+                };
+                if let Some(theme) = self.panel.as_mut().map(|p| &mut p.theme) {
+                    let open = theme.picker.as_ref().is_some_and(|(s, _)| *s == slot);
+                    // Le sélecteur part du brouillon s'il est lisible, sinon
+                    // de la couleur en place.
+                    let initial = theme
+                        .hex
+                        .get(&slot)
+                        .and_then(|v| Rgba::parse(v.trim()))
+                        .unwrap_or(value);
+                    theme.picker = (!open).then_some((slot, Picker::new(initial)));
+                }
+                Task::none()
+            }
+            Msg::Picker(m) => {
+                if let Some((_, pk)) = self.panel.as_mut().and_then(|p| p.theme.picker.as_mut()) {
+                    pk.update(m);
+                }
+                Task::none()
+            }
+            Msg::PickerCancel => {
+                if let Some(panel) = self.panel.as_mut() {
+                    panel.theme.picker = None;
+                }
+                Task::none()
+            }
+            Msg::PickerApply => {
+                match self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.theme.picker.take())
+                    .map(|(slot, pk)| (slot, pk.color()))
+                {
+                    Some((slot, c)) => self.theme_update(Msg::Color(slot, c)),
+                    None => Task::none(),
+                }
             }
             Msg::Hex(slot, v) => {
                 if let Some(panel) = self.panel.as_mut() {
@@ -1013,7 +1201,12 @@ impl App {
                     return Task::none();
                 };
                 match Rgba::parse(v.trim()) {
-                    Some(c) => self.set_theme_color(slot, c),
+                    Some(c) => {
+                        if let Some(panel) = self.panel.as_mut() {
+                            panel.theme.picker = None;
+                        }
+                        self.set_theme_color(slot, c)
+                    }
                     None => {
                         if let Some(panel) = self.panel.as_mut() {
                             panel.theme.report = Some(Err(crate::tr!(
@@ -1098,7 +1291,7 @@ impl App {
                         tokio::task::spawn_blocking(move || {
                             crate::theme::create(&cfg, &src, None).map(|(out, warning)| {
                                 let mut m = crate::tr!(
-                                    "Thème créé : {out} — à appliquer d'un clic dans Mes thèmes.",
+                                    "Thème créé : {out} — à appliquer d'un clic dans les thèmes personnels.",
                                     out = out.display()
                                 );
                                 if let Some(w) = warning {

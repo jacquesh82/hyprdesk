@@ -90,6 +90,12 @@ pub const CATALOGUE: &[Essential] = &[
         "Maximiser (la barre reste visible)",
         false,
     ),
+    e(
+        "minimize",
+        Group::Windows,
+        "Réduire la fenêtre active",
+        false,
+    ),
     e("float", Group::Windows, "Fenêtre flottante", false),
     e(
         "pin",
@@ -407,6 +413,19 @@ impl Ctx {
                 "hl.dsp.window.fullscreen({ mode = \"maximized\", action = \"toggle\" })",
                 &["window.fullscreen(&mode=\"maximized\""],
             )],
+            // Réduire façon macOS (Command-M) : la fenêtre part dans le
+            // workspace des réduites, d'où le dock la rappelle. Déjà fait par
+            // hyprland.lua : la même commande, ou le même déplacement sans
+            // suivre la fenêtre.
+            "minimize" => vec![want(
+                "",
+                "SUPER + M".into(),
+                "hl.dsp.exec_cmd(\"hyprdesk window minimize\")",
+                &[
+                    "exec_cmd(&hyprdesk&window&minimize",
+                    "window.move(&hyprdesk-reduites&follow=false",
+                ],
+            )],
             "float" => vec![want(
                 "",
                 "SUPER + V".into(),
@@ -539,23 +558,24 @@ impl Ctx {
                 "hl.dsp.layout(\"zone {d}\")",
                 "layout(\"zone {d}\"",
             ),
-            // Virgule : une vraie touche en QWERTY comme en AZERTY ; ALT et
-            // CTRL plutôt que SHIFT, qui change la touche sur certains claviers.
+            // Point-virgule : une vraie touche en QWERTY comme en AZERTY (la
+            // virgule est aux Réglages, HIG PAT-14) ; ALT et CTRL plutôt que
+            // SHIFT, qui change la touche sur certains claviers.
             "mon-focus" => vec![want(
                 "",
-                format!("{ws} + comma"),
+                format!("{ws} + semicolon"),
                 "hl.dsp.focus({ monitor = \"+1\" })",
                 &["focus({monitor="],
             )],
             "mon-window" => vec![want(
                 "",
-                format!("{ws} + ALT + comma"),
+                format!("{ws} + ALT + semicolon"),
                 "hl.dsp.window.move({ monitor = \"+1\" })",
                 &["window.move({monitor="],
             )],
             "mon-workspace" => vec![want(
                 "",
-                format!("{ws} + CTRL + comma"),
+                format!("{ws} + CTRL + semicolon"),
                 "hl.dsp.workspace.move({ monitor = \"+1\" })",
                 &["workspace.move({monitor=", "workspace.swap_monitors("],
             )],
@@ -962,6 +982,9 @@ pub fn pretty(combo: &str) -> String {
     let Some((key, mods)) = parts.split_last() else {
         return combo.to_string();
     };
+    // Plusieurs modificateurs : toujours CTRL, ALT, SHIFT, SUPER (HIG ENT-04).
+    let mut mods = mods.to_vec();
+    mods.sort_by_key(|m| crate::hypr::modifier_rank(m));
     let k = key.to_lowercase();
     let row = "1234567890";
     let shown: String = if let Some(c) = k
@@ -1339,11 +1362,12 @@ hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --clipboard-only"), { subma
         let ws8 = find(&lines, "ws", "8");
         assert_eq!(ws8.state, State::Installed);
         assert_eq!(ws8.combo, "SUPER + code:17");
-        // Envoyer au workspace : le modificateur de hyprland.lua (SUPER + ALT).
-        assert_eq!(find(&lines, "ws-move", "8").combo, "SUPER + ALT + code:17");
+        // Envoyer au workspace : le modificateur de hyprland.lua (SUPER + ALT),
+        // écrit CTRL, ALT, SHIFT, SUPER (HIG ENT-04).
+        assert_eq!(find(&lines, "ws-move", "8").combo, "ALT + SUPER + code:17");
         // Échanger : les touches du focus, avec CTRL.
-        assert_eq!(find(&lines, "swap", "gauche").combo, "SUPER + CTRL + h");
-        assert_eq!(find(&lines, "swap", "droite").combo, "SUPER + CTRL + m");
+        assert_eq!(find(&lines, "swap", "gauche").combo, "CTRL + SUPER + h");
+        assert_eq!(find(&lines, "swap", "droite").combo, "CTRL + SUPER + m");
         // Envoyer à l'écran : SHIFT + 1 en AZERTY est mort, hyprdesk pose le sien.
         let mon = find(&lines, "mon-window", "");
         assert_eq!(mon.state, State::Installed);
@@ -1351,7 +1375,7 @@ hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --clipboard-only"), { subma
             mon.note
                 .as_deref()
                 .unwrap_or("")
-                .contains("SUPER + SHIFT + 1")
+                .contains("SHIFT + SUPER + 1")
         );
         // Molette : tenue par un message du layout scrolling, inutilisé.
         match &find(&lines, "ws-wheel", "suivant").state {
@@ -1367,6 +1391,17 @@ hl.bind("Print", hl.dsp.exec_cmd("hyprshot -m region --clipboard-only"), { subma
         // Maximiser, épingler : posés.
         assert_eq!(find(&lines, "maximize", "").state, State::Installed);
         assert!(!find(&lines, "maximize", "").desktop);
+        // Réduire : posé façon macOS (Command-M, HIG ENT-08), sur la commande
+        // du bouton de la barre de titre.
+        let minimize = find(&lines, "minimize", "");
+        assert_eq!(minimize.state, State::Installed);
+        assert_eq!(minimize.combo, "SUPER + M");
+        assert_eq!(minimize.slot, "minimize");
+        assert_eq!(
+            minimize.lua,
+            "hl.dsp.exec_cmd(\"hyprdesk window minimize\")"
+        );
+        assert!(!minimize.desktop);
         // Souris : déjà là pour déplacer ; bureau affiché, la submap la
         // suspend : hyprdesk la repose là, sur la même combinaison.
         let drag = find(&lines, "mouse", "déplacer");
@@ -1476,10 +1511,17 @@ hl.bind(mainMod .. " + ampersand", hl.dsp.focus({ workspace = 1 }))
     #[test]
     fn combinaisons_lisibles() {
         assert_eq!(pretty("SUPER + code:17"), "SUPER + 8");
-        assert_eq!(pretty("SUPER + ALT + code:19"), "SUPER + ALT + 0");
+        assert_eq!(pretty("SUPER + ALT + code:19"), "ALT + SUPER + 0");
         assert_eq!(pretty("SUPER + code:49"), "SUPER + ²");
         assert_eq!(pretty("super + ampersand"), "SUPER + &");
-        assert_eq!(pretty("SUPER + SHIFT + left"), "SUPER + SHIFT + ←");
+        assert_eq!(pretty("SUPER + SHIFT + left"), "SHIFT + SUPER + ←");
+        // Quel que soit l'ordre écrit, CTRL, ALT, SHIFT, SUPER (HIG ENT-04) ;
+        // chaque modificateur garde le nom écrit, en majuscules.
+        assert_eq!(
+            pretty("super + shift + control + alt + D"),
+            "CONTROL + ALT + SHIFT + SUPER + D"
+        );
+        assert_eq!(pretty("WIN + CONTROL + Q"), "CONTROL + WIN + Q");
         assert_eq!(pretty("SUPER + q"), "SUPER + Q");
         assert_eq!(pretty("XF86AudioMute"), "XF86AudioMute");
         assert_eq!(
@@ -1491,6 +1533,30 @@ hl.bind(mainMod .. " + ampersand", hl.dsp.focus({ workspace = 1 }))
             Some("Passer à la fenêtre voisine (gauche)")
         );
         assert_eq!(known_action("layout(\"move+col\"))"), None);
+        assert_eq!(
+            known_action("exec_cmd(\"hyprdesk window minimize\")").as_deref(),
+            Some("Réduire la fenêtre active")
+        );
+    }
+
+    /// Réduire : déjà fait par hyprland.lua, hyprdesk ne le repose pas.
+    #[test]
+    fn reduire_deja_la() {
+        for lua in [
+            r#"local mainMod = "SUPER"
+hl.bind(mainMod .. " + M", hl.dsp.exec_cmd("hyprdesk window minimize"))"#,
+            r#"hl.bind("SUPER + m", hl.dsp.window.move({ workspace = "special:hyprdesk-reduites", follow = false }))"#,
+        ] {
+            let lines = plan(&Keys::default(), &serde_json::json!([]), &src(lua), &[]);
+            let l = find(&lines, "minimize", "");
+            assert!(matches!(l.state, State::Present { .. }), "{lua}");
+            assert_eq!(l.combo, "SUPER + M");
+        }
+        // Sans « follow = false », la fenêtre est suivie : ce n'est pas
+        // réduire, hyprdesk pose quand même le sien.
+        let lua = r#"hl.bind("SUPER + M", hl.dsp.window.move({ workspace = "special:hyprdesk-reduites" }))"#;
+        let lines = plan(&Keys::default(), &serde_json::json!([]), &src(lua), &[]);
+        assert_eq!(find(&lines, "minimize", "").state, State::Installed);
     }
 
     #[test]

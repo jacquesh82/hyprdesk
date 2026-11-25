@@ -14,6 +14,18 @@ pub fn on_accent(accent: Color, fg: Color, bg: Color) -> Color {
     }
 }
 
+/// Couleur entre `a` (t = 0) et `b` (t = 1), opacité comprise : passage
+/// d'un état à l'autre d'une commande (HIG SYS-06).
+pub fn mix(a: Color, b: Color, t: f32) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    Color::from_rgba(
+        a.r + (b.r - a.r) * t,
+        a.g + (b.g - a.g) * t,
+        a.b + (b.b - a.b) * t,
+        a.a + (b.a - a.a) * t,
+    )
+}
+
 /// Barre et cartes associées : un reflet issu du texte du thème, jamais une
 /// teinte fixe ; pas d'animation de flou ou de géométrie de la surface.
 pub fn bar_surface(bg: Color, fg: Color, top: bool) -> container::Style {

@@ -4,9 +4,10 @@
 //! ou ressort (masse, raideur, amortissement). Elles sont écrites dans
 //! `animations.lua` (`crate::genfiles`) et proposées pour chaque élément animé.
 
-use iced::widget::{Space, button, canvas, column, container, row, slider, text_input};
+use iced::widget::{Space, button, canvas, column, container, row, text_input};
 use iced::{Alignment, Color, Element, Length, Point, Rectangle, Task, mouse};
 
+use super::panel::{SliderLook, SliderSpec, beside_slider};
 use super::{App, Msg as UiMsg, color};
 use crate::fx::CurveDef;
 use crate::i18n::text;
@@ -207,7 +208,7 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
-            self.section("Vos courbes"),
+            self.section("Courbes personnelles"),
         ]
         .spacing(14);
         let user = &self.cfg.general.fx.curves;
@@ -223,21 +224,31 @@ impl App {
             let mut sliders = column![].spacing(6);
             for (i, (label, v, min, max, step)) in params(def).into_iter().enumerate() {
                 let n = name.clone();
+                let spec = SliderSpec::new(
+                    format!("{name}#{i}"),
+                    (min, max),
+                    step,
+                    move |x| wrap(Msg::Param(n.clone(), i, (x / step).round() * step)),
+                    wrap(Msg::Commit),
+                )
+                .named(crate::i18n::tr(label));
                 sliders = sliders.push(
                     row![
-                        text(crate::i18n::tr(label))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                            .width(110),
-                        slider(min as f32..=max as f32, v as f32, move |x| wrap(
-                            Msg::Param(n.clone(), i, ((x as f64) / step).round() * step)
-                        ))
-                        .step(step as f32)
-                        .on_release(wrap(Msg::Commit))
-                        .width(200),
-                        text(format!("{}", (v * 100.0).round() / 100.0))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
+                        // Sur la ligne du curseur, au-dessus de son échelle
+                        // (HIG SEL-09).
+                        beside_slider(
+                            &spec,
+                            text(crate::i18n::tr(label))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                                .width(110)
+                        ),
+                        self.slider(
+                            &spec,
+                            v,
+                            |x| format!("{}", (x * 100.0).round() / 100.0),
+                            SliderLook::fixed(12.0, 200, Alignment::Center).spacing(10),
+                        ),
                     ]
                     .spacing(10)
                     .align_y(Alignment::Center),
@@ -263,14 +274,25 @@ impl App {
                         row![
                             text(name.clone())
                                 .font(self.title_font())
-                                .size(crate::ui::tokens::ts(14.0))
+                                .size(crate::ui::tokens::ts(13.0))
                                 .width(Length::Fill),
-                            button(text("×").font(self.font).size(crate::ui::tokens::ts(14.0)))
-                                .padding([2, 10])
-                                .style(button::text)
-                                .on_press_maybe(
-                                    users.is_empty().then(|| wrap(Msg::Remove(name.clone())))
-                                ),
+                            // Retrait : le glyphe du jeu (HIG ICO-07), estompé tant que la
+                            // courbe est employée.
+                            button(
+                                // Trait du titre voisin (HIG ICO-12).
+                                crate::ui::icons::glyph_weighted(
+                                    "window-close",
+                                    crate::ui::tokens::ts(14.0),
+                                    if users.is_empty() { self.ink().fg } else { dim },
+                                    self.title_font().weight,
+                                )
+                                .expect("glyphe de fermeture"),
+                            )
+                            .padding([2, 10])
+                            .style(button::text)
+                            .on_press_maybe(
+                                users.is_empty().then(|| wrap(Msg::Remove(name.clone())))
+                            ),
                         ]
                         .align_y(Alignment::Center),
                         sliders,

@@ -274,8 +274,10 @@ pub(crate) enum DispatchMessageInner {
         time: u32,
     },
     MouseLeave,
-    /// Glisser-déposer (hyprdesk) : une offre entre sur la surface.
-    DndEnter { x: f64, y: f64 },
+    /// Glisser-déposer (hyprdesk) : une offre entre sur la surface, avec
+    /// ses fichiers (vide si l'offre n'en porte pas ou s'ils ne sont pas
+    /// encore lus : l'entrée est alors redite avec eux, au mouvement).
+    DndEnter { x: f64, y: f64, paths: Vec<std::path::PathBuf> },
     /// Glisser-déposer : l'offre se déplace sur la surface.
     DndMotion { x: f64, y: f64 },
     /// Glisser-déposer : l'offre quitte la surface.
@@ -367,8 +369,10 @@ pub enum DispatchMessage {
     },
     /// Mouse leave the surface
     MouseLeave,
-    /// Glisser-déposer (hyprdesk) : une offre entre sur la surface.
-    DndEnter { x: f64, y: f64 },
+    /// Glisser-déposer (hyprdesk) : une offre entre sur la surface, avec
+    /// ses fichiers (vide si l'offre n'en porte pas ou s'ils ne sont pas
+    /// encore lus : l'entrée est alors redite avec eux, au mouvement).
+    DndEnter { x: f64, y: f64, paths: Vec<std::path::PathBuf> },
     /// Glisser-déposer : l'offre se déplace sur la surface.
     DndMotion { x: f64, y: f64 },
     /// Glisser-déposer : l'offre quitte la surface.
@@ -481,7 +485,9 @@ impl From<DispatchMessageInner> for DispatchMessage {
                 time,
             },
             DispatchMessageInner::MouseLeave => DispatchMessage::MouseLeave,
-            DispatchMessageInner::DndEnter { x, y } => DispatchMessage::DndEnter { x, y },
+            DispatchMessageInner::DndEnter { x, y, paths } => {
+                DispatchMessage::DndEnter { x, y, paths }
+            }
             DispatchMessageInner::DndMotion { x, y } => DispatchMessage::DndMotion { x, y },
             DispatchMessageInner::DndLeave => DispatchMessage::DndLeave,
             DispatchMessageInner::DndDrop { x, y, paths } => {

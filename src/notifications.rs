@@ -54,6 +54,10 @@ pub struct Notification {
     pub body: String,
     /// (clé, libellé) ; `default` : action d'un clic sur la notification.
     pub actions: Vec<(String, String)>,
+    /// Icône de chaque action (hint `action-icons`), dans le même ordre que
+    /// `actions` : nom du thème d'icônes ou chemin d'image ; rien si l'action
+    /// n'en a pas.
+    pub action_icons: Vec<Option<String>>,
     pub urgency: Urgency,
     /// Délai demandé (ms) : -1 au choix du serveur, 0 jamais.
     pub timeout_ms: i32,
@@ -64,10 +68,16 @@ pub struct Notification {
     /// Application d'origine (`desktop-entry`).
     pub desktop_entry: Option<String>,
     pub category: Option<String>,
+    /// Non lue (HIG SYS-02) : depuis son entrée dans l'historique, un
+    /// remplacement compris, jusqu'à l'ouverture d'une liste de l'historique.
+    pub unread: bool,
 }
 
 /// Ce que le serveur signale à l'interface.
 #[derive(Debug, Clone, PartialEq)]
+// La notification dépasse 200 octets depuis ses icônes d'actions : l'événement
+// ne circule qu'une fois par notification, sur le canal du serveur.
+#[allow(clippy::large_enum_variant)]
 pub enum Event {
     /// Nouvelle notification, ou remplacement (même id).
     Shown(Notification),
@@ -79,7 +89,9 @@ pub enum Event {
 
 /// État pour le module de barre et `hyprdesk notifications` :
 /// `$XDG_RUNTIME_DIR/hyprdesk-notifications.txt` — `dnd=0|1`, `count=N`,
-/// puis `n=<app>\t<titre>\t<texte>` (les plus récentes d'abord).
+/// `unread=N` (non lues, HIG SYS-02), `dnd_until=<échéance>` (Silence à fin
+/// programmée, HIG PAT-04), puis `n=<app>\t<titre>\t<texte>` (les plus
+/// récentes d'abord).
 pub fn state_path() -> std::path::PathBuf {
     crate::policy::private_runtime_or_unusable().join("hyprdesk-notifications.txt")
 }
@@ -89,10 +101,342 @@ pub fn dnd_path() -> std::path::PathBuf {
     crate::layout::state_dir().join("dnd")
 }
 
+/// L'heure de « ce soir » : la HIG ne la chiffre pas (managing-notifications
+/// › Integrating with Focus).
+pub const EVENING_HOUR: u32 = 18;
+
+/// Fin du Silence (HIG PAT-04), par le mot de la commande de contrôle : `1h`,
+/// « une heure » ; `soir`, « jusqu'à ce soir ». Sans mot : jusqu'à
+/// désactivation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SilenceEnd {
+    Hour,
+    Evening,
+}
+
+impl SilenceEnd {
+    pub fn parse(word: &str) -> Option<Self> {
+        match word {
+            "1h" => Some(Self::Hour),
+            "soir" => Some(Self::Evening),
+            _ => None,
+        }
+    }
+
+    /// Échéance, en secondes depuis l'époque ; `None` quand la fin est déjà
+    /// passée : « ce soir », le soir.
+    pub fn deadline(self, now: chrono::DateTime<chrono::Local>) -> Option<i64> {
+        match self {
+            Self::Hour => Some(now.timestamp() + 3600),
+            Self::Evening => {
+                let evening = now
+                    .date_naive()
+                    .and_hms_opt(EVENING_HOUR, 0, 0)?
+                    .and_local_timezone(chrono::Local)
+                    .single()?;
+                (now < evening).then_some(evening.timestamp())
+            }
+        }
+    }
+}
+
+/// Le Silence gardé d'une session à l'autre et sa fin facultative : échéance
+/// en secondes depuis l'époque, à l'horloge murale (HIG PAT-04).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Silence {
+    pub until: Option<i64>,
+}
+
+/// L'heure courante, en secondes depuis l'époque.
+pub fn unix_now() -> i64 {
+    chrono::Local::now().timestamp()
+}
+
+/// L'échéance du Silence en toutes lettres, heure locale : « 18:00 ».
+pub fn silence_end_label(until: i64) -> String {
+    chrono::DateTime::from_timestamp(until, 0)
+        .map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string())
+        .unwrap_or_default()
+}
+
+impl Silence {
+    /// Relit le fichier gardé : `None`, le Silence est coupé. Une échéance
+    /// passée n'est plus du Silence (redémarrage, reprise de veille) : le
+    /// fichier est retiré. Un fichier sans `until=` date d'avant les fins.
+    pub fn load() -> Option<Self> {
+        let text = std::fs::read_to_string(dnd_path()).ok()?;
+        let (silence, expired) = Self::read(&text, unix_now());
+        if expired {
+            Self::off();
+        }
+        silence
+    }
+
+    /// Lit le contenu du fichier à l'heure dite : (`None`, vrai) quand son
+    /// échéance est passée.
+    fn read(text: &str, now: i64) -> (Option<Self>, bool) {
+        let until = text
+            .lines()
+            .find_map(|l| l.strip_prefix("until="))
+            .and_then(|u| u.trim().parse().ok());
+        match until {
+            Some(t) if t <= now => (None, true),
+            _ => (Some(Self { until }), false),
+        }
+    }
+
+    /// Allume le Silence, jusqu'à son échéance ou jusqu'à désactivation.
+    pub fn save(self) {
+        let p = dnd_path();
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = match self.until {
+            Some(t) => std::fs::write(&p, format!("until={t}\n")),
+            None => std::fs::write(&p, "1\n"),
+        };
+    }
+
+    /// Éteint le Silence.
+    pub fn off() {
+        let _ = std::fs::remove_file(dnd_path());
+    }
+}
+
+/// Passage du Silence, application par application (HIG PAT-05) : ce que
+/// hyprdesk sait d'une application depuis sa première notification critique.
+/// Accordé, ses critiques traversent le Silence ; refusé, elles vont à
+/// l'historique seules, comme les autres. Une application absente n'a encore
+/// jamais envoyé de critique : son passage est accordé, et c'est la première
+/// fois — sa bulle l'explique et permet de le refuser.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Passage {
+    /// (clé d'application, passage accordé), dans l'ordre de leur inscription.
+    pub apps: Vec<(String, bool)>,
+}
+
+/// Fichier du passage du Silence : une ligne par application, `clé=1` (accordé)
+/// ou `clé=0` (refusé).
+pub fn passage_path() -> std::path::PathBuf {
+    crate::layout::state_dir().join("passage-silence")
+}
+
+impl Passage {
+    /// Relit le fichier gardé : rien, s'il manque ou s'il est illisible.
+    pub fn load() -> Self {
+        std::fs::read_to_string(passage_path())
+            .map(|t| Self::read(&t))
+            .unwrap_or_default()
+    }
+
+    /// Les lignes `clé=0|1` ; les autres sont ignorées.
+    fn read(text: &str) -> Self {
+        Self {
+            apps: text
+                .lines()
+                .filter_map(|l| {
+                    let (key, value) = l.rsplit_once('=')?;
+                    matches!(value.trim(), "0" | "1")
+                        .then(|| (key.trim().to_string(), value.trim() == "1"))
+                })
+                .collect(),
+        }
+    }
+
+    /// Décision d'une application ; `None` : elle n'a encore jamais envoyé de
+    /// notification critique.
+    pub fn granted(&self, key: &str) -> Option<bool> {
+        self.apps
+            .iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, granted)| *granted)
+    }
+
+    /// Inscrit ou remplace la décision d'une application.
+    pub fn set(mut self, key: &str, granted: bool) -> Self {
+        self.apps.retain(|(k, _)| k != key);
+        self.apps.push((key.to_string(), granted));
+        self
+    }
+
+    /// Garde l'état d'une session à l'autre.
+    pub fn save(&self) {
+        let p = passage_path();
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = std::fs::write(&p, self.render());
+    }
+
+    /// Le contenu du fichier gardé.
+    fn render(&self) -> String {
+        self.apps
+            .iter()
+            .map(|(k, g)| format!("{k}={}\n", u8::from(*g)))
+            .collect()
+    }
+}
+
+/// Style de remise d'une application (HIG SYS-03) : ce que devient une
+/// notification ordinaire de cette application.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Delivery {
+    /// La bulle s'efface après son délai : le style par défaut.
+    #[default]
+    Banner,
+    /// La bulle reste jusqu'à sa fermeture, comme une critique.
+    Alert,
+    /// L'historique seul, sans bulle, comme une basse urgence.
+    Silent,
+}
+
+impl Delivery {
+    /// Le mot du fichier gardé.
+    const fn word(self) -> &'static str {
+        match self {
+            Self::Banner => "banniere",
+            Self::Alert => "alerte",
+            Self::Silent => "silencieux",
+        }
+    }
+
+    /// Le mot du fichier gardé ; `None` s'il n'en est pas un.
+    fn parse(word: &str) -> Option<Self> {
+        match word {
+            "banniere" => Some(Self::Banner),
+            "alerte" => Some(Self::Alert),
+            "silencieux" => Some(Self::Silent),
+            _ => None,
+        }
+    }
+}
+
+/// Autorisation d'une application (HIG PAT-02) : ce qu'hyprdesk sait d'elle
+/// depuis qu'elle a demandé à envoyer des notifications. Refusée, ses
+/// notifications ne sont ni montrées ni gardées ; accordée, elles lui sont
+/// remises dans son style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Authorization {
+    pub granted: bool,
+    /// Sans objet pour une application refusée : le style par défaut.
+    pub delivery: Delivery,
+}
+
+/// Autorisations, application par application (HIG PAT-02, PAT-07). Une
+/// application absente n'a encore jamais demandé : sa première notification
+/// porte la demande.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Authorizations {
+    /// (clé d'application, décision), dans l'ordre de leur inscription.
+    pub apps: Vec<(String, Authorization)>,
+}
+
+/// Fichier des autorisations : une ligne par application — `clé=0` (refusée),
+/// `clé=1` (accordée, bannières), `clé=1:alerte`, `clé=1:silencieux`.
+pub fn authorizations_path() -> std::path::PathBuf {
+    crate::layout::state_dir().join("notifications-apps")
+}
+
+impl Authorizations {
+    /// Relit le fichier gardé : rien, s'il manque ou s'il est illisible.
+    pub fn load() -> Self {
+        std::fs::read_to_string(authorizations_path())
+            .map(|t| Self::read(&t))
+            .unwrap_or_default()
+    }
+
+    /// Les lignes `clé=0|1[:style]` ; les autres sont ignorées.
+    fn read(text: &str) -> Self {
+        Self {
+            apps: text
+                .lines()
+                .filter_map(|l| {
+                    let (key, value) = l.rsplit_once('=')?;
+                    let value = value.trim();
+                    let (flag, word) = value
+                        .split_once(':')
+                        .map_or((value, None), |(f, w)| (f, Some(w)));
+                    // Refusée, une application n'a pas de style : `0:…` ne
+                    // se lit pas.
+                    let (granted, delivery) = match (flag, word) {
+                        ("0", None) => (false, Delivery::default()),
+                        ("1", None) => (true, Delivery::default()),
+                        ("1", Some(w)) => (true, Delivery::parse(w)?),
+                        _ => return None,
+                    };
+                    Some((key.trim().to_string(), Authorization { granted, delivery }))
+                })
+                .collect(),
+        }
+    }
+
+    /// Décision d'une application ; `None` : elle n'a encore jamais demandé.
+    pub fn get(&self, key: &str) -> Option<Authorization> {
+        self.apps
+            .iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, a)| *a)
+    }
+
+    /// L'application est-elle autorisée ; `None` : elle n'a encore jamais
+    /// demandé.
+    pub fn granted(&self, key: &str) -> Option<bool> {
+        self.get(key).map(|a| a.granted)
+    }
+
+    /// Inscrit ou remplace la décision d'une application.
+    pub fn set(mut self, key: &str, decision: Authorization) -> Self {
+        self.apps.retain(|(k, _)| k != key);
+        self.apps.push((
+            key.to_string(),
+            Authorization {
+                delivery: if decision.granted {
+                    decision.delivery
+                } else {
+                    Delivery::default()
+                },
+                ..decision
+            },
+        ));
+        self
+    }
+
+    /// Garde l'état d'une session à l'autre.
+    pub fn save(&self) {
+        let p = authorizations_path();
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = std::fs::write(&p, self.render());
+    }
+
+    /// Le contenu du fichier gardé.
+    fn render(&self) -> String {
+        self.apps
+            .iter()
+            .map(|(k, a)| match (a.granted, a.delivery) {
+                (false, _) => format!("{k}=0\n"),
+                (true, Delivery::Banner) => format!("{k}=1\n"),
+                (true, style) => format!("{k}=1:{}\n", style.word()),
+            })
+            .collect()
+    }
+}
+
 /// Texte de l'état : un champ par ligne, tabulations et sauts de ligne remplacés.
-pub fn render_state(dnd: bool, history: &[Notification]) -> String {
+pub fn render_state(dnd: bool, until: Option<i64>, history: &[Notification]) -> String {
     let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
-    let mut out = format!("dnd={}\ncount={}\n", u8::from(dnd), history.len());
+    let unread = history.iter().filter(|n| n.unread).count();
+    let mut out = format!(
+        "dnd={}\ncount={}\nunread={unread}\n",
+        u8::from(dnd),
+        history.len()
+    );
+    if dnd && let Some(t) = until {
+        out.push_str(&format!("dnd_until={t}\n"));
+    }
     for n in history.iter().take(30) {
         out.push_str(&format!(
             "n={}\t{}\t{}\n",
@@ -142,6 +486,57 @@ pub fn parse_actions(list: &[String]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Préfixe de la clé d'une action destructrice (HIG SYS-17).
+pub const DESTRUCTIVE_PREFIX: &str = "destructive:";
+
+/// Action destructrice (HIG SYS-17). La spécification freedesktop 1.2 n'en
+/// définit pas : convention de hyprdesk, documentée dans le guide — la clé de
+/// l'action commence par `destructive:`. Elle est renvoyée telle quelle à
+/// l'application quand on l'appelle.
+pub fn is_destructive(key: &str) -> bool {
+    key.starts_with(DESTRUCTIVE_PREFIX)
+}
+
+impl Notification {
+    /// L'action d'indice `index` est destructrice (HIG SYS-17).
+    pub fn is_destructive(&self, index: usize) -> bool {
+        self.actions
+            .get(index)
+            .is_some_and(|(k, _)| is_destructive(k))
+    }
+}
+
+/// Hint `action-icons` : une icône par action, dans le même ordre ; `-` ou
+/// vide : aucune. Le préfixe `image://` introduit le chemin (ou l'adresse)
+/// d'une image : il est retiré, la résolution des icônes lit les chemins.
+/// Rien si le hint n'est pas un tableau.
+pub fn parse_action_icons(h: &HashMap<String, OwnedValue>) -> Vec<Option<String>> {
+    let Some(v) = h.get("action-icons") else {
+        return Vec::new();
+    };
+    let Some(items) = v
+        .try_clone()
+        .ok()
+        .and_then(|v| match zbus::zvariant::Value::from(v) {
+            zbus::zvariant::Value::Array(items) => Some(items),
+            _ => None,
+        })
+    else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .map(|v| match v {
+            zbus::zvariant::Value::Str(s) => {
+                let s = s.as_str();
+                let s = s.strip_prefix("image://").unwrap_or(s);
+                (!s.is_empty() && s != "-").then(|| s.to_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Construit la notification reçue par `Notify`.
 #[allow(clippy::too_many_arguments)]
 pub fn build(
@@ -166,12 +561,14 @@ pub fn build(
         summary: summary.to_string(),
         body: body.to_string(),
         actions: parse_actions(actions),
+        action_icons: parse_action_icons(hints),
         urgency: hint_urgency(hints),
         timeout_ms,
         resident: hint_bool(hints, "resident"),
         transient: hint_bool(hints, "transient"),
         desktop_entry: hint_str(hints, "desktop-entry"),
         category: hint_str(hints, "category"),
+        unread: true,
     }
 }
 
@@ -270,9 +667,15 @@ impl Server {
     }
 
     fn get_capabilities(&self) -> Vec<String> {
-        ["actions", "body", "icon-static", "persistence"]
-            .map(String::from)
-            .to_vec()
+        [
+            "actions",
+            "action-icons",
+            "body",
+            "icon-static",
+            "persistence",
+        ]
+        .map(String::from)
+        .to_vec()
     }
 
     fn get_server_information(&self) -> (String, String, String, String) {
@@ -378,6 +781,53 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.try_clone().unwrap()))
             .collect()
+    }
+
+    /// Icônes des actions (HIG SYS-18) : une par action, `-` pour aucune,
+    /// `image://` devant un chemin.
+    #[test]
+    fn icones_des_actions() {
+        assert_eq!(
+            parse_action_icons(&HashMap::new()),
+            Vec::<Option<String>>::new()
+        );
+        let h = hints(&[(
+            "action-icons",
+            OwnedValue::try_from(zbus::zvariant::Value::from(vec![
+                "mail-reply-sender",
+                "-",
+                "image:///tmp/a.png",
+                "",
+            ]))
+            .unwrap(),
+        )]);
+        assert_eq!(
+            parse_action_icons(&h),
+            vec![
+                Some("mail-reply-sender".to_string()),
+                None,
+                Some("/tmp/a.png".to_string()),
+                None,
+            ]
+        );
+        // Hint d'un autre type : rien, la notification garde ses actions.
+        let h = hints(&[(
+            "action-icons",
+            OwnedValue::try_from(zbus::zvariant::Value::from("x")).unwrap(),
+        )]);
+        assert!(parse_action_icons(&h).is_empty());
+        let n = build(
+            1,
+            "a",
+            "i",
+            "t",
+            "b",
+            &["k".into(), "Libellé".into()],
+            &h,
+            -1,
+        );
+        assert_eq!(n.actions, vec![("k".to_string(), "Libellé".to_string())]);
+        assert!(n.action_icons.is_empty());
     }
 
     #[test]
@@ -528,15 +978,18 @@ mod tests {
             summary: s.into(),
             body: b.into(),
             actions: Vec::new(),
+            action_icons: Vec::new(),
             urgency: Urgency::Normal,
             timeout_ms: -1,
             resident: false,
             transient: false,
             desktop_entry: None,
             category: None,
+            unread: false,
         };
         let out = render_state(
             true,
+            None,
             &[
                 n(2, "kitty", "Fini", "cargo\ttest\nok"),
                 n(1, "hyprdesk", "Capture", ""),
@@ -544,7 +997,208 @@ mod tests {
         );
         assert_eq!(
             out,
-            "dnd=1\ncount=2\nn=kitty\tFini\tcargo test ok\nn=hyprdesk\tCapture\t\n"
+            "dnd=1\ncount=2\nunread=0\nn=kitty\tFini\tcargo test ok\nn=hyprdesk\tCapture\t\n"
+        );
+    }
+
+    /// HIG SYS-02 : l'état compte les non lues à part de la longueur de
+    /// l'historique ; une notification reçue est non lue.
+    #[test]
+    fn l_etat_compte_les_non_lues() {
+        let mut a = build(1, "kitty", "", "Fini", "", &[], &HashMap::new(), -1);
+        let mut b = build(2, "signal", "", "Message", "", &[], &HashMap::new(), -1);
+        let c = build(3, "hyprdesk", "", "Capture", "", &[], &HashMap::new(), -1);
+        assert!(a.unread && b.unread && c.unread);
+        a.unread = false;
+        b.unread = false;
+        let out = render_state(false, None, &[a, b, c]);
+        assert!(out.starts_with("dnd=0\ncount=3\nunread=1\n"), "{out}");
+    }
+
+    #[test]
+    fn fin_du_silence() {
+        use chrono::TimeZone;
+        let at = |h: u32, m: u32| {
+            chrono::Local
+                .with_ymd_and_hms(2026, 11, 24, h, m, 0)
+                .unwrap()
+        };
+        let morning = at(9, 15);
+        assert_eq!(
+            SilenceEnd::Hour.deadline(morning),
+            Some(morning.timestamp() + 3600)
+        );
+        assert_eq!(
+            SilenceEnd::Evening.deadline(morning),
+            Some(at(EVENING_HOUR, 0).timestamp())
+        );
+        // Le soir, « jusqu'à ce soir » est déjà passé.
+        assert_eq!(SilenceEnd::Evening.deadline(at(18, 0)), None);
+        assert_eq!(SilenceEnd::Evening.deadline(at(23, 30)), None);
+        assert_eq!(SilenceEnd::parse("1h"), Some(SilenceEnd::Hour));
+        assert_eq!(SilenceEnd::parse("soir"), Some(SilenceEnd::Evening));
+        assert_eq!(SilenceEnd::parse("nuit"), None);
+    }
+
+    #[test]
+    fn silence_garde_d_une_session_a_l_autre() {
+        let now = 1_000_000;
+        // Fichier d'avant les fins : allumé sans échéance.
+        assert_eq!(
+            Silence::read("1\n", now),
+            (Some(Silence { until: None }), false)
+        );
+        let t = (now + 600).to_string();
+        assert_eq!(
+            Silence::read(&format!("until={t}\n"), now),
+            (
+                Some(Silence {
+                    until: Some(now + 600)
+                }),
+                false
+            )
+        );
+        // Échéance passée (reprise de veille, redémarrage) : plus de Silence.
+        assert_eq!(
+            Silence::read(&format!("until={t}\n"), now + 600),
+            (None, true)
+        );
+        assert_eq!(
+            Silence::read("until=rien\n", now),
+            (Some(Silence { until: None }), false)
+        );
+    }
+
+    #[test]
+    fn etat_avec_la_fin_du_silence() {
+        let out = render_state(true, Some(1_000_600), &[]);
+        assert_eq!(out, "dnd=1\ncount=0\nunread=0\ndnd_until=1000600\n");
+        assert_eq!(render_state(false, None, &[]), "dnd=0\ncount=0\nunread=0\n");
+    }
+
+    /// HIG PAT-05 : le passage du Silence se décide application par
+    /// application, à la première notification critique. Une application
+    /// absente n'a pas de décision ; un refus remplace un accord et survit à
+    /// une relecture.
+    #[test]
+    fn passage_du_silence_par_application() {
+        let mut passage = Passage::default();
+        assert_eq!(passage.granted("kitty"), None, "jamais vue : première fois");
+        assert_eq!(Passage::read(""), Passage::default());
+        passage = passage.set("kitty", true).set("org.example.Chat", true);
+        assert_eq!(passage.granted("kitty"), Some(true));
+        passage = passage.set("kitty", false);
+        assert_eq!(passage.render(), "org.example.Chat=1\nkitty=0\n");
+        let relu = Passage::read(&format!("{}\nbruit\ncassé=2\n\n", passage.render()));
+        assert_eq!(relu, passage, "une ligne par application, dans l'ordre");
+        assert_eq!(
+            relu.granted("cassé"),
+            None,
+            "une ligne illisible ne décide rien"
+        );
+    }
+
+    /// HIG PAT-02 et SYS-03 : une décision par application — accordée, avec
+    /// son style de remise, ou refusée — gardée d'une session à l'autre ; une
+    /// application absente n'a encore jamais demandé.
+    #[test]
+    fn autorisations_par_application() {
+        let refusee = Authorization {
+            granted: false,
+            delivery: Delivery::Silent,
+        };
+        let mut actuelles = Authorizations::default();
+        assert_eq!(actuelles.granted("kitty"), None, "jamais demandé");
+        assert_eq!(Authorizations::read(""), Authorizations::default());
+        actuelles = actuelles
+            .set(
+                "kitty",
+                Authorization {
+                    granted: true,
+                    delivery: Delivery::Alert,
+                },
+            )
+            .set("org.example.Chat", refusee)
+            .set(
+                "firefox",
+                Authorization {
+                    granted: true,
+                    delivery: Delivery::default(),
+                },
+            );
+        assert_eq!(actuelles.granted("kitty"), Some(true));
+        assert_eq!(
+            actuelles.get("kitty").map(|a| a.delivery),
+            Some(Delivery::Alert)
+        );
+        assert_eq!(
+            actuelles.render(),
+            "kitty=1:alerte\norg.example.Chat=0\nfirefox=1\n",
+            "refusée : pas de style"
+        );
+        let relues = Authorizations::read(&format!(
+            "{}\nbruit\na=2\nc=1:inconnu\nd=0:alerte\n",
+            actuelles.render()
+        ));
+        assert_eq!(relues, actuelles, "une ligne par application, dans l'ordre");
+        for illisible in ["a", "c", "d"] {
+            assert_eq!(relues.get(illisible), None, "{illisible} ne décide rien");
+        }
+        assert_eq!(
+            Authorizations::read("b=0\nb=1:banniere\n").get("b"),
+            Some(Authorization {
+                granted: true,
+                delivery: Delivery::Banner
+            }),
+            "la dernière ligne d'une application décide ; bannières sans style"
+        );
+        let remplacee = relues.set("kitty", refusee);
+        assert_eq!(
+            remplacee.render(),
+            "org.example.Chat=0\nfirefox=1\nkitty=0\n",
+            "remplacée, en fin de liste"
+        );
+        for style in [Delivery::Banner, Delivery::Alert, Delivery::Silent] {
+            let une = Authorizations::default().set(
+                "a",
+                Authorization {
+                    granted: true,
+                    delivery: style,
+                },
+            );
+            assert_eq!(Authorizations::read(&une.render()), une, "{style:?}");
+        }
+    }
+
+    /// HIG SYS-17 : une action est destructrice par sa clé, préfixée
+    /// `destructive:` ; la clé est gardée telle quelle pour l'application.
+    #[test]
+    fn une_action_destructive_est_marquee_par_sa_cle() {
+        let actions = [
+            "default",
+            "Ouvrir",
+            "destructive:erase",
+            "Tout effacer",
+            "later",
+            "Plus tard",
+        ]
+        .map(String::from);
+        let n = build(1, "a", "", "s", "b", &actions, &HashMap::new(), -1);
+        // Liste plate [clé, libellé] : paires (défaut, destructive, autre).
+        assert_eq!(
+            n.actions[1],
+            ("destructive:erase".into(), "Tout effacer".into())
+        );
+        assert!(n.is_destructive(1));
+        assert!(!n.is_destructive(0), "`default` n'est pas destructive");
+        assert!(!n.is_destructive(2));
+        assert!(!n.is_destructive(4));
+        assert!(!n.is_destructive(9));
+        assert!(is_destructive("destructive:default"), "le préfixe suffit");
+        assert!(!is_destructive("default"));
+        assert!(
+            !is_destructive("Destructive:erase"),
+            "la convention est exacte"
         );
     }
 }

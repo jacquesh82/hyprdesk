@@ -5,6 +5,7 @@
 //! Chaque binaire ne lie que le code qu'il atteint : l'écran de verrouillage
 //! n'embarque ni le démon, ni Lua, ni l'index de fichiers.
 
+pub mod a11y;
 pub mod adopt;
 pub mod ai_services;
 pub mod apps;
@@ -78,6 +79,7 @@ pub mod takeover;
 pub mod theme;
 pub mod theme_engine;
 pub mod tiling;
+pub mod tips;
 pub mod tray;
 pub mod ui;
 pub mod update_progress;
@@ -109,13 +111,20 @@ Commandes :
   settings [paquet[/onglet] | ?mots]
                     ouvre l'écran Réglages (ex. bureau/raccourcis, ou « ?gamma » : sur la recherche), sans changer le mode
   toggle-settings   ouvre les Réglages, ou les referme s'ils sont ouverts (raccourci keys.settings)
+  focus <surface>  le clavier va à une surface du shell : bar (barre), dock, notifications,
+                    settings (volet des Réglages) ; rien ne se referme, le mode ne change pas
+  force-quit        ouvre la boîte « Forcer à quitter » (raccourci keys.force_quit), ou la
+                    referme : une ligne par application, confirmation en deux temps
+  keyboard-access   bascule l'accès clavier complet : Tab atteint chaque commande des Réglages
+                    (raccourci keys.keyboard_access)
+  a11y dump         imprime l'arbre d'accessibilité des surfaces, tel qu'un lecteur d'écran le lit
   assistant         ouvre ou referme l'assistant (tiroir LYRA), sans changer le mode
   search            ouvre ou referme le lanceur avec recherche (toutes les applications)
   files             ouvre ou referme la recherche de fichiers (loupe du dock, :f)
   apps              ouvre ou referme la grille des applications (plein écran, catégories)
   overview          vue d'ensemble des fenêtres (overview_command, sinon le sélecteur)
-  notifications [list | dnd [on|off] | clear]
-                    notifications de hyprdesk : historique, Ne pas déranger
+  notifications [list | dnd [on [1h|soir] | off] | clear]
+                    notifications de hyprdesk : historique, Ne pas déranger (une heure, jusqu'à ce soir)
   ask <titre> <texte>
                     demande à LYRA (nouvelle conversation, affichée)
   switch [prev]     sélecteur de fenêtres (Alt+Tab, keys.switch) : ouvre, ou passe
@@ -132,7 +141,7 @@ Commandes :
                     applique un setup partagé (sauvegarde l'actuel d'abord) ;
                     --theme : n'en prendre que le thème (une archive de thème
                     ne change jamais que le thème)
-  theme [list]      « Mes thèmes »
+  theme [list]      « Thèmes personnels »
   theme new <image|pack.zip|dossier> [--name NOM]
                     crée un thème depuis une scène : couleurs tirées de l'image,
                     scène étalée sur tous les écrans (bureau et verrouillage)

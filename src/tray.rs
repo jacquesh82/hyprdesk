@@ -482,11 +482,23 @@ pub fn empty_submenus(nodes: &[Node], out: &mut Vec<i32>) {
     }
 }
 
-/// Aplatit l'arbre : chaque sous-menu devient un titre de section portant
-/// son chemin (« Fichier › Récents »), à toute profondeur.
+/// Plafond d'entrées d'un menu de la zone de notification, colonnes comprises.
+const MAX_ENTRIES: usize = 256;
+
+/// Range l'arbre en menus d'un niveau (HIG MENU-03) : un sous-menu du premier
+/// niveau reste un sous-menu ; en dessous, chaque sous-menu devient un titre
+/// de section portant son chemin (« Fichier › Récents »), à toute profondeur.
+/// Un sous-menu du premier niveau reste masqué tant qu'il est vide
+/// (`AboutToShow` le remplit, puis il paraît).
 pub fn flatten(nodes: &[Node], path: &str, out: &mut Vec<MenuEntry>) {
+    // Les traits et les colonnes comptent dans le plafond.
+    let mut budget = MAX_ENTRIES.saturating_sub(out.len());
+    walk(nodes, path, out, &mut budget);
+}
+
+fn walk(nodes: &[Node], path: &str, out: &mut Vec<MenuEntry>, budget: &mut usize) {
     for n in nodes {
-        if out.len() >= 256 {
+        if *budget == 0 {
             break;
         }
         if !n.visible {
@@ -495,6 +507,7 @@ pub fn flatten(nodes: &[Node], path: &str, out: &mut Vec<MenuEntry>) {
         if n.separator {
             if !matches!(out.last(), None | Some(MenuEntry::Separator)) {
                 out.push(MenuEntry::Separator);
+                *budget -= 1;
             }
             continue;
         }
@@ -504,10 +517,28 @@ pub fn flatten(nodes: &[Node], path: &str, out: &mut Vec<MenuEntry>) {
                 (false, true) => path.to_string(),
                 (false, false) => format!("{path} › {}", n.label),
             };
+            if path.is_empty() {
+                if !n.label.is_empty() && !n.children.is_empty() {
+                    // La ligne du sous-menu compte ; sa colonne puise dans ce
+                    // qui reste.
+                    *budget -= 1;
+                    let mut children = Vec::new();
+                    walk(&n.children, &here, &mut children, budget);
+                    trim(&mut children);
+                    out.push(MenuEntry::Submenu {
+                        label: n.label.clone(),
+                        icon: n.icon.clone(),
+                        enabled: n.enabled,
+                        children,
+                    });
+                }
+                continue;
+            }
             if !here.is_empty() && !n.children.is_empty() {
                 out.push(MenuEntry::Header(here.clone()));
+                *budget -= 1;
             }
-            flatten(&n.children, &here, out);
+            walk(&n.children, &here, out, budget);
             continue;
         }
         out.push(MenuEntry::Item {
@@ -519,7 +550,13 @@ pub fn flatten(nodes: &[Node], path: &str, out: &mut Vec<MenuEntry>) {
             action: Some(n.id as i64),
             confirm: None,
         });
+        *budget -= 1;
     }
+    trim(out);
+}
+
+/// Retire les traits de fin de liste.
+fn trim(out: &mut Vec<MenuEntry>) {
     while matches!(out.last(), Some(MenuEntry::Separator)) {
         out.pop();
     }
@@ -646,7 +683,23 @@ mod tests {
         ];
         let mut out = Vec::new();
         flatten(&tree, "", &mut out);
-        let labels: Vec<String> = out
+        // Un niveau de sous-menu (HIG MENU-03) : « Fichier » porte un chevron,
+        // sa colonne aplatit ce qui est encore imbriqué.
+        assert_eq!(labels(&out), ["Ouvrir", "-", "Fichier ›"]);
+        let MenuEntry::Submenu { children, .. } = &out[2] else {
+            panic!("sous-menu attendu");
+        };
+        assert_eq!(
+            labels(children),
+            ["Nouveau", "# Fichier › Récents", "a.txt"]
+        );
+        // Entrée cachée et trait de fin : rien.
+        assert!(out.len() == 3);
+    }
+
+    /// Libellés d'une liste de menu ; « › » marque une ligne de sous-menu.
+    fn labels(entries: &[MenuEntry]) -> Vec<String> {
+        entries
             .iter()
             .map(|e| match e {
                 MenuEntry::Item { label, .. } => label.clone(),
@@ -654,19 +707,95 @@ mod tests {
                 MenuEntry::Separator => "-".into(),
                 MenuEntry::Input { .. } => "input".into(),
                 MenuEntry::Image(_) => "image".into(),
+                MenuEntry::Submenu { label, .. } => format!("{label} ›"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sous_menu_du_premier_niveau_vide_ou_sans_nom_masque() {
+        let tree = vec![
+            sub(2, "", vec![item(3, "Sans nom")]),
+            sub(4, "Vide", vec![]),
+            sub(5, "Désactivé", vec![item(6, "x")]),
+        ];
+        let mut out = Vec::new();
+        flatten(&tree, "", &mut out);
+        // Vide ou sans titre : rien à ouvrir. Désactivé : la ligne paraît,
+        // grisée, et reste là quand ses entrées le sont (HIG menus › Submenus).
+        assert_eq!(labels(&out), ["Désactivé ›"]);
+        let MenuEntry::Submenu {
+            enabled, children, ..
+        } = &out[0]
+        else {
+            panic!("sous-menu attendu");
+        };
+        assert!(*enabled);
+        assert_eq!(labels(children), ["x"]);
+        let mut disabled = Vec::new();
+        flatten(
+            &[Node {
+                enabled: false,
+                ..sub(
+                    5,
+                    "Grisé",
+                    vec![Node {
+                        enabled: false,
+                        ..item(6, "x")
+                    }],
+                )
+            }],
+            "",
+            &mut disabled,
+        );
+        assert!(matches!(
+            &disabled[0],
+            MenuEntry::Submenu { enabled: false, .. }
+        ));
+    }
+
+    #[test]
+    fn plafond_de_256_entrees_compte_les_colonnes() {
+        let many: Vec<Node> = (0..300).map(|i| item(i, &i.to_string())).collect();
+        let mut flat = Vec::new();
+        flatten(&many, "", &mut flat);
+        assert_eq!(flat.len(), 256);
+        let mut nested = Vec::new();
+        flatten(
+            &[
+                item(1, "Seul"),
+                sub(2, "Tout", many.clone()),
+                sub(3, "Rien", many.clone()),
+            ],
+            "",
+            &mut nested,
+        );
+        assert_eq!(labels(&nested), ["Seul", "Tout ›"]);
+        let columns: Vec<usize> = nested
+            .iter()
+            .map(|e| match e {
+                MenuEntry::Submenu { children, .. } => children.len(),
+                _ => 1,
             })
             .collect();
-        assert_eq!(
-            labels,
-            [
-                "Ouvrir",
-                "-",
-                "# Fichier",
-                "Nouveau",
-                "# Fichier › Récents",
-                "a.txt"
-            ]
-        );
+        // Le plafond atteint dans la première colonne : elle prend ce qui
+        // restait, et la suite du menu est coupée, comme celle d'une liste
+        // aplatie.
+        assert_eq!(columns, [1, 254]);
+        // Pas de trait en fin de colonne après la coupe.
+        let with_sep = vec![
+            item(1, "a"),
+            Node {
+                separator: true,
+                ..Default::default()
+            },
+        ];
+        let mut out = Vec::new();
+        flatten(&[sub(2, "Colonne", with_sep)], "", &mut out);
+        let MenuEntry::Submenu { children, .. } = &out[0] else {
+            panic!("sous-menu attendu");
+        };
+        assert_eq!(labels(children), ["a"]);
     }
 
     #[test]

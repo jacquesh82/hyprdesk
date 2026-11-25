@@ -7,10 +7,10 @@
 
 use crate::i18n::text;
 use crate::inputs::Inputs;
-use iced::widget::{column, pick_list, radio, row, slider, text_input, toggler};
+use iced::widget::{column, pick_list, radio, text_input};
 use iced::{Alignment, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg};
 use super::{PluginInfo, PluginMsg};
 
@@ -34,6 +34,11 @@ pub const TABS: &[super::SubTab] = &[
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Input(m)))
+}
+
+/// Valeur du curseur « Vitesse de répétition », en frappes par seconde.
+fn en_par_seconde(v: f64) -> String {
+    crate::tr!("{n} / s", n = v.round() as i64)
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -78,6 +83,8 @@ pub enum Msg {
     OptionsDraft(String),
     OptionsSubmit,
     Try(String),
+    /// Accès clavier complet (`general.keyboard_access`, HIG ENT-01).
+    KeyboardAccess(bool),
 }
 
 pub fn load() -> Task<UiMsg> {
@@ -135,38 +142,39 @@ impl App {
     pub(in crate::ui) fn input_page(&self) -> Element<'_, UiMsg> {
         // Onglets tenus par le registre `hyprset` (MLG-142).
         if self.on_subtab(INFO.id, "curseur") {
-            return column![
-                self.cursor_theme_editor(),
-                self.adv(self.hyprset_groups("curseur"))
-            ]
-            .spacing(14)
-            .into();
+            return column![self.cursor_theme_editor(), self.hyprset_folded("curseur")]
+                .spacing(14)
+                .into();
         }
         if self.on_subtab(INFO.id, "gestes") {
-            return column![
-                self.gestures_page(),
-                self.adv(self.hyprset_groups("gestes"))
-            ]
-            .spacing(14)
-            .into();
+            return column![self.gestures_page(), self.hyprset_folded("gestes")]
+                .spacing(14)
+                .into();
         }
         if self.on_subtab(INFO.id, "peripheriques") {
             return self.devices_page();
         }
         let dim = self.ink().dim;
-        let Some(s) = self.panel.as_ref().map(|p| &p.input).filter(|s| s.loaded) else {
-            return text("Lecture…")
+        // Onglet Clavier : l'accès clavier complet est un réglage de hyprdesk,
+        // montré même quand Hyprland ne répond pas (encore).
+        let waiting = |note: &'static str| -> Element<'_, UiMsg> {
+            let note = text(note)
                 .font(self.font)
                 .size(crate::ui::tokens::ts(13.0))
-                .color(dim)
-                .into();
+                .color(dim);
+            if self.on_subtab(INFO.id, "clavier") {
+                column![self.keyboard_access_field(), note]
+                    .spacing(12)
+                    .into()
+            } else {
+                note.into()
+            }
+        };
+        let Some(s) = self.panel.as_ref().map(|p| &p.input).filter(|s| s.loaded) else {
+            return waiting("Lecture…");
         };
         let Some(cur) = s.cur.clone() else {
-            return text("Hyprland ne répond pas.")
-                .font(self.font)
-                .size(crate::ui::tokens::ts(13.0))
-                .color(dim)
-                .into();
+            return waiting("Hyprland ne répond pas.");
         };
         let mut col = column![].spacing(12);
         if self.on_subtab(INFO.id, "souris") {
@@ -186,40 +194,41 @@ impl App {
                 );
             }
             let c = cur.clone();
-            col = col.push(
-                self.field(
-                    "Vitesse",
-                    "",
-                    row![
-                        slider(-1.0..=1.0, cur.sensitivity as f32, move |v| {
+            col = col.push(self.field(
+                "Vitesse",
+                "",
+                self.slider(
+                    &SliderSpec::new(
+                        "input_sensitivity",
+                        (-1.0, 1.0),
+                        0.05,
+                        move |v| {
                             let mut n = c.clone();
-                            n.sensitivity = v as f64;
+                            n.sensitivity = v;
                             wrap(Msg::Preview(Box::new(n)))
-                        })
-                        .step(0.05_f32)
-                        .on_release(wrap(Msg::Commit))
-                        .width(260),
-                        text(format!("{:+.2}", cur.sensitivity))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+                        },
+                        wrap(Msg::Commit),
+                    ),
+                    cur.sensitivity,
+                    |v| format!("{:+.2}", v),
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
                 ),
-            );
+            ));
             let accel = |label: &'static str, v: &'static str| {
                 let c = cur.clone();
-                radio(
-                    crate::i18n::tr(label),
-                    v,
-                    Some(cur.accel_profile.as_str()),
-                    move |v| {
-                        let mut n = c.clone();
-                        n.accel_profile = v.to_string();
-                        wrap(Msg::Set(Box::new(n)))
-                    },
+                self.focusable(
+                    radio(
+                        crate::i18n::tr(label),
+                        v,
+                        Some(cur.accel_profile.as_str()),
+                        move |v| {
+                            let mut n = c.clone();
+                            n.accel_profile = v.to_string();
+                            wrap(Msg::Set(Box::new(n)))
+                        },
+                    )
+                    .font(self.font),
                 )
-                .font(self.font)
             };
             col = col.push(
                 self.field(
@@ -233,16 +242,26 @@ impl App {
                     .spacing(6),
                 ),
             );
-            col = col.push(self.field(
-                "Défilement naturel (comme sur un téléphone)",
-                "",
-                toggler(cur.natural_scroll).on_toggle(toggle(&cur, |i, v| i.natural_scroll = v)),
-            ));
-            col = col.push(self.field(
-                "Gaucher (boutons inversés)",
-                "",
-                toggler(cur.left_handed).on_toggle(toggle(&cur, |i, v| i.left_handed = v)),
-            ));
+            col = col.push(
+                self.field(
+                    "Défilement naturel (comme sur un téléphone)",
+                    "",
+                    self.focusable(
+                        self.toggle(cur.natural_scroll)
+                            .on_toggle(toggle(&cur, |i, v| i.natural_scroll = v)),
+                    ),
+                ),
+            );
+            col = col.push(
+                self.field(
+                    "Gaucher (boutons inversés)",
+                    "",
+                    self.focusable(
+                        self.toggle(cur.left_handed)
+                            .on_toggle(toggle(&cur, |i, v| i.left_handed = v)),
+                    ),
+                ),
+            );
             let focus = [
                 Choice("0".into(), crate::i18n::tr("Au clic").into()),
                 Choice("1".into(), crate::i18n::tr("Suit la souris").into()),
@@ -260,16 +279,18 @@ impl App {
                 self.field(
                     "Fenêtre active",
                     "",
-                    pick_list(focus, current, {
-                        let c0 = cur.clone();
-                        move |c: Choice| {
-                            let mut n = c0.clone();
-                            n.follow_mouse = c.0.parse().unwrap_or(1);
-                            wrap(Msg::Set(Box::new(n)))
-                        }
-                    })
-                    .font(self.font)
-                    .width(320),
+                    self.choosable(
+                        pick_list(focus, current, {
+                            let c0 = cur.clone();
+                            move |c: Choice| {
+                                let mut n = c0.clone();
+                                n.follow_mouse = c.0.parse().unwrap_or(1);
+                                wrap(Msg::Set(Box::new(n)))
+                            }
+                        })
+                        .font(self.font)
+                        .width(320),
+                    ),
                 ),
             );
         } else if self.on_subtab(INFO.id, "pave") {
@@ -282,56 +303,70 @@ impl App {
                         .color(dim),
                 );
             }
-            col = col.push(self.field(
-                "Toucher pour cliquer",
-                "",
-                toggler(cur.tp_tap_to_click).on_toggle(toggle(&cur, |i, v| i.tp_tap_to_click = v)),
-            ));
+            col = col.push(
+                self.field(
+                    "Toucher pour cliquer",
+                    "",
+                    self.focusable(
+                        self.toggle(cur.tp_tap_to_click)
+                            .on_toggle(toggle(&cur, |i, v| i.tp_tap_to_click = v)),
+                    ),
+                ),
+            );
             col = col.push(
                 self.field(
                     "Défilement naturel",
                     "",
-                    toggler(cur.tp_natural_scroll)
-                        .on_toggle(toggle(&cur, |i, v| i.tp_natural_scroll = v)),
+                    self.focusable(
+                        self.toggle(cur.tp_natural_scroll)
+                            .on_toggle(toggle(&cur, |i, v| i.tp_natural_scroll = v)),
+                    ),
                 ),
             );
             col = col.push(
                 self.field(
                     "Désactiver pendant la frappe",
                     "",
-                    toggler(cur.tp_disable_while_typing)
-                        .on_toggle(toggle(&cur, |i, v| i.tp_disable_while_typing = v)),
+                    self.focusable(
+                        self.toggle(cur.tp_disable_while_typing)
+                            .on_toggle(toggle(&cur, |i, v| i.tp_disable_while_typing = v)),
+                    ),
                 ),
             );
-            col = col.push(self.field(
-                "Clic droit à deux doigts",
-                "",
-                toggler(cur.tp_clickfinger).on_toggle(toggle(&cur, |i, v| i.tp_clickfinger = v)),
-            ));
-            let c = cur.clone();
             col = col.push(
                 self.field(
-                    "Vitesse de défilement",
+                    "Clic droit à deux doigts",
                     "",
-                    row![
-                        slider(0.1..=3.0, cur.tp_scroll_factor as f32, move |v| {
-                            let mut n = c.clone();
-                            n.tp_scroll_factor = v as f64;
-                            wrap(Msg::Preview(Box::new(n)))
-                        })
-                        .step(0.1_f32)
-                        .on_release(wrap(Msg::Commit))
-                        .width(260),
-                        text(format!("× {:.1}", cur.tp_scroll_factor))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+                    self.focusable(
+                        self.toggle(cur.tp_clickfinger)
+                            .on_toggle(toggle(&cur, |i, v| i.tp_clickfinger = v)),
+                    ),
                 ),
             );
+            let c = cur.clone();
+            col = col.push(self.field(
+                "Vitesse de défilement",
+                "",
+                self.slider(
+                    &SliderSpec::new(
+                        "input_tp_scroll_factor",
+                        (0.1, 3.0),
+                        0.1,
+                        move |v| {
+                            let mut n = c.clone();
+                            n.tp_scroll_factor = v;
+                            wrap(Msg::Preview(Box::new(n)))
+                        },
+                        wrap(Msg::Commit),
+                    ),
+                    cur.tp_scroll_factor,
+                    |v| format!("× {:.1}", v),
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
+                ),
+            ));
         } else {
             // Clavier.
+            col = col.push(self.keyboard_access_field());
             col = col.push(self.section("Disposition"));
             let first = cur
                 .kb_layout
@@ -376,22 +411,24 @@ impl App {
                 self.field(
                     "Variante",
                     "",
-                    pick_list(variants, current, {
-                        let c0 = cur.clone();
-                        move |c: Choice| {
-                            let mut n = c0.clone();
-                            n.kb_variant = c.0;
-                            wrap(Msg::Set(Box::new(n)))
-                        }
-                    })
-                    .font(self.font)
-                    .width(320),
+                    self.choosable(
+                        pick_list(variants, current, {
+                            let c0 = cur.clone();
+                            move |c: Choice| {
+                                let mut n = c0.clone();
+                                n.kb_variant = c.0;
+                                wrap(Msg::Set(Box::new(n)))
+                            }
+                        })
+                        .font(self.font)
+                        .width(320),
+                    ),
                 ),
             );
             col = col.push(
-                self.adv(
+                self.adv("Options xkb (grp:alt_shift_toggle, caps:escape…)", || {
                     self.field(
-                        "Options xkb (grp:alt_shift_toggle, caps:escape…)",
+                        "",
                         "",
                         text_input("", s.options_draft.as_deref().unwrap_or(&cur.kb_options))
                             .font(self.font)
@@ -399,59 +436,62 @@ impl App {
                             .on_submit(wrap(Msg::OptionsSubmit))
                             .padding(8)
                             .width(320),
-                    ),
-                ),
+                    )
+                }),
             );
             col = col.push(self.section("Répétition des touches"));
             let c1 = cur.clone();
-            col = col.push(
-                self.field(
-                    "Délai avant répétition",
-                    "",
-                    row![
-                        slider(150.0..=1000.0, cur.repeat_delay as f32, move |v| {
+            col = col.push(self.field(
+                "Délai avant répétition",
+                "",
+                self.slider(
+                    &SliderSpec::new(
+                        "input_repeat_delay",
+                        (150.0, 1000.0),
+                        10.0,
+                        move |v| {
                             let mut n = c1.clone();
                             n.repeat_delay = (v / 10.0).round() as i64 * 10;
                             wrap(Msg::Preview(Box::new(n)))
-                        })
-                        .step(10.0_f32)
-                        .on_release(wrap(Msg::Commit))
-                        .width(260),
-                        text(format!("{} ms", cur.repeat_delay))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+                        },
+                        wrap(Msg::Commit),
+                    ),
+                    cur.repeat_delay as f64,
+                    |v| format!("{} ms", v as i64),
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
                 ),
-            );
+            ));
             let c2 = cur.clone();
-            col = col.push(
-                self.field(
-                    "Vitesse de répétition",
-                    "",
-                    row![
-                        slider(5.0..=80.0, cur.repeat_rate as f32, move |v| {
+            col = col.push(self.field(
+                "Vitesse de répétition",
+                "",
+                self.slider(
+                    &SliderSpec::new(
+                        "input_repeat_rate",
+                        (5.0, 80.0),
+                        1.0,
+                        move |v| {
                             let mut n = c2.clone();
                             n.repeat_rate = v.round() as i64;
                             wrap(Msg::Preview(Box::new(n)))
-                        })
-                        .step(1.0_f32)
-                        .on_release(wrap(Msg::Commit))
-                        .width(260),
-                        text(crate::tr!("{n} / s", n = cur.repeat_rate))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
+                        },
+                        wrap(Msg::Commit),
+                    ),
+                    cur.repeat_rate as f64,
+                    en_par_seconde,
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
+                ),
+            ));
+            col = col.push(
+                self.field(
+                    "Verr. Num. actif au démarrage",
+                    "",
+                    self.focusable(
+                        self.toggle(cur.numlock)
+                            .on_toggle(toggle(&cur, |i, v| i.numlock = v)),
+                    ),
                 ),
             );
-            col = col.push(self.field(
-                "Verr. Num. actif au démarrage",
-                "",
-                toggler(cur.numlock).on_toggle(toggle(&cur, |i, v| i.numlock = v)),
-            ));
             col = col.push(
                 text_input(crate::i18n::tr("Essayer ici…"), &s.try_text)
                     .font(self.font)
@@ -477,7 +517,47 @@ impl App {
         col.into()
     }
 
+    /// Accès clavier complet (HIG ENT-01) : un réglage de hyprdesk, pas de
+    /// Hyprland ; `keys.keyboard_access` le bascule aussi.
+    fn keyboard_access_field(&self) -> Element<'_, UiMsg> {
+        let combo = &self.cfg.general.keys.keyboard_access;
+        let note = if combo.trim().is_empty() {
+            crate::i18n::tr(
+                "Tab atteint chaque commande des Réglages, Entrée ou Espace l'active. \
+                 Coupé : Tab ne va qu'aux champs de saisie.",
+            )
+            .to_string()
+        } else {
+            crate::tr!(
+                "Tab atteint chaque commande des Réglages, Entrée ou Espace l'active. \
+                 Coupé : Tab ne va qu'aux champs de saisie. {k} le bascule partout.",
+                k = combo
+            )
+        };
+        column![
+            self.section("Navigation au clavier"),
+            self.field(
+                "Accès clavier complet",
+                "keyboard_access",
+                self.focusable(
+                    self.toggle(self.cfg.general.keyboard_access)
+                        .on_toggle(|v| wrap(Msg::KeyboardAccess(v))),
+                ),
+            ),
+            text(note)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(self.ink().dim),
+        ]
+        .spacing(12)
+        .into()
+    }
+
     pub(in crate::ui) fn input_update(&mut self, m: Msg) -> Task<UiMsg> {
+        if let Msg::KeyboardAccess(v) = m {
+            self.settings.keyboard_access = Some(v);
+            return self.commit();
+        }
         let path = self.config_path.clone();
         let Some(p) = self.panel.as_mut() else {
             return Task::none();
@@ -553,6 +633,7 @@ impl App {
                 s.try_text = v;
                 Task::none()
             }
+            Msg::KeyboardAccess(_) => Task::none(),
         }
     }
 }

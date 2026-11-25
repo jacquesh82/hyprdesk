@@ -1,4 +1,5 @@
 //! Aperçu interactif isolé : mêmes vues, données locales, aucun IPC ni lancement.
+use super::panel::SliderEdit;
 use super::plugins::{PluginMsg, desktop, icons};
 use super::*;
 use crate::config::{Anchor, BarDef, BarItem, BarPosition, Origin, Selector, WidgetDef};
@@ -24,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 158] = [
+const SCENES: [&str; 186] = [
     "desktop",
     "typography",
     "icons",
@@ -66,9 +67,12 @@ const SCENES: [&str; 158] = [
     "animations-effets",
     "polkit",
     "notifications",
+    // Résumé du Silence (HIG PAT-20).
+    "notifications-resume",
     "probleme",
     "recherche",
     "presse-papiers",
+    "reglages",
     "son",
     "energie",
     "date-heure",
@@ -77,6 +81,7 @@ const SCENES: [&str; 158] = [
     "menu-icone",
     "proprietes",
     "menu-dock",
+    "menu-dock-long",
     "menu-edition",
     "fenetres",
     "connexion",
@@ -111,6 +116,10 @@ const SCENES: [&str; 158] = [
     "bar-controls",
     "bar-menu-switch",
     "bar-menu-closing",
+    "bar-menu-shell",
+    "bar-menu-workspaces",
+    "bar-menu-window",
+    "bar-menu-help",
     "bar-bottom",
     "bar-overflow",
     "bar-majs-progression",
@@ -122,6 +131,7 @@ const SCENES: [&str; 158] = [
     "bar-graphite-urgent",
     "controls-desktop",
     "overview",
+    "menu-fenetre",
     "bar-selector-relief",
     "bar-selector-rail",
     "bar-selector-miniatures",
@@ -135,6 +145,7 @@ const SCENES: [&str; 158] = [
     "bar-island-pressed",
     "bar-island-switch",
     "bar-island-notif",
+    "bar-island-activity",
     "bar-island-urgent",
     "bar-convex-idle",
     "bar-convex-pressed",
@@ -165,6 +176,8 @@ const SCENES: [&str; 158] = [
     "fenetres-apparence",
     "fenetres-regles",
     "curseur",
+    // Réglages → Gestes avec les gestes système par défaut (HIG ENT-03).
+    "gestes",
     "environnement",
     "panorama-media",
     "panorama-system",
@@ -183,6 +196,38 @@ const SCENES: [&str; 158] = [
     "panorama-config-shortcuts",
     "panorama-config-lecteur",
     "panorama-config-video",
+    "bar-notifications",
+    // Carte Notifications au clavier : la deuxième carte porte l'anneau
+    // (HIG ENT-01).
+    "bar-notifications-clavier",
+    // Accès clavier complet (HIG ENT-01) : Réglages → Clavier et souris, la
+    // première commande du contenu porte l'anneau.
+    "acces-clavier",
+    "bar-unread",
+    "bar-island-unread",
+    "reglages-valeur-saisie",
+    // Menus contextuels (HIG ENT-07) : carte d'espace, carte de notification,
+    // module de barre.
+    "menu-espace",
+    "bar-menu-notification",
+    "bar-menu-module",
+    // Paquet « Notifications » des Réglages (HIG PAT-07).
+    "reglages-notifications",
+    // Boîte « Forcer à quitter » et sa confirmation (HIG ENT-10).
+    "forcer-quitter",
+    "forcer-quitter-confirmation",
+    // Échelle des curseurs des Réglages (HIG SEL-09) : Thème → Composants,
+    // bornes sous chaque curseur, graduations sous ceux de dix pas au plus.
+    "reglages-echelle",
+    // Tailles des widgets du bureau (HIG SYS-15) : horloge très grande et
+    // calendrier grand, puis les deux en petit.
+    "widgets-tailles",
+    "widgets-petits",
+    // Apparence des icônes d'application (HIG ICO-10) : sombre, puis teintée.
+    "icones-sombres",
+    "icones-teintees",
+    // Réglages → Thème → Couleurs : l'apparence des icônes (HIG ICO-10).
+    "reglages-icones",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -255,8 +300,43 @@ pub fn run(output: Option<PathBuf>) -> iced::Result {
     .run()
 }
 
+/// Relevé simulé du widget système de l'aperçu, à sa taille (HIG SYS-15) :
+/// les lignes que le démon relèverait, avec des valeurs fixes.
+fn preview_system(family: config::WidgetFamily) -> widgets::Value {
+    use config::SysItem;
+    let items = widgets::system_items(&[SysItem::Cpu, SysItem::Ram], family);
+    widgets::Value::Sys(
+        items
+            .iter()
+            .map(|item| {
+                let (label, value, ratio) = match item {
+                    SysItem::Cpu => (crate::i18n::tr("CPU").to_string(), "12 %", Some(0.12)),
+                    SysItem::Ram => (
+                        crate::i18n::tr("RAM").to_string(),
+                        "4,2 / 16 Gio",
+                        Some(0.26),
+                    ),
+                    SysItem::Load => (
+                        crate::i18n::tr("Charge").to_string(),
+                        "0.42 0.38 0.31",
+                        None,
+                    ),
+                    SysItem::Uptime => (crate::i18n::tr("Allumé").to_string(), "3 h 12", None),
+                    SysItem::Disk(mount) => (mount.clone(), "182 / 476 Gio", Some(0.38)),
+                };
+                widgets::SysLine {
+                    label,
+                    value: value.into(),
+                    ratio,
+                }
+            })
+            .collect(),
+    )
+}
+
 fn widget(id: &str, kind: WidgetKind, anchor: Anchor) -> WidgetDef {
     WidgetDef {
+        family: Default::default(),
         origin: Origin::User,
         sel: Selector::default(),
         id: id.into(),
@@ -468,7 +548,10 @@ impl Preview {
             .map(|d| launch::resolve(d, None, 48, "kitty"))
             .collect();
         let paths: Vec<_> = app.icons.iter().map(|r| r.image.clone()).collect();
-        app.icon_imgs = paths.iter().map(|p| app.handle_for(p.as_deref())).collect();
+        app.icon_imgs = paths
+            .iter()
+            .map(|p| app.app_handle_for(p.as_deref()))
+            .collect();
         app.ui_imgs = UI_ICONS.iter().map(|n| app.builtin_icon(n)).collect();
         for (index, icon) in cfg.icons.iter().enumerate() {
             app.clients.push(Client {
@@ -480,25 +563,45 @@ impl Preview {
             });
             app.class_imgs.insert(icon.id.clone(), app.icon_imgs[index]);
         }
+        // Fichier dont le thème n'a pas l'icône du type (HIG ICO-11) : l'icône
+        // de l'éditeur, son extension en capsule. Écrit en dur : l'aperçu ne
+        // lit ni la base MIME ni `xdg-mime`.
+        let file = "notes.md"; // nom de fichier, pas à traduire
+        let editor = cfg
+            .icons
+            .iter()
+            .position(|d| d.id == "code")
+            .expect("éditeur d'aperçu");
+        cfg.icons.push(IconDef {
+            origin: Origin::User,
+            sel: Selector::default(),
+            id: "apercu-notes".into(),
+            label: Some(file.into()),
+            kind: config::IconKind::Path("/tmp/notes.md".into()),
+            icon: None,
+            pos: Some((0, 4)),
+        });
+        // L'éditeur d'abord ; sans icône dans le thème de l'hôte, la première
+        // application qui en a une, pour que la capsule se pose sur une image.
+        let image = app.icons[editor]
+            .image
+            .clone()
+            .or_else(|| app.icons.iter().find_map(|r| r.image.clone()));
+        // Image non masquée, comme un fichier réel (`handle_for`).
+        let handle = app.handle_for(image.as_deref());
+        app.icons.push(launch::Resolved {
+            label: file.into(),
+            image,
+            command: "xdg-open /tmp/notes.md".into(),
+            badge: Some("MD".into()),
+        });
+        app.icon_imgs.push(handle);
         for name in bar::STATIC_ICONS {
             let icon = app.builtin_icon(name);
             app.named_icons.insert(name.to_string(), icon);
         }
-        app.values.insert(
-            "system".into(),
-            widgets::Value::Sys(vec![
-                widgets::SysLine {
-                    label: crate::i18n::tr("CPU").into(),
-                    value: "12 %".into(),
-                    ratio: Some(0.12),
-                },
-                widgets::SysLine {
-                    label: crate::i18n::tr("RAM").into(),
-                    value: "4,2 / 16 Gio".into(),
-                    ratio: Some(0.26),
-                },
-            ]),
-        );
+        app.values
+            .insert("system".into(), preview_system(Default::default()));
         app.workspaces = (1..=4)
             .map(|id| hypr::Workspace {
                 id,
@@ -542,6 +645,23 @@ impl Preview {
             }
         }
         let mut cfg = app.settings.apply_to(&cfg);
+        // `HYPRDESK_PREVIEW_TEXT_SCALE=2` : l'échelle de texte de l'utilisateur
+        // (75 à 200 %), pour voir une scène en texte agrandi (HIG TYP-08).
+        if let Some(scale) = std::env::var("HYPRDESK_PREVIEW_TEXT_SCALE")
+            .ok()
+            .and_then(|s| s.parse::<f32>().ok())
+            .filter(|s| s.is_finite())
+        {
+            cfg.general.text_scale = scale;
+        }
+        // Les réglages d'accessibilité de l'utilisateur, posés aux jetons comme
+        // le démon le fait après chaque configuration (`sync_theme_engine`).
+        super::tokens::set_user(
+            cfg.general.reduced_transparency,
+            cfg.general.reduced_motion,
+            cfg.general.increase_contrast,
+            cfg.general.text_scale,
+        );
         // La barre de l'aperçu est posée en dur : sa forme vient des réglages
         // (pack essayé, MLG-277).
         if let (Some(b), Some(sb)) = (cfg.bar.as_mut(), app.settings.bar.as_ref()) {
@@ -597,6 +717,21 @@ impl Preview {
                 | "bar-convex-pressed"
                 | "bar-convex-switch"
         );
+        // L'anneau de focus se pose une fois la carte ou le tiroir affiché,
+        // puis la capture (HIG ENT-01).
+        if matches!(
+            SCENES[self.scene],
+            "bar-notifications-clavier" | "acces-clavier"
+        ) {
+            return Task::batch([
+                Task::perform(tokio::time::sleep(Duration::from_millis(250)), |_| {
+                    PreviewMsg::BarGesture
+                }),
+                Task::perform(tokio::time::sleep(Duration::from_millis(600)), |_| {
+                    PreviewMsg::Capture
+                }),
+            ]);
+        }
         let capture = Task::perform(
             tokio::time::sleep(Duration::from_millis(
                 if SCENES[self.scene].starts_with("panorama-") {
@@ -638,6 +773,81 @@ impl Preview {
         cfg.widgets
             .retain(|w| !w.id.starts_with("preview-module-") && w.id != "barlauncher");
         cfg.general.clipboard_history = SCENES[self.scene] == "bar-controls";
+        // Apparence des icônes d'application (HIG ICO-10) : imposée dans ses
+        // scènes ; ailleurs, l'icône telle quelle (le fond sombre de l'aperçu
+        // ferait suivre l'apparence sombre à « auto » partout) ; les icônes
+        // sont relues quand elle change.
+        let look = crate::tiling::OptValue::Str(
+            match SCENES[self.scene] {
+                "icones-sombres" => "dark",
+                "icones-teintees" => "tinted",
+                _ => "default",
+            }
+            .into(),
+        );
+        let icons_opts = cfg
+            .general
+            .plugin_options
+            .entry(crate::design_options::store("icons"))
+            .or_default();
+        if icons_opts.get("appearance") != Some(&look) {
+            icons_opts.insert("appearance".into(), look);
+            let paths: Vec<_> = self.app.icons.iter().map(|r| r.image.clone()).collect();
+            self.app.icon_imgs = paths
+                .iter()
+                .map(|p| self.app.app_handle_for(p.as_deref()))
+                .collect();
+            for (index, icon) in self.app.cfg.icons.clone().iter().enumerate() {
+                self.app
+                    .class_imgs
+                    .insert(icon.id.clone(), self.app.icon_imgs[index]);
+            }
+        }
+        let cfg = Arc::make_mut(&mut self.app.cfg);
+        // Tailles des widgets (HIG SYS-15) : moyenne partout ailleurs.
+        for w in cfg.widgets.iter_mut().filter(|w| !w.in_bar) {
+            use crate::config::WidgetFamily as F;
+            w.family = match (SCENES[self.scene], w.id.as_str()) {
+                ("widgets-tailles", "clock" | "system") => F::XLarge,
+                ("widgets-tailles", "calendar") => F::Large,
+                ("widgets-petits", "clock" | "calendar" | "system") => F::Small,
+                _ => F::Medium,
+            };
+            if w.id == "system" {
+                self.app
+                    .values
+                    .insert(w.id.clone(), preview_system(w.family));
+            }
+        }
+        // Le média, à la taille de la scène : lecture simulée, sans pochette.
+        if let Some(family) = match SCENES[self.scene] {
+            "widgets-tailles" => Some(crate::config::WidgetFamily::XLarge),
+            "widgets-petits" => Some(crate::config::WidgetFamily::Small),
+            _ => None,
+        } {
+            let id = "preview-module-media";
+            let mut media = widget(
+                id,
+                WidgetKind::Media { player: "*".into() },
+                Anchor::BottomLeft,
+            );
+            media.family = family;
+            cfg.widgets.push(media);
+            self.app.values.insert(
+                id.into(),
+                widgets::Value::Media(Some(widgets::MediaInfo {
+                    bus: "org.mpris.MediaPlayer2.spotify".into(),
+                    title: "Clair de lune".into(),
+                    artist: "Claude Debussy".into(),
+                    playing: true,
+                    art: None,
+                    tint: None,
+                    album: "Suite bergamasque".into(),
+                    position: Some(83),
+                    length: Some(301),
+                })),
+            );
+        }
         if let Some(w) = cfg.widgets.iter_mut().find(|w| w.id == "barclock") {
             w.kind = WidgetKind::Clock {
                 format: "%a %-d %b  ·  %H:%M".into(),
@@ -746,6 +956,7 @@ impl Preview {
                     monitor: crate::i18n::tr("APERÇU").into(),
                     key: "dock-pin:firefox".into(),
                     content: plugins::dock::PopupContent::Windows("firefox".into()),
+                    tip: None,
                     fade: self.app.launcher_transition(
                         if self.scene == 26 { 0.5 } else { 1.0 },
                         if self.scene == 26 { 0.5 } else { 1.0 },
@@ -837,18 +1048,21 @@ impl Preview {
             "energie" => Some("energy"),
             "performance" => Some("performance"),
             "fenetres-apparence" | "fenetres-regles" => Some("windows"),
-            "curseur" => Some("input"),
+            "curseur" | "gestes" => Some("input"),
             "environnement" => Some("hyprconfig"),
             "date-heure" => Some("datetime"),
             "reseau" => Some("network"),
             "bluetooth" => Some("bt"),
             "plugin-config" => Some("plugins"),
-            "clavier-souris" => Some("input"),
+            "clavier-souris" | "acces-clavier" => Some("input"),
             "ecran-connexion" => Some("login"),
             "mots-de-passe" => Some("passwords"),
             "ia-services" | "smartui" => Some("assistant"),
             "a-propos" => Some("about"),
             "raccourcis" | "raccourcis-essentiels" => Some("keys"),
+            "reglages-valeur-saisie" => Some("dock"),
+            "reglages-echelle" | "reglages-icones" => Some("theme"),
+            "reglages-notifications" => Some("notifications"),
             "bar-graphite-edit" => Some("bar"),
             _ => None,
         });
@@ -957,19 +1171,44 @@ impl Preview {
             });
         }
         // Les bulles n'appartiennent qu'à leur scène.
-        if SCENES[self.scene] != "notifications" {
+        if !matches!(SCENES[self.scene], "notifications" | "notifications-resume") {
             self.app.toasts.list.clear();
+            self.app.toasts.explain.clear();
         }
         // Bulles de notifications : une ordinaire, une critique avec actions.
-        if SCENES[self.scene] == "notifications" {
+        if matches!(SCENES[self.scene], "notifications" | "notifications-resume") {
             let mut crit = std::collections::HashMap::new();
             crit.insert("urgency".to_string(), zbus::zvariant::OwnedValue::from(2u8));
-            let acts: Vec<String> = ["default", "Ouvrir", "later", "Plus tard"]
-                .map(String::from)
-                .to_vec();
+            // La seconde action est destructrice : bouton en rouge (HIG SYS-17).
+            let acts: Vec<String> = [
+                "default",
+                "Ouvrir",
+                "later",
+                "Plus tard",
+                "destructive:dismiss",
+                "Ne plus m'avertir",
+            ]
+            .map(String::from)
+            .to_vec();
             let _ = self
                 .app
                 .want_icon("preferences-system-notifications-symbolic");
+            // Repère de la bulle critique : un dessin de hyprdesk, posé tout de suite.
+            let _ = self
+                .app
+                .want_icon(crate::ui::plugins::bar::surface::URGENT_ICON);
+            // Icône de l'application de la bulle, résolue tout de suite
+            // (pas de tâche dans l'aperçu).
+            for app in ["firefox", "thunderbird"] {
+                if !self.app.named_icons.contains_key(app) {
+                    let path = launch::lookup_icon(app, None, 32)
+                        .or_else(|| launch::lookup_icon(app, Some("Adwaita"), 32));
+                    let gen_ = self.app.icons_gen;
+                    let _ = self
+                        .app
+                        .update_inner(Msg::IconResolved(gen_, app.into(), path));
+                }
+            }
             self.app.toasts.list = vec![
                 super::toasts::Toast {
                     n: crate::notifications::build(
@@ -983,12 +1222,15 @@ impl Preview {
                         -1,
                     ),
                     since: std::time::Instant::now(),
+                    request: None,
+                    alert: false,
+                    summary: false,
                 },
                 super::toasts::Toast {
                     n: crate::notifications::build(
                         1,
                         "Firefox",
-                        "",
+                        "firefox",
                         "Téléchargement terminé",
                         "rapport-annuel.pdf (2,4 Mo)",
                         &[],
@@ -996,8 +1238,72 @@ impl Preview {
                         -1,
                     ),
                     since: std::time::Instant::now(),
+                    request: None,
+                    alert: false,
+                    summary: false,
+                },
+                // Demande d'autorisation (HIG PAT-02) : la bulle de la première
+                // notification d'une application, « Refuser » et « Autoriser »
+                // au-dessus de son contenu.
+                super::toasts::Toast {
+                    n: crate::notifications::build(
+                        3,
+                        "Thunderbird",
+                        "thunderbird",
+                        "Nouveau message",
+                        "Alice : on déjeune ?",
+                        &[],
+                        &Default::default(),
+                        -1,
+                    ),
+                    since: std::time::Instant::now(),
+                    request: Some("thunderbird".into()),
+                    alert: false,
+                    summary: false,
                 },
             ];
+            // Première critique de son application : sa bulle explique le
+            // passage du Silence et permet de le refuser (HIG PAT-05).
+            self.app.toasts.explain = vec![super::toasts::Explain {
+                key: "Batterie".into(),
+                id: 2,
+            }];
+            // Résumé du Silence (HIG PAT-20) : sa scène garde l'unique résumé,
+            // en tête, au-dessus d'une bulle ordinaire ; son historique tient
+            // ses cinq retenues, de trois applications.
+            if SCENES[self.scene] == "notifications-resume" {
+                let bulle = self.app.toasts.list.swap_remove(1);
+                self.app.toasts.explain.clear();
+                self.app.toasts.history = [1, 2, 3, 4, 5]
+                    .into_iter()
+                    .map(|id| {
+                        crate::notifications::build(
+                            id,
+                            ["Firefox", "Thunderbird", "Batterie"][(id as usize) % 3],
+                            "",
+                            "s",
+                            "",
+                            &[],
+                            &Default::default(),
+                            -1,
+                        )
+                    })
+                    .collect();
+                self.app.toasts.list = vec![
+                    super::toasts::Toast {
+                        n: super::toasts::resume_notification(
+                            &[1, 2, 3, 4, 5],
+                            &self.app.toasts.history,
+                        )
+                        .expect("cinq retenues : un résumé"),
+                        since: std::time::Instant::now(),
+                        request: None,
+                        alert: false,
+                        summary: true,
+                    },
+                    bulle,
+                ];
+            }
         }
         // Fenêtre de détail d'un problème (mise à jour échouée, sans assistant).
         if SCENES[self.scene] == "probleme" {
@@ -1149,6 +1455,13 @@ impl Preview {
                 entry(39, "[[ binary data 48 KiB png 640x480 ]]"),
                 entry(38, "fn main() { println!(\"bonjour\"); }"),
             ]));
+        } else if SCENES[self.scene] == "reglages" {
+            // Lanceur, mode réglages : « :r fond » dans l'index du tiroir.
+            self.app.search = None;
+            let _ = self.app.toggle_search();
+            let _ = self
+                .app
+                .search_update(super::search::SMsg::Query(":r fond".into()));
         } else {
             self.app.search = None;
         }
@@ -1211,6 +1524,45 @@ impl Preview {
         if SCENES[self.scene] != "polkit" {
             self.app.polkit = None;
         }
+        // La boîte « Forcer à quitter » n'appartient qu'à ses scènes (HIG ENT-10) :
+        // quatre applications, l'active en tête ; armée dans la seconde.
+        let scene = SCENES[self.scene];
+        self.app.force_quit = if matches!(scene, "forcer-quitter" | "forcer-quitter-confirmation") {
+            let client = |class: &str, address: &str, workspace: &str| Client {
+                address: address.into(),
+                class: class.into(),
+                title: String::new(),
+                workspace: workspace.into(),
+                monitor: "DP-1".into(),
+            };
+            self.app.clients = vec![
+                client("foot", "0x60a1", "2"),
+                client("firefox", "0x60a2", "1"),
+                client("org.gnome.Nautilus", "0x60a3", "1"),
+                client("firefox", "0x60a4", "3"),
+                client("org.gnome.TextEditor", "0x60a5", crate::hypr::STASH),
+                client("foot", "0x60a6", "2"),
+            ];
+            // Une icône par classe, résolue aussitôt (les scènes d'aperçu
+            // n'exécutent pas les tâches) ; à défaut, une image de bureau.
+            let stand_ins = self.app_stand_ins();
+            for (i, c) in self.app.clients.clone().iter().enumerate() {
+                let p = crate::launch::icon_for_class(&c.class, &self.app.apps, None, 48);
+                let img = match self.app.app_handle_for(p.as_deref()) {
+                    IconImg::None => stand_ins.get(i).copied().unwrap_or(IconImg::None),
+                    img => img,
+                };
+                self.app.class_imgs.insert(c.class.clone(), img);
+            }
+            Some(super::force_quit::ForceQuit {
+                win: Id::unique(),
+                apps: super::force_quit::group(&self.app.clients, Some("firefox")),
+                selected: Some(0),
+                confirm: scene == "forcer-quitter-confirmation",
+            })
+        } else {
+            None
+        };
         // L'affichage à l'écran n'appartient qu'à sa scène.
         if SCENES[self.scene] != "osd" {
             self.app.osd = None;
@@ -1286,6 +1638,19 @@ impl Preview {
                 },
             );
         }
+        // Gestes (HIG ENT-03) : celui de Hyprland pour les espaces, puis les
+        // gestes système par défaut.
+        if SCENES[self.scene] == "gestes" {
+            let h = &mut Arc::make_mut(&mut self.app.cfg).general.hypr;
+            h.gestures = vec![serde_json::json!({
+                "fingers": 3,
+                "direction": "horizontal",
+                "action": "workspace",
+            })];
+            h.gestures_seeded = false;
+            crate::hyprset::seed_gestures(h);
+            self.app.subtabs.insert("input", "gestes");
+        }
         // Fenêtres, curseur, environnement (MLG-141, 142, 144) : valeurs
         // d'exemple, l'aperçu ne lit pas Hyprland.
         if matches!(
@@ -1356,10 +1721,29 @@ impl Preview {
                 .panel_update(PanelMsg::Plugin(PluginMsg::Icons(icons::Msg::Themes(
                     launch::icon_themes(),
                 ))));
+            // Échelle des curseurs (HIG SEL-09) : les options des composants
+            // du thème, dont des curseurs gradués (colonnes, nombre visible).
+            if SCENES[self.scene] == "reglages-echelle" {
+                self.app.subtabs.insert("theme", "composants");
+            }
+            if SCENES[self.scene] == "reglages-icones" {
+                self.app.subtabs.insert("theme", "couleurs");
+            }
+            // Valeur d'un curseur saisie (HIG SEL-08) : « Taille des icônes »,
+            // Dock → Apparence ; l'aperçu ne peut pas cliquer la valeur.
+            if SCENES[self.scene] == "reglages-valeur-saisie"
+                && let Some(p) = self.app.panel.as_mut()
+            {
+                self.app.subtabs.insert("dock", "apparence");
+                p.slider = Some(SliderEdit::new(
+                    plugins::dock::size_spec(),
+                    f64::from(self.app.cfg.general.launcher.size),
+                ));
+            }
         }
         // Clavier et souris : la configuration de l'utilisateur (l'aperçu ne
         // lit pas Hyprland) et les dispositions de xkeyboard-config.
-        if SCENES[self.scene] == "clavier-souris"
+        if matches!(SCENES[self.scene], "clavier-souris" | "acces-clavier")
             && let Some(p) = self.app.panel.as_mut()
         {
             let (layouts, variants) = crate::inputs::layouts();
@@ -1620,6 +2004,91 @@ impl Preview {
                 error: None,
             };
         }
+        // Paquet « Notifications » (HIG PAT-07) : l'aperçu ne lit pas l'état
+        // gardé. Trois applications ont demandé (un style chacune) et figurent
+        // à l'historique, qui leur donne nom et icône ; une quatrième, refusée,
+        // n'y est pas et garde sa clé. Même idiome : icônes résolues tout de
+        // suite (pas de tâche dans l'aperçu).
+        if SCENES[self.scene] == "reglages-notifications" {
+            use crate::notifications::{Authorization, Delivery};
+            let app = |id: &str, name: &str, icon: &str| crate::launch::AppInfo {
+                id: id.into(),
+                name: name.into(),
+                icon: Some(icon.into()),
+                wm_class: None,
+                mime_types: Vec::new(),
+                categories: Vec::new(),
+                available: true,
+            };
+            self.app.apps = Arc::new(vec![
+                app("firefox", "Firefox", "firefox"),
+                app("thunderbird", "Thunderbird", "thunderbird"),
+                app("signal", "Signal", "signal"),
+            ]);
+            self.app.toasts.history = [
+                (
+                    1,
+                    "Firefox",
+                    "Téléchargement terminé",
+                    "rustbook.pdf — 4,2 Mo",
+                ),
+                (
+                    2,
+                    "Thunderbird",
+                    "Nouveau message",
+                    "Anna : on se voit à 19 h ?",
+                ),
+                (3, "Signal", "Nouveau message", "Marc a rejoint le groupe"),
+            ]
+            .into_iter()
+            .map(|(id, app, title, body)| {
+                crate::notifications::build(
+                    id,
+                    app,
+                    "",
+                    crate::i18n::tr(title),
+                    crate::i18n::tr(body),
+                    &[],
+                    &Default::default(),
+                    -1,
+                )
+            })
+            .collect();
+            let granted = |delivery| Authorization {
+                granted: true,
+                delivery,
+            };
+            if let Some(p) = self.app.panel.as_mut() {
+                p.notifications = super::plugins::notifications::State {
+                    apps: vec![
+                        ("Firefox".into(), granted(Delivery::Banner)),
+                        ("Thunderbird".into(), granted(Delivery::Alert)),
+                        ("Signal".into(), granted(Delivery::Silent)),
+                        (
+                            "org.example.Minuteur".into(),
+                            Authorization {
+                                granted: false,
+                                delivery: Delivery::default(),
+                            },
+                        ),
+                    ],
+                    loaded: true,
+                    confirm_clear: false,
+                };
+            }
+            // La cloche de repli : un dessin de hyprdesk, posé tout de suite.
+            let _ = self.app.want_icon(crate::ui::toasts::ICON);
+            let gen_ = self.app.icons_gen;
+            for icon in ["firefox", "thunderbird", "signal"] {
+                if !self.app.named_icons.contains_key(icon) {
+                    let path = launch::lookup_icon(icon, None, 32)
+                        .or_else(|| launch::lookup_icon(icon, Some("Adwaita"), 32));
+                    let _ = self
+                        .app
+                        .update_inner(Msg::IconResolved(gen_, icon.into(), path));
+                }
+            }
+        }
         // Réseau et Bluetooth : états d'exemple.
         if SCENES[self.scene] == "reseau"
             && let Some(p) = self.app.panel.as_mut()
@@ -1700,23 +2169,35 @@ impl Preview {
         } else if SCENES[self.scene] == "menu-dock" {
             // Menu d'une application du dock (MLG-307) : ses fenêtres, ses
             // actions `.desktop`, l'épingler, la fermer.
-            let mut m = super::context::IconMenu::new(
-                super::context::MenuTarget::App(super::context::AppRef {
-                    id: Some("firefox".into()),
-                    class: Some("firefox".into()),
-                    name: "Firefox".into(),
-                }),
-                iced::window::Id::unique(),
-            );
-            m.entry = crate::launch::parse_desktop_entry(
-                "[Desktop Entry]\nName=Firefox\nExec=firefox %u\n\
-                 Actions=new-window;new-private-window;\n\
-                 [Desktop Action new-window]\nName=Nouvelle fenêtre\nExec=firefox --new-window %u\n\
-                 [Desktop Action new-private-window]\nName=Nouvelle fenêtre de navigation privée\n\
-                 Exec=firefox --private-window %u\n",
-                "fr_FR",
-            );
-            m.hover = Some(3);
+            // Dock en bas dans l'aperçu : la carte s'ouvre vers le haut et ses
+            // groupes s'inversent (HIG MENU-09).
+            let mut m = Self::menu_dock_app();
+            m.upward = true;
+            let launch = crate::i18n::tr("Nouvelle fenêtre").to_string();
+            m.hover = self
+                .app
+                .icon_menu_lines(&m)
+                .iter()
+                .position(|l| matches!(l, super::menu::Line::Item(i) if i.label == launch));
+            self.app.icon_menu = Some(m);
+        } else if SCENES[self.scene] == "menu-dock-long" {
+            // Le même menu, plus haut que l'écran (HIG MENU-02) : la carte est
+            // plafonnée à l'écran et ses lignes défilent à l'intérieur.
+            let monitor = self.app.monitors[0].name.clone();
+            self.app.clients = (1..=60)
+                .map(|k| crate::hypr::Client {
+                    address: format!("0x{k:x}"),
+                    class: "firefox".into(),
+                    title: format!("Fenêtre {k}"),
+                    workspace: "1".into(),
+                    monitor: monitor.clone(),
+                })
+                .collect();
+            let mut m = Self::menu_dock_app();
+            m.monitor = monitor;
+            let full = self.app.icon_menu_height(&m) + 2.0 * super::context::SHADOW;
+            let screen = self.app.monitors[0].height as f32;
+            m.cap(full, Some(screen));
             self.app.icon_menu = Some(m);
         } else if SCENES[self.scene] == "menu-edition" {
             // Menu d'édition d'un champ (MLG-309), sélection faite.
@@ -2006,9 +2487,14 @@ impl Preview {
                 surface.height = 36;
                 surface.margin = 8;
                 self.app.monitors[0].reserved = (0.0, 44.0, 0.0, 0.0);
+                // L'ovale des non-lues (HIG SYS-02) se pose sur l'horloge :
+                // la pilule la montre, commandes révélées.
                 if !matches!(
                     SCENES[self.scene],
-                    "bar-island-idle" | "bar-island-notif" | "bar-island-bottom"
+                    "bar-island-idle"
+                        | "bar-island-notif"
+                        | "bar-island-activity"
+                        | "bar-island-bottom"
                 ) {
                     self.app.bar_preview = Some((6, false));
                 }
@@ -2028,9 +2514,14 @@ impl Preview {
                     });
                     self.app.urgent.insert("preview-urgent".into());
                 }
-                if SCENES[self.scene] == "bar-island-notif" {
+                if matches!(
+                    SCENES[self.scene],
+                    "bar-island-notif" | "bar-island-activity"
+                ) {
                     // Prise de main : une bulle vivante remplace l'heure de
-                    // la pilule centrale.
+                    // la pilule centrale. Sa vue étendue (HIG SYS-13) montre
+                    // un corps et des actions.
+                    let activity = SCENES[self.scene] == "bar-island-activity";
                     let _ = self.app.want_icon("firefox");
                     self.app.toasts.list = vec![super::toasts::Toast {
                         n: crate::notifications::build(
@@ -2038,12 +2529,32 @@ impl Preview {
                             "Firefox",
                             "firefox",
                             "Téléchargement terminé",
-                            "rapport-annuel.pdf (2,4 Mo)",
-                            &[],
+                            if activity {
+                                "rapport-annuel.pdf (2,4 Mo) est dans le dossier Téléchargements."
+                            } else {
+                                "rapport-annuel.pdf (2,4 Mo)"
+                            },
+                            &if activity {
+                                [
+                                    "default",
+                                    "Ouvrir",
+                                    "show",
+                                    "Afficher le dossier",
+                                    "share",
+                                    "Partager",
+                                ]
+                                .map(String::from)
+                                .to_vec()
+                            } else {
+                                vec![]
+                            },
                             &Default::default(),
                             -1,
                         ),
                         since: std::time::Instant::now(),
+                        request: None,
+                        alert: false,
+                        summary: false,
                     }];
                 }
             }
@@ -2180,6 +2691,289 @@ impl Preview {
                 );
                 self.demo_controls();
             }
+            // Menu « hyprdesk » ouvert (HIG MENU-01) : son rendu se vérifie sans
+            // session. Les scènes d'aperçu n'exécutent pas les tâches : les
+            // icônes du menu sont résolues tout de suite. L'ancre est
+            // provisoire ; le rendu du titre pose la sienne.
+            if SCENES[self.scene] == "bar-menu-shell" {
+                // Une icône de fichier du bureau est sélectionnée : « Mettre à
+                // la corbeille » y est active (HIG MENU-04).
+                let file = crate::config::IconDef {
+                    origin: Default::default(),
+                    sel: Default::default(),
+                    id: "apercu-notes".into(),
+                    label: Some("notes.txt".into()),
+                    kind: crate::config::IconKind::Path(std::path::PathBuf::from("/tmp/notes.txt")),
+                    icon: None,
+                    pos: None,
+                };
+                for entry in super::plugins::bar::menus::entries(Some(&file)) {
+                    if let crate::config::MenuEntry::Item {
+                        icon: Some(icon), ..
+                    } = entry
+                    {
+                        let image = self.app.builtin_icon(&icon);
+                        self.app.named_icons.insert(icon, image);
+                    }
+                }
+                self.app.bar_anchors.insert(
+                    (self.bar, "menus:hyprdesk".into()),
+                    iced::Rectangle::new(iced::Point::new(8.0, 0.0), Size::new(76.0, 44.0)),
+                );
+                let _ = self.app.open_popover(
+                    self.bar,
+                    "menus:hyprdesk".into(),
+                    popover::Kind::Menu {
+                        entries: super::plugins::bar::menus::entries(Some(&file)),
+                        source: popover::MenuSource::Shell,
+                    },
+                );
+            }
+            // Carte des espaces ouverte du titre « Espaces » (HIG MENU-19) : la
+            // rangée « Organiser les fenêtres… » est celle du composant commun,
+            // après un séparateur. Même idiome : icône résolue tout de suite,
+            // ancre provisoire.
+            if SCENES[self.scene] == "bar-menu-workspaces" {
+                let image = self.app.builtin_icon("workspace-switcher");
+                self.app
+                    .named_icons
+                    .insert("workspace-switcher".into(), image);
+                self.app.bar_anchors.insert(
+                    (self.bar, "menus:workspaces".into()),
+                    iced::Rectangle::new(iced::Point::new(104.0, 0.0), Size::new(96.0, 44.0)),
+                );
+                let _ = self.app.open_popover(
+                    self.bar,
+                    "menus:workspaces".into(),
+                    popover::Kind::Workspaces,
+                );
+            }
+            // Menu « Fenêtre », « Déplacer vers l'espace » ouvert (HIG
+            // MENU-03) : la colonne liste les autres espaces, à côté d'une
+            // liste qui garde sa largeur et sa place. Même idiome : icône
+            // résolue tout de suite, ancre provisoire.
+            if SCENES[self.scene] == "bar-menu-window" {
+                let image = self.app.builtin_icon(crate::ui::menu::CHEVRON);
+                self.app
+                    .named_icons
+                    .insert(crate::ui::menu::CHEVRON.into(), image);
+                self.app.bar_anchors.insert(
+                    (self.bar, "menus:window".into()),
+                    iced::Rectangle::new(iced::Point::new(104.0, 0.0), Size::new(96.0, 44.0)),
+                );
+                let window: serde_json::Value =
+                    serde_json::from_str(r#"{"address":"0xabc","workspace":{"id":2,"name":"2"}}"#)
+                        .unwrap();
+                let spaces: Vec<crate::hypr::Workspace> = (1..=5)
+                    .map(|i| crate::hypr::Workspace {
+                        id: i,
+                        name: i.to_string(),
+                        monitor: crate::i18n::tr("APERÇU").into(),
+                        windows: 1,
+                        fullscreen: false,
+                    })
+                    .collect();
+                if let Some((_, entries)) =
+                    super::plugins::bar::window::entries(&window, &spaces, 2)
+                {
+                    let sub = entries
+                        .iter()
+                        .position(|e| matches!(e, crate::config::MenuEntry::Submenu { .. }));
+                    let _ = self.app.open_popover(
+                        self.bar,
+                        "menus:window".into(),
+                        popover::Kind::Menu {
+                            entries,
+                            source: popover::MenuSource::Window {
+                                address: "0xabc".into(),
+                            },
+                        },
+                    );
+                    if let Some(p) = self.app.popover.as_mut()
+                        && let Some(sub) = sub
+                    {
+                        p.sub = Some(sub);
+                    }
+                    let _ = self.app.refresh_popover_anchor();
+                }
+            }
+            // Menu contextuel d'un module de barre (HIG ENT-07) : celui de
+            // l'horloge, ancré au module comme la carte de son clic gauche.
+            // Même idiome : icônes résolues tout de suite.
+            if SCENES[self.scene] == "bar-menu-module" {
+                let entries = super::plugins::bar::menus::module_entries(&self.app, "barclock");
+                let gen_ = self.app.icons_gen;
+                for e in &entries {
+                    if let crate::config::MenuEntry::Item {
+                        icon: Some(name), ..
+                    } = e
+                        && !self.app.named_icons.contains_key(name)
+                    {
+                        let path = launch::lookup_icon(name, None, 32)
+                            .or_else(|| launch::lookup_icon(name, Some("Adwaita"), 32));
+                        let _ = self
+                            .app
+                            .update_inner(Msg::IconResolved(gen_, name.clone(), path));
+                    }
+                }
+                let _ = self.app.open_popover(
+                    self.bar,
+                    popover::menu_key("barclock"),
+                    popover::Kind::Menu {
+                        entries,
+                        source: popover::MenuSource::Module,
+                    },
+                );
+                let _ = self.app.refresh_popover_anchor();
+            }
+            // Menu « Aide » ouvert (HIG MENU-05) : le champ de recherche en
+            // tête, l'aide du shell, « À propos de hyprdesk ». Même idiome :
+            // icône résolue tout de suite, ancre provisoire (quatrième titre).
+            if SCENES[self.scene] == "bar-menu-help" {
+                let image = self.app.builtin_icon("help-about");
+                self.app.named_icons.insert("help-about".into(), image);
+                self.app.bar_anchors.insert(
+                    (self.bar, "menus:help".into()),
+                    iced::Rectangle::new(iced::Point::new(208.0, 0.0), Size::new(52.0, 44.0)),
+                );
+                let _ = self.app.open_popover(
+                    self.bar,
+                    "menus:help".into(),
+                    popover::Kind::Menu {
+                        entries: super::plugins::bar::menus::help_entries(),
+                        source: popover::MenuSource::Shell,
+                    },
+                );
+            }
+            // Vue étendue d'une activité de la pilule Island (HIG SYS-13) :
+            // le corps et les actions de la bulle vivante, puis la carte des
+            // notifications et le calendrier en pied. Même idiome : l'icône
+            // de l'application résolue tout de suite ; sans ancre relevée,
+            // la carte se centre sous la pilule.
+            if SCENES[self.scene] == "bar-island-activity" {
+                let gen_ = self.app.icons_gen;
+                if !self.app.named_icons.contains_key("firefox") {
+                    let path = launch::lookup_icon("firefox", None, 32)
+                        .or_else(|| launch::lookup_icon("firefox", Some("Adwaita"), 32));
+                    let _ = self
+                        .app
+                        .update_inner(Msg::IconResolved(gen_, "firefox".into(), path));
+                }
+                let _ = self
+                    .app
+                    .open_popover(self.bar, "clock".into(), popover::Kind::Activity(1));
+            }
+            // Carte Notifications de la barre (HIG LAY-02) : l'historique est
+            // groupé par application, une boîte par application. Même idiome :
+            // icônes résolues tout de suite (pas de tâche dans l'aperçu). La
+            // carte se passe d'ancre : elle se centre.
+            if matches!(
+                SCENES[self.scene],
+                "bar-notifications" | "bar-menu-notification" | "bar-notifications-clavier"
+            ) {
+                let gen_ = self.app.icons_gen;
+                for icon in ["firefox", "signal"] {
+                    if !self.app.named_icons.contains_key(icon) {
+                        let path = launch::lookup_icon(icon, None, 32)
+                            .or_else(|| launch::lookup_icon(icon, Some("Adwaita"), 32));
+                        let _ = self
+                            .app
+                            .update_inner(Msg::IconResolved(gen_, icon.into(), path));
+                    }
+                }
+                self.app.toasts.history = [
+                    (
+                        1,
+                        "Firefox",
+                        "firefox",
+                        "Téléchargement terminé",
+                        "rustbook.pdf — 4,2 Mo",
+                    ),
+                    (
+                        2,
+                        "Signal",
+                        "signal",
+                        "Nouveau message",
+                        "Anna : on se voit à 19 h ?",
+                    ),
+                    (
+                        3,
+                        "Firefox",
+                        "firefox",
+                        "Mise à jour disponible",
+                        "Redémarrez pour installer la version 143.",
+                    ),
+                    (
+                        4,
+                        "Hyprdesk",
+                        "",
+                        "Capture enregistrée",
+                        "Copiée dans le presse-papiers",
+                    ),
+                    (5, "Signal", "signal", "Marc a rejoint le groupe", ""),
+                ]
+                .into_iter()
+                .map(|(id, app, icon, title, body)| {
+                    crate::notifications::build(
+                        id,
+                        app,
+                        icon,
+                        crate::i18n::tr(title),
+                        crate::i18n::tr(body),
+                        &[],
+                        &Default::default(),
+                        -1,
+                    )
+                })
+                .collect();
+                let _ = self.app.open_popover(
+                    self.bar,
+                    "notifications".into(),
+                    popover::Kind::Notifications,
+                );
+            }
+            // Clic droit sur une carte du centre de notifications (HIG ENT-07) :
+            // son menu court, « Ouvrir » quand la carte mène quelque part. Même
+            // idiome : icônes résolues tout de suite.
+            if SCENES[self.scene] == "bar-menu-notification" {
+                let mut m = super::context::IconMenu::new(
+                    super::context::MenuTarget::Notification(super::context::NotificationRef {
+                        id: 2,
+                        openable: true,
+                    }),
+                    Id::unique(),
+                );
+                m.hover = Some(0);
+                for name in super::menu::icons(&self.app.icon_menu_lines(&m)) {
+                    if !self.app.named_icons.contains_key(&name) {
+                        let path = launch::lookup_icon(&name, None, 32)
+                            .or_else(|| launch::lookup_icon(&name, Some("Adwaita"), 32));
+                        let gen_ = self.app.icons_gen;
+                        let _ = self.app.update_inner(Msg::IconResolved(gen_, name, path));
+                    }
+                }
+                self.app.icon_menu = Some(m);
+            }
+            // Ovale des non-lues sur l'horloge (HIG SYS-02) : trois non lues,
+            // aucune liste ouverte.
+            if matches!(SCENES[self.scene], "bar-unread" | "bar-island-unread") {
+                self.app.toasts.history = ["Firefox", "Signal", "Firefox"]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, app)| {
+                        crate::notifications::build(
+                            i as u32 + 1,
+                            app,
+                            "",
+                            "Nouveau message",
+                            "",
+                            &[],
+                            &Default::default(),
+                            -1,
+                        )
+                    })
+                    .collect();
+            }
             // Mise à jour en cours (MLG-161) : mode compact (« 42 % ») puis
             // mode détaillé (jauge et %), côte à côte.
             if SCENES[self.scene] == "bar-majs-progression" {
@@ -2265,6 +3059,8 @@ impl Preview {
         if matches!(
             SCENES[self.scene],
             "overview"
+                | "menu-fenetre"
+                | "menu-espace"
                 | "bar-selector-relief"
                 | "bar-selector-rail"
                 | "bar-selector-miniatures"
@@ -2273,7 +3069,10 @@ impl Preview {
         ) {
             self.demo_window_data();
         }
-        if SCENES[self.scene] == "overview" {
+        if matches!(
+            SCENES[self.scene],
+            "overview" | "menu-fenetre" | "menu-espace"
+        ) {
             let win = Id::unique();
             self.app.overview = Some(overview::Overview::new(
                 win,
@@ -2299,6 +3098,60 @@ impl Preview {
                 title: false,
             });
             self.app.cursor.insert(win, Point::new(560.0, 560.0));
+        }
+        if matches!(SCENES[self.scene], "menu-fenetre" | "menu-espace") {
+            // Clic droit dans une carte de l'aperçu des espaces : sur une
+            // fenêtre, son menu, celui de la barre (HIG MENU-06) ; sur le titre
+            // ou le fond de la carte, celui de l'espace (HIG ENT-07).
+            if let Some(o) = self.app.overview.as_mut() {
+                o.press = None;
+            }
+            self.app.workspaces = (1..=3)
+                .map(|id| crate::hypr::Workspace {
+                    id,
+                    name: format!("Projet {id}"),
+                    monitor: self.app.monitors[0].name.clone(),
+                    windows: 1,
+                    fullscreen: false,
+                })
+                .collect();
+            let mut m = if SCENES[self.scene] == "menu-espace" {
+                super::context::IconMenu::new(
+                    super::context::MenuTarget::Space(super::context::SpaceRef {
+                        card: 1,
+                        name: "Projet 2".into(),
+                    }),
+                    Id::unique(),
+                )
+            } else {
+                super::context::IconMenu::new(
+                    super::context::MenuTarget::Window(super::context::WindowRef {
+                        address: "0x6".into(),
+                        state: serde_json::json!({
+                            "address": "0x6",
+                            "class": "kitty",
+                            "floating": false,
+                            "pinned": false,
+                            "fullscreen": 0,
+                            "workspace": { "id": 1, "name": "1" }
+                        }),
+                        same_app: 1,
+                    }),
+                    Id::unique(),
+                )
+            };
+            m.monitor = self.app.monitors[0].name.clone();
+            m.hover = Some(0);
+            // Icônes résolues tout de suite (pas de tâche dans l'aperçu).
+            for name in super::menu::icons(&self.app.icon_menu_lines(&m)) {
+                if !self.app.named_icons.contains_key(&name) {
+                    let path = launch::lookup_icon(&name, None, 32)
+                        .or_else(|| launch::lookup_icon(&name, Some("Adwaita"), 32));
+                    let gen_ = self.app.icons_gen;
+                    let _ = self.app.update_inner(Msg::IconResolved(gen_, name, path));
+                }
+            }
+            self.app.icon_menu = Some(m);
         }
         if matches!(
             SCENES[self.scene],
@@ -2327,6 +3180,7 @@ impl Preview {
                     .retain(|c| !(c.workspace == "1" && c.class == "code"));
                 self.app.toasts.list.push(toasts::Toast {
                     n: crate::notifications::Notification {
+                        action_icons: Vec::new(),
                         id: 1,
                         app: "Visual Studio Code".into(),
                         icon: String::new(),
@@ -2339,8 +3193,13 @@ impl Preview {
                         transient: false,
                         desktop_entry: Some("code".into()),
                         category: None,
+                        // Entre par la liste des bulles, pas par l'historique.
+                        unread: false,
                     },
                     since: Instant::now(),
+                    request: None,
+                    alert: false,
+                    summary: false,
                 });
             }
         }
@@ -2525,6 +3384,41 @@ impl Preview {
         }
     }
 
+    /// Menu d'une application du dock (MLG-307) : ses fenêtres, ses actions
+    /// `.desktop`, l'épingler, la fermer.
+    fn menu_dock_app() -> super::context::IconMenu {
+        let mut m = super::context::IconMenu::new(
+            super::context::MenuTarget::App(super::context::AppRef {
+                id: Some("firefox".into()),
+                class: Some("firefox".into()),
+                name: "Firefox".into(),
+            }),
+            iced::window::Id::unique(),
+        );
+        m.entry = crate::launch::parse_desktop_entry(
+            "[Desktop Entry]\nName=Firefox\nExec=firefox %u\n\
+             Actions=new-window;new-private-window;\n\
+             [Desktop Action new-window]\nName=Nouvelle fenêtre\nExec=firefox --new-window %u\n\
+             [Desktop Action new-private-window]\nName=Nouvelle fenêtre de navigation privée\n\
+             Exec=firefox --private-window %u\n",
+            "fr_FR",
+        );
+        m.hover = Some(3);
+        m
+    }
+
+    /// Images d'application du bureau d'aperçu, prêtes à tenir lieu
+    /// d'icône de fenêtre : le fichier à capsule (HIG ICO-11) n'en est pas.
+    fn app_stand_ins(&self) -> Vec<IconImg> {
+        self.app
+            .icon_imgs
+            .iter()
+            .zip(&self.app.icons)
+            .filter(|(_, r)| r.badge.is_none())
+            .map(|(img, _)| *img)
+            .collect()
+    }
+
     fn demo_controls(&mut self) {
         let Some(dashboard) = self.app.popover.as_mut().and_then(|p| p.dashboard.as_mut()) else {
             return;
@@ -2667,11 +3561,13 @@ impl Preview {
                 workspace: ws.into(),
                 floating,
                 rect,
+                fullscreen: false,
             });
             // Une icône plausible pour chaque classe (les images de bureau
             // résolues de l'aperçu, prises en rond).
-            if !self.app.icon_imgs.is_empty() {
-                let img = self.app.icon_imgs[i % self.app.icon_imgs.len()];
+            let stand_ins = self.app_stand_ins();
+            if !stand_ins.is_empty() {
+                let img = stand_ins[i % stand_ins.len()];
                 self.app.class_imgs.entry(class.into()).or_insert(img);
             }
         }
@@ -2707,6 +3603,24 @@ impl Preview {
                     }
                     "bar-menu-closing" => {
                         let _ = self.app.close_popover();
+                    }
+                    "bar-notifications-clavier" => {
+                        let scope =
+                            || iced::advanced::widget::Id::new(super::toasts::POPOVER_SCOPE);
+                        return Task::batch([
+                            super::focus::step(scope(), false),
+                            super::focus::step(scope(), false),
+                        ])
+                        .map(|m| PreviewMsg::Ui(Box::new(m)));
+                    }
+                    // Ctrl+Maj + Tab sans focus : la première commande du
+                    // dernier groupe du tiroir, le contenu (« Configuration
+                    // avancée »).
+                    "acces-clavier" => {
+                        return self
+                            .app
+                            .panel_focus_jump(true)
+                            .map(|m| PreviewMsg::Ui(Box::new(m)));
                     }
                     _ => {}
                 }
@@ -2767,8 +3681,12 @@ impl Preview {
                     .as_ref()
                     .is_some_and(|p| p.dashboard.is_some()) =>
             {
-                popover::continuity::handle_key(&key, self.app.mods.shift())
-                    .map(|m| PreviewMsg::Ui(Box::new(m)))
+                popover::continuity::handle_key(
+                    &key,
+                    self.app.mods.shift(),
+                    self.app.mods.control(),
+                )
+                .map(|m| PreviewMsg::Ui(Box::new(m)))
             }
             Msg::Modifiers(modifiers) => {
                 self.app.mods = modifiers;
@@ -3337,6 +4255,15 @@ impl Preview {
                 .into(),
             );
         }
+        // Boîte « Forcer à quitter » (HIG ENT-10) : carte du calque overlay, au-dessus.
+        if self.app.force_quit.is_some() {
+            layers.push(
+                container(self.app.view_force_quit())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into(),
+            );
+        }
         let view: Element<'_, Msg> = Stack::with_children(layers)
             .width(Length::Fill)
             .height(Length::Fill)
@@ -3381,7 +4308,7 @@ impl Preview {
         ]);
         for a in self.app.apps.clone().iter() {
             let p = crate::launch::icon_for_class(&a.id, &self.app.apps, None, 48);
-            let img = self.app.handle_for(p.as_deref());
+            let img = self.app.app_handle_for(p.as_deref());
             self.app.class_imgs.insert(a.id.clone(), img);
         }
         // État d'ouverture identique pour chaque scène (les choix d'une scène

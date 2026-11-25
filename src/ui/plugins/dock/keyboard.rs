@@ -116,6 +116,32 @@ impl App {
         }
     }
 
+    /// Le clavier va au dock de l'écran actif (raccourci `keys.focus_dock`,
+    /// HIG ENT-02), sans bascule de mode. Bureau masqué : le dock paraît sous
+    /// les fenêtres, qui restent en place (le chemin de `toggle-launcher`, sans
+    /// sa bascule). Plein bureau : comme Tab. Lanceur seul : il reprend le
+    /// clavier. Pressé deux fois, le dock le rend aux fenêtres, comme Échap sur
+    /// le plein bureau.
+    pub(in crate::ui) fn launcher_focus(&mut self) -> Task<UiMsg> {
+        if self.launcher_runtime.focus.is_some() {
+            return self.launcher_release();
+        }
+        match self.mode() {
+            DesktopMode::FullDesktop => match self.monitors.iter().find(|m| m.focused) {
+                Some(m) => {
+                    let name = m.name.clone();
+                    self.launcher_grab(&name, false)
+                }
+                None => Task::none(),
+            },
+            DesktopMode::NoDesktop => {
+                let grab = self.launcher_grab_focused();
+                Task::batch([self.show_with_windows(), grab])
+            }
+            DesktopMode::LauncherOnly => self.launcher_grab_focused(),
+        }
+    }
+
     /// `windows` : les fenêtres restent en place, le clavier doit pouvoir
     /// leur revenir sans passer par le dock (prise à la demande).
     pub(in crate::ui) fn launcher_grab(&mut self, monitor: &str, windows: bool) -> Task<UiMsg> {
@@ -133,7 +159,13 @@ impl App {
         // peut renaître, la prise reste exclusive.
         let on_demand = windows && !self.launcher_in_bar(monitor);
         self.launcher_runtime.on_demand = on_demand;
-        let mut tasks = vec![self.launcher_select(monitor, first, &slots)];
+        // Une seule surface à la fois : la barre qui tient le clavier le rend
+        // (HIG ENT-02).
+        let bar = match self.bar_keyboard {
+            Some(id) => self.bar_release(id),
+            None => Task::none(),
+        };
+        let mut tasks = vec![bar, self.launcher_select(monitor, first, &slots)];
         let dock = self
             .launcher_surfaces
             .iter()
@@ -159,6 +191,14 @@ impl App {
                         id,
                         keyboard_interactivity: KeyboardInteractivity::Exclusive,
                     }));
+                    // Masqué (réglé, ou par-dessus un plein écran) : le dock
+                    // qui prend le clavier se montre (HIG PAT-01).
+                    if self.launcher_surfaces.contains_key(&id) && self.dock_hides(id) {
+                        let e = self.bar_reveal.entry(id).or_insert((false, 0));
+                        e.1 += 1;
+                        let generation = e.1;
+                        tasks.push(self.bar_reveal_apply(id, generation, true));
+                    }
                 }
             }
         }
@@ -195,6 +235,11 @@ impl App {
                 id,
                 keyboard_interactivity: KeyboardInteractivity::None,
             }));
+            // Montré pour le clavier, le dock masqué se retire ensuite
+            // (HIG PAT-01).
+            if self.launcher_surfaces.contains_key(&id) && self.dock_hides(id) {
+                tasks.push(self.bar_hover(id, false));
+            }
         }
         Task::batch(tasks)
     }
@@ -404,6 +449,58 @@ mod tests {
         );
     }
 
+    /// Sous une fenêtre plein écran, le dock passe par-dessus, réduit à sa
+    /// bande de rappel, et revient à sa place ensuite (HIG PAT-01).
+    #[test]
+    fn the_dock_stays_reachable_over_a_fullscreen_window() {
+        let mut app = app();
+        let _ = app.update_inner(Msg::Control(crate::control::Command::LauncherOnly));
+        let before = dock(&app);
+        assert!(!app.launcher_surfaces[&before].over_fullscreen);
+        assert!(!app.dock_hides(before) || app.dock_autohide());
+        let window = |fullscreen| crate::hypr::WindowGeo {
+            address: "0x1".into(),
+            class: "foot".into(),
+            title: String::new(),
+            workspace: "1".into(),
+            floating: false,
+            rect: (0, 0, 1440, 900),
+            fullscreen,
+        };
+        let clients = app.clients.clone();
+        let _ = app.update_inner(Msg::Hypr(crate::hypr::Update::Clients(
+            clients.clone(),
+            vec![window(true)],
+        )));
+        let over = dock(&app);
+        assert_ne!(over, before, "surface recréée sur le calque Overlay");
+        assert!(app.launcher_surfaces[&over].over_fullscreen);
+        assert!(app.dock_hides(over));
+        assert!(
+            !app.bar_revealed(over),
+            "réduit d'emblée à sa bande de rappel"
+        );
+        assert_eq!(app.launcher_surfaces.len(), 1);
+        // Les barres changent : la bande de rappel du dock tient.
+        let _ = app.sync_bars();
+        assert!(!app.bar_revealed(over));
+        // Pris au clavier, il se montre.
+        let _ = app.launcher_grab("A", false);
+        assert_eq!(dock(&app), over, "pris sans renaître");
+        assert!(app.bar_revealed(over), "le dock qui a le clavier se voit");
+        app.launcher_runtime.focus = None;
+        let _ = app.update_inner(Msg::Hypr(crate::hypr::Update::Clients(
+            clients,
+            vec![window(false)],
+        )));
+        let back = dock(&app);
+        assert!(
+            !app.launcher_surfaces[&back].over_fullscreen,
+            "revenu sur Top"
+        );
+        assert_eq!(app.launcher_surfaces.len(), 1);
+    }
+
     #[test]
     fn the_launcher_shortcut_hands_the_keyboard_to_the_dock() {
         let mut app = app();
@@ -536,5 +633,80 @@ mod tests {
         assert_ne!(dock(&app), before);
         assert!(app.launcher_runtime.on_demand);
         assert_eq!(selected(&app).as_deref(), Some("dock:0x1"));
+    }
+
+    /// HIG ENT-02 : `focus dock` pose le clavier sans basculer de mode, sauf
+    /// bureau masqué, où le dock doit paraître (lanceur seul, fenêtres en
+    /// place). Pressé deux fois, le dock rend le clavier sans se refermer.
+    #[test]
+    fn focus_dock_hands_the_keyboard_to_the_dock_in_every_mode() {
+        let focus = || Msg::Control(crate::control::Command::Focus("dock".into()));
+        // Bureau masqué : le dock paraît sous les fenêtres, qui restent en place.
+        {
+            let mut app = app();
+            assert_eq!(app.mode(), DesktopMode::NoDesktop);
+            let _ = app.update_inner(focus());
+            assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+            let id = dock(&app);
+            assert_eq!(selected(&app).as_deref(), Some("dock:0x1"));
+            // Pressé deux fois : le clavier revient aux fenêtres, le dock reste.
+            let _ = app.update_inner(focus());
+            assert!(app.launcher_runtime.focus.is_none());
+            assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+            assert_eq!(dock(&app), id);
+            // Lanceur seul, clavier rendu : le dock le reprend.
+            let _ = app.update_inner(focus());
+            assert!(selected(&app).is_some());
+            assert_eq!(app.mode(), DesktopMode::LauncherOnly);
+        }
+
+        // Plein bureau : comme Tab, la prise est exclusive et le bureau reste.
+        {
+            let mut app = app();
+            let _ = app.update_inner(Msg::Control(crate::control::Command::Show));
+            let before = dock(&app);
+            let _ = app.update_inner(focus());
+            assert_eq!(app.mode(), DesktopMode::FullDesktop);
+            assert!(
+                !app.launcher_runtime.on_demand,
+                "prise exclusive, comme Tab"
+            );
+            assert!(selected(&app).is_some());
+            assert_eq!(dock(&app), before, "le dock affiché n'a pas à renaître");
+            let _ = app.update_inner(focus());
+            assert!(app.launcher_runtime.focus.is_none());
+            assert_eq!(app.mode(), DesktopMode::FullDesktop);
+        }
+    }
+
+    /// HIG ENT-02 : le dock et la barre ne tiennent jamais le clavier ensemble ;
+    /// chacun le rend quand l'autre le prend.
+    #[test]
+    fn the_dock_and_the_bar_never_hold_the_keyboard_together() {
+        let mut app = app();
+        let bar = Id::unique();
+        app.bar_surfaces.insert(
+            bar,
+            crate::ui::plugins::bar::surface::BarSurface {
+                monitor: "A".into(),
+                position: crate::config::BarPosition::Top,
+                height: 44,
+                margin: 0,
+                ..Default::default()
+            },
+        );
+        let dock_focus = || Msg::Control(crate::control::Command::Focus("dock".into()));
+        let bar_focus = || Msg::Control(crate::control::Command::Focus("bar".into()));
+        let _ = app.update_inner(bar_focus());
+        assert_eq!(app.bar_keyboard, Some(bar));
+        // Le dock prend le clavier : la barre le rend.
+        let _ = app.update_inner(dock_focus());
+        assert!(selected(&app).is_some());
+        assert_eq!(app.bar_keyboard, None);
+        // La barre le reprend : le dock le rend, sans changer de mode.
+        let _ = app.update_inner(bar_focus());
+        assert_eq!(app.bar_keyboard, Some(bar));
+        assert!(app.launcher_runtime.focus.is_none());
+        assert_eq!(app.mode(), DesktopMode::LauncherOnly);
     }
 }

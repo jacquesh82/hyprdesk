@@ -21,6 +21,8 @@ pub const NAMESPACE: &str = "hyprdesk-tour";
 const WIDTH: f32 = 780.0;
 const HEIGHT: f32 = 520.0;
 const SHADOW: f32 = 18.0;
+/// Largeur réservée au bouton de l'essai d'un bloc (HIG DAT-11).
+const TRIAL_ACTION_W: f32 = 110.0;
 
 /// Un réglage présenté dans un bloc : son paquet (le paragraphe n'apparaît
 /// que s'il est actif), un titre, un paragraphe.
@@ -38,7 +40,34 @@ pub struct Step {
     pub title: &'static str,
     pub intro: &'static str,
     pub items: &'static [Item],
+    /// L'essai du bloc (HIG DAT-11) : un geste dans la surface réelle.
+    pub trial: Trial,
 }
+
+/// Essai d'un bloc de la visite (HIG DAT-11) : on apprend en faisant.
+pub enum Trial {
+    /// Une commande du shell : « Essayer » l'envoie, le raccourci de
+    /// l'utilisateur aussi ; elle est faite dès qu'elle arrive pendant le bloc.
+    Command {
+        text: &'static str,
+        run: crate::control::Command,
+    },
+    /// Un réglage du thème changé dans le tiroir, derrière la visite : fait
+    /// dès qu'un réglage a changé pendant le bloc.
+    Setting { text: &'static str },
+}
+
+impl Trial {
+    pub fn text(&self) -> &'static str {
+        match self {
+            Trial::Command { text, .. } | Trial::Setting { text } => text,
+        }
+    }
+}
+
+const SETTING_TRIAL: Trial = Trial::Setting {
+    text: "Changez l'un de ces réglages dans le tiroir, derrière : l'historique le défait.",
+};
 
 const fn it(pkg: &'static str, title: &'static str, body: &'static str) -> Item {
     Item { pkg, title, body }
@@ -63,7 +92,7 @@ pub const STEPS: &[Step] = &[
             it(
                 "keys",
                 "Les autres touches à connaître",
-                "SUPER + SHIFT + D ouvre ces Réglages, SUPER + R le lanceur d'applications, \
+                "SUPER + virgule ouvre ces Réglages, SUPER + Espace le lanceur d'applications, \
                  SUPER + L verrouille. En cas de souci, SUPER + Échap masque le bureau et rend \
                  tous ses raccourcis à Hyprland.",
             ),
@@ -75,6 +104,11 @@ pub const STEPS: &[Step] = &[
                  toute la machine comme avant hyprdesk.",
             ),
         ],
+        trial: Trial::Command {
+            text: "Changez de mode avec SUPER + D, ou ici : vos fenêtres seules, le dock \
+                   par-dessus, puis le bureau complet.",
+            run: crate::control::Command::Cycle,
+        },
     },
     Step {
         pkg: "wallpaper",
@@ -103,6 +137,7 @@ pub const STEPS: &[Step] = &[
                  bureau apparaît, et ce que deviennent les applications ouvertes depuis le bureau.",
             ),
         ],
+        trial: SETTING_TRIAL,
     },
     Step {
         pkg: "bar",
@@ -137,6 +172,10 @@ pub const STEPS: &[Step] = &[
                  D'autres s'installent depuis Plugins, ou s'écrivent en quelques lignes de Lua.",
             ),
         ],
+        trial: Trial::Command {
+            text: "Ouvrez l'écran des espaces de travail, puis refermez-le avec Échap.",
+            run: crate::control::Command::Overview,
+        },
     },
     Step {
         pkg: "theme",
@@ -163,6 +202,7 @@ pub const STEPS: &[Step] = &[
                  au plus vivant, ou coupés pour ménager la carte graphique.",
             ),
         ],
+        trial: SETTING_TRIAL,
     },
     Step {
         pkg: "layouts",
@@ -188,6 +228,7 @@ pub const STEPS: &[Step] = &[
                 "Marges, bordures, coins, barres de titre et groupes de fenêtres en onglets.",
             ),
         ],
+        trial: SETTING_TRIAL,
     },
     Step {
         pkg: "screens",
@@ -209,6 +250,7 @@ pub const STEPS: &[Step] = &[
                  reposer les yeux.",
             ),
         ],
+        trial: SETTING_TRIAL,
     },
     Step {
         pkg: "keys",
@@ -236,6 +278,7 @@ pub const STEPS: &[Step] = &[
                  tactile.",
             ),
         ],
+        trial: SETTING_TRIAL,
     },
     Step {
         pkg: "lock",
@@ -267,6 +310,7 @@ pub const STEPS: &[Step] = &[
                  remplit pour vous.",
             ),
         ],
+        trial: SETTING_TRIAL,
     },
     Step {
         pkg: "apps",
@@ -297,6 +341,10 @@ pub const STEPS: &[Step] = &[
                  toujours avant d'agir.",
             ),
         ],
+        trial: Trial::Command {
+            text: "Ouvrez la grille des applications, puis refermez-la avec Échap.",
+            run: crate::control::Command::Apps,
+        },
     },
     Step {
         pkg: "history",
@@ -307,7 +355,7 @@ pub const STEPS: &[Step] = &[
             it(
                 "desktop",
                 "Configuration avancée",
-                "L'interrupteur en haut des Réglages affiche tous les détails, marqués en cyan : \
+                "L'interrupteur, dans le corps des Réglages, affiche tous les détails, marqués en cyan : \
                  options de Hyprland, durées, commandes, carte graphique…",
             ),
             it(
@@ -323,6 +371,7 @@ pub const STEPS: &[Step] = &[
                  plus loin. Cette visite se relance avec le bouton « Visite guidée ».",
             ),
         ],
+        trial: SETTING_TRIAL,
     },
 ];
 
@@ -332,11 +381,45 @@ pub enum TourMsg {
     Start,
     Next,
     Prev,
+    /// « Essayer » : la commande de l'essai du bloc.
+    Try,
     /// Fin ou abandon : la visite ne sera plus proposée.
     End,
 }
 
 impl App {
+    /// Essai du bloc en cours de la visite.
+    fn tour_trial(&self) -> Option<&'static Trial> {
+        let i = self.panel.as_ref()?.tour?;
+        self.tour_steps().get(i).map(|s| &s.trial)
+    }
+
+    /// Commande reçue (bouton, raccourci, CLI) : l'essai du bloc qui la
+    /// demande est fait (HIG DAT-11).
+    pub(super) fn tour_note(&mut self, c: &crate::control::Command) {
+        if let Some(Trial::Command { run, .. }) = self.tour_trial()
+            && run == c
+            && let Some(p) = self.panel.as_mut()
+        {
+            p.tour_tried = true;
+        }
+    }
+
+    /// L'essai du bloc en cours est-il fait ?
+    pub(super) fn tour_trial_done(&self) -> bool {
+        let Some(p) = &self.panel else {
+            return false;
+        };
+        match self.tour_trial() {
+            Some(Trial::Command { .. }) => p.tour_tried,
+            Some(Trial::Setting { .. }) => p
+                .tour_from
+                .as_deref()
+                .is_some_and(|from| *from != self.settings),
+            None => false,
+        }
+    }
+
     /// Blocs possibles : ceux dont le paquet ouvert derrière est actif.
     fn tour_steps(&self) -> Vec<&'static Step> {
         STEPS
@@ -353,8 +436,12 @@ impl App {
             return Task::none();
         };
         let (pkg, tab) = (s.pkg, s.tab);
+        let from = Box::new(self.settings.clone());
         if let Some(p) = self.panel.as_mut() {
             p.tour = Some(i);
+            // Nouveau bloc : son essai reste à faire (HIG DAT-11).
+            p.tour_tried = false;
+            p.tour_from = Some(from);
         }
         // Un paquet avancé n'apparaît qu'en configuration avancée : la visite le montre quand même.
         if let Some(t) = tab {
@@ -401,6 +488,10 @@ impl App {
                 _ => self.tour_update(TourMsg::End),
             },
             TourMsg::Prev => self.tour_go(at.unwrap_or(0).saturating_sub(1)),
+            TourMsg::Try => match self.tour_trial() {
+                Some(Trial::Command { run, .. }) => Task::done(Msg::Control(run.clone())),
+                _ => Task::none(),
+            },
             TourMsg::End => {
                 if let Some(p) = self.panel.as_mut() {
                     p.tour = None;
@@ -429,14 +520,15 @@ impl App {
         }
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.65, ..fg };
+        // Texte secondaire du tiroir : celle du thème (HIG LAY-08).
+        let dim = self.ink().dim;
         let go = |m: TourMsg| Msg::Panel(PanelMsg::Tour(m));
         card(
             row![
                 column![
                     text(crate::i18n::tr("Première visite ?"))
                         .font(self.title_font())
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                     text(crate::i18n::tr(
                         "Une visite guidée présente les réglages de hyprdesk, thème par thème."
@@ -470,6 +562,59 @@ impl App {
         )
     }
 
+    /// Ligne de l'essai du bloc (HIG DAT-11) : la phrase, puis « Essayer »
+    /// pour une commande, ou « Fait » une fois l'essai fait.
+    fn tour_trial_row(&self, s: &Step, fg: Color, dim: Color) -> Element<'_, Msg> {
+        let done = self.tour_trial_done();
+        let act: Element<'_, Msg> = if done {
+            text(crate::i18n::tr("✓ Fait"))
+                .font(self.title_font())
+                .size(crate::ui::tokens::ts(13.0))
+                .color(fg)
+                .into()
+        } else if matches!(s.trial, Trial::Command { .. }) {
+            button(
+                text(crate::i18n::tr("Essayer"))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0)),
+            )
+            .padding([7, 14])
+            .style(button::secondary)
+            .on_press(Msg::Panel(PanelMsg::Tour(TourMsg::Try)))
+            .into()
+        } else {
+            Space::new().width(0).height(0).into()
+        };
+        container(
+            row![
+                raw_text(crate::tr!(
+                    "Essayez : {essai}",
+                    essai = crate::i18n::tr(s.trial.text())
+                ))
+                .font(self.font)
+                .size(crate::ui::tokens::ts(13.0))
+                .line_height(1.35)
+                .color(if done { dim } else { fg })
+                .width(Length::Fill),
+                // Côté droit de largeur fixe : « Essayer » puis « ✓ Fait » ne
+                // reflowent pas la phrase au moment du geste.
+                container(act)
+                    .width(TRIAL_ACTION_W)
+                    .align_right(TRIAL_ACTION_W),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .padding([10, 14])
+        .width(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(Color { a: 0.06, ..fg }.into()),
+            border: Border::default().rounded(12),
+            ..Default::default()
+        })
+        .into()
+    }
+
     /// Fenêtre de la visite : le bloc en cours, ses réglages en tuiles.
     pub(super) fn view_tour(&self) -> Element<'_, Msg> {
         let i = self.panel.as_ref().and_then(|p| p.tour).unwrap_or(0);
@@ -479,7 +624,8 @@ impl App {
         };
         let th = &self.cfg.general.theme;
         let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
-        let dim = Color { a: 0.72, ..fg };
+        // Texte secondaire : celle du thème, sur le fond de la visite (HIG LAY-08).
+        let dim = self.ink().dim;
         let bg = color(
             th.bg,
             th.shown(crate::config::Place::Menus).opacity.max(0.97),
@@ -571,7 +717,7 @@ impl App {
         buttons = buttons.push(
             button(
                 text(if last {
-                    crate::i18n::tr("Terminer")
+                    crate::i18n::tr("Terminé")
                 } else {
                     crate::i18n::tr("Suivant")
                 })
@@ -596,10 +742,11 @@ impl App {
                 .color(fg),
             raw_text(crate::i18n::tr(s.intro).to_string())
                 .font(self.font)
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .line_height(1.35)
                 .color(fg),
             scrollable(grid).height(Length::Fill),
+            self.tour_trial_row(s, fg, dim),
             buttons,
         ]
         .spacing(12);
@@ -641,6 +788,52 @@ fn card(content: Element<'_, Msg>, accent: Color) -> Element<'_, Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// HIG DAT-11 : chaque bloc porte un essai ; la commande du bloc le
+    /// fait, une autre non, et le bloc suivant repart à faire ; un
+    /// enregistrement des réglages fait un essai de réglage.
+    #[test]
+    fn chaque_bloc_a_son_essai() {
+        assert!(STEPS.iter().all(|s| !s.trial.text().is_empty()));
+        let mut app = App::boot_with(
+            std::path::PathBuf::from("/tmp/hyprdesk-ui-test/config.lua"),
+            true,
+        )
+        .0;
+        app.surfaces
+            .insert(iced::window::Id::unique(), "DP-1".into());
+        let _ = app.open_panel();
+        let _ = app.tour_update(TourMsg::Start);
+        assert!(matches!(
+            app.tour_trial(),
+            Some(Trial::Command {
+                run: crate::control::Command::Cycle,
+                ..
+            })
+        ));
+        assert!(!app.tour_trial_done());
+        app.tour_note(&crate::control::Command::Overview);
+        assert!(!app.tour_trial_done(), "une autre commande");
+        app.tour_note(&crate::control::Command::Cycle);
+        assert!(app.tour_trial_done());
+        // Retour au bloc : l'essai repart à faire.
+        let _ = app.tour_update(TourMsg::Next);
+        let _ = app.tour_update(TourMsg::Prev);
+        assert!(!app.tour_trial_done(), "remis en entrant dans le bloc");
+        // Bloc suivant : un essai de réglage, à faire.
+        let _ = app.tour_update(TourMsg::Next);
+        assert!(matches!(app.tour_trial(), Some(Trial::Setting { .. })));
+        assert!(!app.tour_trial_done());
+        app.settings_revision
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        assert!(!app.tour_trial_done(), "un enregistrement sans changement");
+        app.settings.launcher_pinned = Some(vec!["firefox".into()]);
+        assert!(app.tour_trial_done(), "un réglage changé pendant le bloc");
+        // Hors visite : aucune commande ne note rien.
+        let _ = app.tour_update(TourMsg::End);
+        app.tour_note(&crate::control::Command::Cycle);
+        assert!(app.tour_trial().is_none() && !app.tour_trial_done());
+    }
 
     /// Démarrer ouvre la première étape, Suivant avance d'un paquet à
     /// l'autre (avec son onglet), Quitter retient que la visite a été vue.

@@ -50,6 +50,9 @@ pub(in crate::ui) struct RowState {
     pub danger: bool,
     /// Choisie au clavier : surlignée comme au survol.
     pub selected: bool,
+    /// Ligne d'un sous-menu d'un niveau (HIG menus › Submenus) : un chevron
+    /// suit son libellé.
+    pub submenu: bool,
 }
 
 impl Default for RowState {
@@ -59,9 +62,13 @@ impl Default for RowState {
             clickable: true,
             danger: false,
             selected: false,
+            submenu: false,
         }
     }
 }
+
+/// Chevron d'une ligne de sous-menu : icône du jeu de hyprdesk, repli « › ».
+pub(in crate::ui) const CHEVRON: &str = "go-next-symbolic";
 
 /// Fond d'une ligne : rien au repos, accent léger au survol (ou choisie au
 /// clavier), plus marqué pendant l'appui (HIG Buttons : un état pressé).
@@ -200,7 +207,17 @@ pub(in crate::ui) fn step<M>(
     from: Option<usize>,
     forward: bool,
 ) -> Option<usize> {
-    let n = lines.len();
+    step_where(lines.len(), from, forward, |i| choosable(&lines[i]))
+}
+
+/// Le même parcours sur `n` entrées dont `ok` dit lesquelles se choisissent
+/// (les menus de la barre, dont les entrées ne sont pas des `Line`).
+pub(in crate::ui) fn step_where(
+    n: usize,
+    from: Option<usize>,
+    forward: bool,
+    ok: impl Fn(usize) -> bool,
+) -> Option<usize> {
     if n == 0 {
         return None;
     }
@@ -218,7 +235,7 @@ pub(in crate::ui) fn step<M>(
                 (start + n - k) % n
             }
         })
-        .find(|&i| choosable(&lines[i]))
+        .find(|&i| ok(i))
 }
 
 /// Première (ou dernière) entrée choisissable.
@@ -242,7 +259,7 @@ impl App {
         container(
             text(label)
                 .font(self.font)
-                .size(crate::ui::tokens::ts(11.5))
+                .size(crate::ui::tokens::ts(11.0))
                 .color(ink.fg(0.65))
                 .font(self.ui_font(iced::font::Weight::Semibold)),
         )
@@ -284,18 +301,24 @@ impl App {
         } else {
             icon
         };
-        name.and_then(|n| self.icon_named(n, if checked { 14.0 } else { 16.0 }, tint))
-            .unwrap_or_else(|| {
-                if checked {
-                    text("•")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .color(tint)
-                        .into()
-                } else {
-                    Space::new().into()
-                }
-            })
+        name.and_then(|n| {
+            self.icon_named(
+                n,
+                crate::ui::tokens::glyph(if checked { 14.0 } else { 16.0 }),
+                tint,
+            )
+        })
+        .unwrap_or_else(|| {
+            if checked {
+                text("•")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(tint)
+                    .into()
+            } else {
+                Space::new().into()
+            }
+        })
     }
 
     /// Ligne de menu : tête (icône), libellé, détail à droite (ou dessous
@@ -313,17 +336,21 @@ impl App {
         let font = self.ui_font(iced::font::Weight::Normal);
         let long = stacked(&label, detail.as_deref());
         let active = st.enabled && st.clickable;
-        let label_el = text(label)
+        let mut label_el = text(label)
             .font(self.font)
-            .size(crate::ui::tokens::ts(13.5))
+            .size(crate::ui::tokens::ts(13.0))
             .font(font)
             .wrapping(iced::widget::text::Wrapping::None);
+        // Sous-menu : le libellé occupe la ligne, le chevron vient au bord.
+        if st.submenu {
+            label_el = label_el.width(Length::Fill);
+        }
         let body: Element<'_, Msg> = match detail {
             Some(d) if long => column![
                 label_el,
                 text(d)
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(11.5))
+                    .size(crate::ui::tokens::ts(11.0))
                     .color(dim)
                     .font(font)
                     .wrapping(iced::widget::text::Wrapping::None)
@@ -342,11 +369,24 @@ impl App {
             .into(),
             None => label_el.into(),
         };
+        let body: Element<'_, Msg> = if st.submenu {
+            row![body, self.menu_chevron(ink, st)]
+                .spacing(4)
+                .align_y(Alignment::Center)
+                .into()
+        } else {
+            body
+        };
         let fg = row_text(ink, st);
         button(
-            row![container(lead).width(18).align_x(Alignment::Center), body]
-                .spacing(8)
-                .align_y(Alignment::Center),
+            row![
+                container(lead)
+                    .width(crate::ui::tokens::glyph(18.0))
+                    .align_x(Alignment::Center),
+                body
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
         )
         .width(Length::Fill)
         .height(if long { ROW_TALL } else { ROW })
@@ -359,6 +399,20 @@ impl App {
             ..Default::default()
         })
         .into()
+    }
+
+    /// Chevron d'une ligne de sous-menu, à la couleur du texte de la ligne
+    /// (rouge si destructive, estompé si indisponible).
+    pub(in crate::ui) fn menu_chevron<'a>(&self, ink: Ink, st: RowState) -> Element<'a, Msg> {
+        let tint = row_text(ink, st);
+        self.icon_named(CHEVRON, crate::ui::tokens::glyph(12.0), tint)
+            .unwrap_or_else(|| {
+                text("›")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(15.0))
+                    .color(tint)
+                    .into()
+            })
     }
 
     /// Lignes d'un menu construit dans le code ; `selected` : entrée choisie
@@ -380,6 +434,7 @@ impl App {
                         clickable: true,
                         danger: it.danger,
                         selected: selected == Some(i),
+                        ..Default::default()
                     };
                     self.menu_row(
                         ink,

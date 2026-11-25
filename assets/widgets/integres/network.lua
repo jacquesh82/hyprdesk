@@ -120,7 +120,7 @@ end
 
 return {
     name        = hd.t("Réseau"),
-    description = hd.t("Connexion filaire et Wi-Fi, réseaux à proximité (NetworkManager)."),
+    description = hd.t("Gérer la connexion filaire et Wi-Fi et les réseaux à proximité (NetworkManager)."),
     interval    = 5,
     anchor      = "top-right",
     options     = { texte = false },

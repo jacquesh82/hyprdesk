@@ -5,9 +5,10 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, row, toggler};
+use iced::widget::{button, column, row};
 use iced::{Alignment, Element, Length, Task};
 
+use super::super::etats::Etat;
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
@@ -199,18 +200,20 @@ impl App {
                 .into();
         };
         let small = |label: &'static str, m: Msg| {
-            button(
-                text(label)
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0)),
+            self.focusable(
+                button(
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .on_press(wrap(m)),
             )
-            .padding([4, 10])
-            .on_press(wrap(m))
         };
         let mut col = column![self.field(
             "Bluetooth",
             "",
-            toggler(on).on_toggle(|v| wrap(Msg::Power(v)))
+            self.focusable(self.toggle(on).on_toggle(|v| wrap(Msg::Power(v))))
         )]
         .spacing(10);
         if let Some(e) = &s.error {
@@ -235,9 +238,9 @@ impl App {
         }
         for d in &s.paired {
             let detail = match (d.connected, d.battery) {
-                (true, Some(b)) => crate::tr!("connecté · batterie {b} %", b = b),
-                (true, None) => crate::i18n::tr("connecté").to_string(),
-                _ => crate::i18n::tr("non connecté").to_string(),
+                (true, Some(b)) => crate::tr!("Connecté · batterie {b} %", b = b),
+                (true, None) => Etat::Connecte.libelle().to_string(),
+                _ => Etat::NonConnecte.libelle().to_string(),
             };
             let confirm = s.confirm.as_deref() == Some(d.mac.as_str());
             col = col.push(
@@ -276,12 +279,14 @@ impl App {
                 self.section("À proximité"),
                 iced::widget::Space::new().width(Length::Fill),
                 if s.scanning {
+                    // Sans message : hors du parcours au clavier (HIG ENT-01).
                     button(
                         text("Recherche (10 s)…")
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0)),
                     )
                     .padding([4, 10])
+                    .into()
                 } else {
                     small("Rechercher", Msg::Scan)
                 },

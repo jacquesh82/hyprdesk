@@ -15,12 +15,34 @@ pub mod modules;
 pub(in crate::ui) mod surface;
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, row, slider, toggler};
+use iced::widget::{Space, button, column, row};
 use iced::{Alignment, Color, Element, Length, Task};
 
-use super::super::panel::PanelMsg;
+use super::super::etats::Etat;
+use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg, SubTab};
+
+/// Valeur affichée du voile au survol du Panorama (HIG SEL-08) : aux bornes,
+/// le sens ; entre les deux, la part de voile gardée.
+fn affiche_voile(n: f64) -> String {
+    match n.round() as u8 {
+        0 => crate::i18n::tr("voile effacé").to_string(),
+        100 => crate::i18n::tr("voile inchangé").to_string(),
+        n => crate::tr!("{n} % du voile", n = n),
+    }
+}
+
+/// Valeur affichée du délai de la veille du Panorama (HIG SEL-08) : « jamais »
+/// ou « 5 min ».
+fn affiche_veille(v: f64) -> String {
+    let minutes = v.round() as u32;
+    if minutes == 0 {
+        crate::i18n::tr("jamais").to_string()
+    } else {
+        format!("{} min", minutes)
+    }
+}
 
 pub const INFO: PluginInfo = PluginInfo {
     id: "panorama",
@@ -40,6 +62,20 @@ pub const TABS: &[SubTab] = &[
 
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Panorama(m)))
+}
+
+/// Valeur du curseur d'intensité du voile, en pour cents.
+fn en_pour_cent(v: f64) -> String {
+    format!("{} %", v.round() as u8)
+}
+
+/// Valeur de la durée du fondu du voile : « instantané » à zéro, sinon des secondes.
+fn en_fondu(v: f64) -> String {
+    if v <= 0.0 {
+        crate::i18n::tr("instantané").to_string()
+    } else {
+        format!("{:.1} s", v / 1000.0)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -115,6 +151,11 @@ pub enum Msg {
     Preset(String),
     DesignText(String, String),
     DesignApply(String),
+    /// Ouvre ou referme le sélecteur de couleur d'un réglage (HIG SEL-02).
+    DesignPickerOpen(String),
+    DesignPicker(crate::ui::color_picker::PickerMsg),
+    DesignPickerApply,
+    DesignPickerCancel,
     /// Choisir le fichier du réglage (image de fond) dans un explorateur.
     DesignBrowse(String),
     DesignBrowsed(String, Option<std::path::PathBuf>),
@@ -222,7 +263,7 @@ impl App {
             );
             let name = s.name.clone();
             let mut line = row![
-                toggler(on)
+                self.toggle(on)
                     .label(label)
                     .text_size(13)
                     .on_toggle(move |v| wrap(Msg::Role(name.clone(), v))),
@@ -314,7 +355,7 @@ impl App {
             );
         }
         preview = preview.push(formats);
-        col = col.push(self.adv(preview));
+        col = col.push(self.adv("Aperçu par format", || preview));
         col.into()
     }
 
@@ -607,10 +648,9 @@ impl App {
         };
         let mut col = column![tabs].spacing(14);
         if view == "video" {
-            col = col.push(self.adv(
-                column![
-                    self.section("Sortie du plein écran"),
-                    toggler(self.panorama_cfg().restore_on_fullscreen_exit)
+            col = col.push(self.adv("Sortie du plein écran",
+                || column![
+                    self.toggle(self.panorama_cfg().restore_on_fullscreen_exit)
                         .label(crate::i18n::tr("Remettre la fenêtre à sa place à la sortie du plein écran"))
                         .font(self.font)
                         .text_size(13)
@@ -635,7 +675,7 @@ impl App {
         let v = self.panorama_cfg().video_dim;
         let mut col = column![
             self.section("Pendant la lecture"),
-            toggler(v.on)
+            self.toggle(v.on)
                 .label(crate::i18n::tr("Assombrir autour de la vidéo"))
                 .font(self.font)
                 .text_size(13)
@@ -649,25 +689,25 @@ impl App {
         if !v.on {
             return col.into();
         }
-        let value = |s: String| text(s).font(self.font).size(crate::ui::tokens::ts(14.0));
-        col = col.push(
-            self.field(
-                "Intensité",
-                "",
-                row![
-                    slider(
-                        crate::panorama::config::VideoDim::LEVELS,
-                        v.level,
-                        |n| wrap(Msg::DimLevel(n))
-                    )
-                    .on_release(wrap(Msg::DimCommit))
-                    .width(260),
-                    value(format!("{} %", v.level)),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
+        col = col.push(self.field(
+            "Intensité",
+            "",
+            self.slider(
+                &SliderSpec::new(
+                    "panorama_dim_level",
+                    (
+                        f64::from(*crate::panorama::config::VideoDim::LEVELS.start()),
+                        f64::from(*crate::panorama::config::VideoDim::LEVELS.end()),
+                    ),
+                    1.0,
+                    |n| wrap(Msg::DimLevel(n.round() as u8)),
+                    wrap(Msg::DimCommit),
+                ),
+                f64::from(v.level),
+                en_pour_cent,
+                SliderLook::fixed(13.0, 260, Alignment::Center),
             ),
-        );
+        ));
         let scope = Some(if v.scope == "background" {
             "background"
         } else {
@@ -697,7 +737,7 @@ impl App {
             ),
         );
         col = col.push(
-            toggler(v.paused)
+            self.toggle(v.paused)
                 .label(crate::i18n::tr(
                     "Garder le voile quand la vidéo est en pause",
                 ))
@@ -705,44 +745,32 @@ impl App {
                 .text_size(13)
                 .on_toggle(|b| wrap(Msg::DimPaused(b))),
         );
-        col.push(self.adv(column![
+        col.push(self.adv("Fondu du voile", || column![
             self.field(
                 "Durée du fondu",
                 "",
-                row![
-                    slider(
-                        0..=crate::panorama::config::VideoDim::FADE_MAX,
-                        v.fade,
-                        |n| { wrap(Msg::DimFade(n)) }
-                    )
-                    .step(100u32)
-                    .on_release(wrap(Msg::DimCommit))
-                    .width(260),
-                    value(if v.fade == 0 {
-                        crate::i18n::tr("instantané").to_string()
-                    } else {
-                        format!("{:.1} s", v.fade as f32 / 1000.0)
-                    }),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
+                self.slider(
+                    &SliderSpec::new(
+                        "panorama_dim_fade",
+                        (0.0, f64::from(crate::panorama::config::VideoDim::FADE_MAX)),
+                        100.0,
+                        |n| wrap(Msg::DimFade(n.round() as u32)),
+                        wrap(Msg::DimCommit),
+                    ),
+                    f64::from(v.fade),
+                    en_fondu,
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
+                ),
             ),
             self.field(
                 "Souris sur le Panorama",
                 "",
-                row![
-                    slider(0..=100u8, v.hover, |n| wrap(Msg::DimHover(n)))
-                        .step(5u8)
-                        .on_release(wrap(Msg::DimCommit))
-                        .width(260),
-                    value(match v.hover {
-                        0 => crate::i18n::tr("voile effacé").to_string(),
-                        100 => crate::i18n::tr("voile inchangé").to_string(),
-                        n => crate::tr!("{n} % du voile", n = n),
-                    }),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
+                self.slider(
+                    &SliderSpec::new("panorama_dim_hover", (0.0, 100.0), 5.0, |n| wrap(Msg::DimHover(n.round() as u8)), wrap(Msg::DimCommit)),
+                    f64::from(v.hover),
+                    affiche_voile,
+                    SliderLook::fixed(13.0, 260, Alignment::Center),
+                ),
             ),
             text("Quand la souris passe sur le Panorama, le voile s'atténue pour qu'on retrouve les commandes ; il revient dès qu'elle part.")
                 .font(self.font)
@@ -772,25 +800,22 @@ impl App {
         let c = self.panorama_cfg();
         let mut col = column![].spacing(10);
         col = col.push(self.section("Veille"));
-        col = col.push(
-            self.field(
-                "Horloge après inactivité",
-                "panorama",
-                row![
-                    slider(0..=30u32, c.sleep_minutes, |v| wrap(Msg::Sleep(v)))
-                        .on_release(wrap(Msg::SleepCommit))
-                        .width(260),
-                    text(if c.sleep_minutes == 0 {
-                        crate::i18n::tr("jamais").to_string()
-                    } else {
-                        format!("{} min", c.sleep_minutes)
-                    })
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0)),
-                ]
-                .spacing(12),
+        col = col.push(self.field(
+            "Horloge après inactivité",
+            "panorama",
+            self.slider(
+                &SliderSpec::new(
+                    "panorama_sleep",
+                    (0.0, 30.0),
+                    1.0,
+                    |v| wrap(Msg::Sleep(v.round() as u32)),
+                    wrap(Msg::SleepCommit),
+                ),
+                f64::from(c.sleep_minutes),
+                affiche_veille,
+                SliderLook::fixed(13.0, 260, Alignment::Start),
             ),
-        );
+        ));
         col = col.push(
             text("Rien ne joue et personne n'a touché l'écran : l'horloge s'affiche, jusqu'au prochain toucher.")
                 .font(self.font)
@@ -946,8 +971,8 @@ impl App {
                 crate::i18n::tr("sans compte")
             } else {
                 match signed {
-                    Some(true) => crate::i18n::tr("connecté"),
-                    Some(false) => crate::i18n::tr("non connecté"),
+                    Some(true) => Etat::Connecte.libelle(),
+                    Some(false) => Etat::NonConnecte.libelle(),
                     None => crate::i18n::tr("compte"),
                 }
             };
@@ -1340,28 +1365,26 @@ impl App {
         let found = crate::panorama::video::browser(&c.browser).map(|(cmd, _)| cmd);
         // La commande du navigateur : avancé (vide : détection automatique) ;
         // le navigateur trouvé, ou son absence, reste dit à tous.
-        col = col.push(
-            self.adv(
-                self.field(
-                    "Navigateur",
-                    "panorama",
-                    iced::widget::text_input(
-                        found
-                            .as_deref()
-                            .unwrap_or("brave, chromium, google-chrome-stable…"),
-                        &self
-                            .panorama
-                            .browser_draft
-                            .clone()
-                            .unwrap_or_else(|| c.browser.clone()),
-                    )
-                    .on_input(|v| wrap(Msg::Browser(v)))
-                    .on_submit(wrap(Msg::BrowserCommit))
-                    .size(crate::ui::tokens::ts(13.0))
-                    .width(320),
-                ),
-            ),
-        );
+        col = col.push(self.adv("Navigateur", || {
+            self.field(
+                "",
+                "panorama",
+                iced::widget::text_input(
+                    found
+                        .as_deref()
+                        .unwrap_or("brave, chromium, google-chrome-stable…"),
+                    &self
+                        .panorama
+                        .browser_draft
+                        .clone()
+                        .unwrap_or_else(|| c.browser.clone()),
+                )
+                .on_input(|v| wrap(Msg::Browser(v)))
+                .on_submit(wrap(Msg::BrowserCommit))
+                .size(crate::ui::tokens::ts(13.0))
+                .width(320),
+            )
+        }));
         col = col.push(
             text(match found {
                 Some(cmd) => crate::tr!(
@@ -1386,6 +1409,10 @@ impl App {
             m @ (Msg::Preset(_)
             | Msg::DesignText(..)
             | Msg::DesignApply(_)
+            | Msg::DesignPickerOpen(_)
+            | Msg::DesignPicker(_)
+            | Msg::DesignPickerApply
+            | Msg::DesignPickerCancel
             | Msg::DesignBrowse(_)
             | Msg::DesignBrowsed(..)
             | Msg::DesignChoice(..)

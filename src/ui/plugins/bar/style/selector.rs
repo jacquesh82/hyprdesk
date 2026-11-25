@@ -36,7 +36,10 @@ pub(super) fn miniatures<'a>(
             // le bord passe à la couleur d'alerte, tant que la bulle vit.
             let notif = app.bar_notif(&ctx.monitor, &w.name);
             let inner_w = ((h - 4.0) * 1.6).round().max(24.0);
-            let inner_h = h - 16.0;
+            // Le nom de l'espace : 10 px au moins (HIG TYP-07), et sa ligne
+            // grandit avec lui ; la minimap prend ce qui reste.
+            let head_h = crate::ui::tokens::ts(10.0) + 2.0;
+            let inner_h = h - 5.0 - head_h;
             // La minimap : les fenêtres de l'espace à leur place (0..1).
             let mut map = stack![];
             for (r, _win) in app.overview_windows(&w.name) {
@@ -78,7 +81,7 @@ pub(super) fn miniatures<'a>(
             // Le nom de l'espace au-dessus, la minimap en dessous.
             let head = text(w.name.clone())
                 .font(app.font)
-                .size(crate::ui::tokens::ts(9.0))
+                .size(crate::ui::tokens::ts(10.0))
                 .color(if active { accent } else { dim });
             let chip = motion::press(
                 iced::widget::button(
@@ -87,7 +90,7 @@ pub(super) fn miniatures<'a>(
                             container(head)
                                 .width(Length::Fixed(inner_w))
                                 .center_x(Length::Fill)
-                                .height(11.0),
+                                .height(head_h),
                             container(map)
                                 .width(Length::Fixed(inner_w))
                                 .height(Length::Fill),

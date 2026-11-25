@@ -11,6 +11,9 @@ pub struct Resolved {
     pub label: String,
     pub image: Option<PathBuf>,
     pub command: String,
+    /// Extension posée sur l'image quand celle-ci est l'icône de
+    /// l'application par défaut d'un fichier (HIG ICO-11).
+    pub badge: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -209,6 +212,10 @@ pub fn executable(prog: &str) -> bool {
 /// détaché du lanceur (`xdg-open`). Utilisé par le mode `:f` de la
 /// recherche.
 pub fn open_path(p: &std::path::Path) -> Result<(), String> {
+    spawn_xdg_open(p).map(|_| ())
+}
+
+fn spawn_xdg_open(p: &std::path::Path) -> Result<std::process::Child, String> {
     use std::process::{Command, Stdio};
     Command::new("xdg-open")
         .arg(p)
@@ -216,8 +223,49 @@ pub fn open_path(p: &std::path::Path) -> Result<(), String> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map(|_| ())
         .map_err(|e| format!("xdg-open {p:?} : {e}"))
+}
+
+/// Comme [`open_path`], mais lit le code de sortie de `xdg-open` (HIG
+/// DAT-03) : il rend la main vite quand il délègue (gio, kde-open) ; en
+/// environnement générique il attend parfois l'application. Au plus 1,5 s,
+/// puis succès présumé, et un fil récupère le processus à sa fin. À appeler
+/// hors du fil de l'interface.
+pub fn open_path_checked(p: &std::path::Path) -> Result<(), String> {
+    use std::time::{Duration, Instant};
+    let mut child = spawn_xdg_open(p)?;
+    let fin = Instant::now() + Duration::from_millis(1500);
+    loop {
+        match child.try_wait() {
+            Ok(Some(st)) => {
+                return match st.code().and_then(xdg_open_error) {
+                    Some(e) => Err(format!("{} : {e}", p.display())),
+                    None => Ok(()),
+                };
+            }
+            Ok(None) if Instant::now() < fin => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+                return Ok(());
+            }
+        }
+    }
+}
+
+/// Cause d'un code de sortie de `xdg-open` (0 : aucune).
+pub fn xdg_open_error(code: i32) -> Option<String> {
+    use crate::i18n::tr;
+    Some(match code {
+        0 => return None,
+        1 => tr("erreur dans la commande d'ouverture").to_string(),
+        2 => tr("fichier introuvable").to_string(),
+        3 => tr("aucune application pour ce type de fichier").to_string(),
+        4 => tr("l'ouverture a échoué").to_string(),
+        5 => tr("lecture refusée").to_string(),
+        c => crate::tr!("xdg-open a rendu le code {c}", c = c),
+    })
 }
 
 /// Premier mot d'une ligne Exec (guillemets compris), après `env VAR=…`.
@@ -529,6 +577,190 @@ pub fn path_icon_name(p: &Path) -> &'static str {
     }
 }
 
+/// Base MIME freedesktop (shared-mime-info), réduite à ce que le bureau en
+/// emploie : type d'après l'extension (`globs2`) et icône générique d'un type
+/// (`generic-icons`). HIG ICO-11.
+#[derive(Debug, Default)]
+pub struct MimeDb {
+    /// Extension en minuscules (`tar.gz`, `zip`) → (poids, type).
+    globs: std::collections::HashMap<String, (u32, String)>,
+    /// Motifs à casse respectée (drapeau `cs` : `*.C` est du C++, `*.c` du C).
+    globs_cs: std::collections::HashMap<String, (u32, String)>,
+    /// Type → icône générique (`application/zip` → `package-x-generic`).
+    generic: std::collections::HashMap<String, String>,
+}
+
+impl MimeDb {
+    /// Lit `globs2` et `generic-icons` dans les dossiers donnés, le plus
+    /// prioritaire d'abord : à poids égal, le premier lu l'emporte.
+    pub fn read(dirs: &[PathBuf]) -> Self {
+        let mut db = Self::default();
+        for dir in dirs {
+            if let Ok(src) = std::fs::read_to_string(dir.join("globs2")) {
+                db.add_globs(&src);
+            }
+            if let Ok(src) = std::fs::read_to_string(dir.join("generic-icons")) {
+                db.add_generic(&src);
+            }
+        }
+        db
+    }
+
+    /// Lignes `poids:type:motif[:drapeaux]` ; seuls les motifs `*.ext` sans
+    /// autre joker servent. La casse est ignorée, sauf drapeau `cs`.
+    fn add_globs(&mut self, src: &str) {
+        for line in src.lines().filter(|l| !l.starts_with('#')) {
+            let mut f = line.split(':');
+            let (Some(w), Some(mime), Some(glob)) = (f.next(), f.next(), f.next()) else {
+                continue;
+            };
+            let cs = f
+                .next()
+                .is_some_and(|flags| flags.split(',').any(|x| x == "cs"));
+            let (Ok(w), Some(ext)) = (w.trim().parse::<u32>(), glob.strip_prefix("*.")) else {
+                continue;
+            };
+            if ext.is_empty() || ext.contains(['*', '?', '[']) {
+                continue;
+            }
+            let (map, ext) = if cs {
+                (&mut self.globs_cs, ext.to_string())
+            } else {
+                (&mut self.globs, ext.to_lowercase())
+            };
+            match map.get(&ext) {
+                Some((old, _)) if *old >= w => {}
+                _ => {
+                    map.insert(ext, (w, mime.to_string()));
+                }
+            }
+        }
+    }
+
+    fn add_generic(&mut self, src: &str) {
+        for line in src.lines().filter(|l| !l.starts_with('#')) {
+            if let Some((mime, icon)) = line.split_once(':') {
+                self.generic
+                    .entry(mime.trim().to_string())
+                    .or_insert_with(|| icon.trim().to_string());
+            }
+        }
+    }
+
+    /// Type d'un fichier d'après son nom : l'extension composée la plus
+    /// longue d'abord (`.tar.gz` avant `.gz`).
+    pub fn type_of(&self, path: &Path) -> Option<&str> {
+        let name = path.file_name()?.to_str()?;
+        let lower = name.to_lowercase();
+        // `to_lowercase` garde les positions des points pour un nom ASCII ;
+        // ailleurs, la casse respectée est seulement sautée.
+        let same = lower.len() == name.len();
+        lower
+            .match_indices('.')
+            .filter(|(i, _)| *i > 0)
+            .find_map(|(i, _)| {
+                same.then(|| self.globs_cs.get(&name[i + 1..]))
+                    .flatten()
+                    .or_else(|| self.globs.get(&lower[i + 1..]))
+            })
+            .map(|(_, m)| m.as_str())
+    }
+
+    /// Noms d'icône d'un type, dans l'ordre freedesktop : le type lui-même,
+    /// son icône générique, puis `<média>-x-generic`.
+    pub fn icon_names(&self, mime: &str) -> Vec<String> {
+        let mut out = vec![mime.replace('/', "-")];
+        if let Some(g) = self.generic.get(mime) {
+            out.push(g.clone());
+        }
+        if let Some((media, _)) = mime.split_once('/') {
+            out.push(format!("{media}-x-generic"));
+        }
+        let mut seen = std::collections::HashSet::new();
+        out.retain(|n| seen.insert(n.clone()));
+        out
+    }
+}
+
+/// Base MIME du système, lue une fois.
+fn mime_db() -> &'static MimeDb {
+    static DB: std::sync::OnceLock<MimeDb> = std::sync::OnceLock::new();
+    DB.get_or_init(|| {
+        let dirs: Vec<PathBuf> = data_dirs().into_iter().map(|d| d.join("mime")).collect();
+        MimeDb::read(&dirs)
+    })
+}
+
+/// Nom d'icône de l'application qui ouvre `mime` par défaut (`xdg-mime`,
+/// puis l'`Icon` de son `.desktop`). `xdg-mime` est un script : la réponse
+/// est gardée par type pour la durée du démon. À appeler hors du fil UI.
+fn default_app_icon(mime: &str) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(v) = cache.lock().ok().and_then(|c| c.get(mime).cloned()) {
+        return v;
+    }
+    let icon = std::process::Command::new("xdg-mime")
+        .args(["query", "default", mime])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|id| !id.is_empty())
+        .and_then(|id| find_desktop_file(id.trim_end_matches(".desktop")))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| parse_desktop_entry(&s, &lang()))
+        .and_then(|e| e.icon);
+    if let Ok(mut c) = cache.lock() {
+        c.insert(mime.to_string(), icon.clone());
+    }
+    icon
+}
+
+/// Extension d'un fichier telle qu'elle se pose sur l'icône de l'application
+/// par défaut : majuscules, quatre caractères au plus (HIG ICO-11).
+pub fn extension_badge(p: &Path) -> Option<String> {
+    let ext = p.extension()?.to_str()?;
+    let badge: String = ext.chars().take(4).collect::<String>().to_uppercase();
+    (!badge.is_empty()).then_some(badge)
+}
+
+/// Image d'un fichier ou d'un dossier du bureau, et l'extension à poser
+/// dessus quand l'image est celle de l'application par défaut (HIG ICO-11) :
+/// icône du type dans le thème, sinon icône de l'application qui l'ouvre,
+/// sinon `text-x-generic`.
+fn path_image(p: &Path, theme: Option<&str>, size: u16) -> (Option<PathBuf>, Option<String>) {
+    let find = |n: &str| lookup_icon(n, theme, size);
+    let known = path_icon_name(p);
+    // Dossiers, et icônes que SmartUI dessine d'après `path_icon_name` :
+    // inchangés.
+    if matches!(known, "user-home" | "folder") || crate::smartui::themed(known).is_some() {
+        return (find(known).or_else(|| find("folder")), None);
+    }
+    let db = mime_db();
+    if let Some(mime) = db.type_of(p) {
+        let mut names = db.icon_names(mime);
+        if known != "text-x-generic" && !names.iter().any(|n| n == known) {
+            names.push(known.to_string());
+        }
+        if let Some(img) = names.iter().find_map(|n| find(n)) {
+            return (Some(img), None);
+        }
+        if let Some(img) = default_app_icon(mime).and_then(|n| find(&n)) {
+            return (Some(img), extension_badge(p));
+        }
+    }
+    (
+        find(known)
+            .or_else(|| find("text-x-generic"))
+            .or_else(|| find("folder")),
+        None,
+    )
+}
+
 /// Résout une icône déclarée : libellé, image et commande. Les fichiers sont
 /// lus ici : à appeler hors du thread UI.
 pub fn resolve(def: &IconDef, theme: Option<&str>, size: u16, terminal: &str) -> Resolved {
@@ -554,6 +786,7 @@ pub fn resolve(def: &IconDef, theme: Option<&str>, size: u16, terminal: &str) ->
                         } else {
                             cmd
                         },
+                        badge: None,
                     }
                 }
                 // Application introuvable : on tente quand même l'identifiant comme commande.
@@ -564,18 +797,27 @@ pub fn resolve(def: &IconDef, theme: Option<&str>, size: u16, terminal: &str) ->
                         "application-x-executable",
                     ]),
                     command: id.clone(),
+                    badge: None,
                 },
             }
         }
-        IconKind::Path(p) => Resolved {
-            label: def.label.clone().unwrap_or_else(|| {
-                p.file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| p.display().to_string())
-            }),
-            image: find(&[def.icon.as_deref().unwrap_or(path_icon_name(p)), "folder"]),
-            command: format!("xdg-open {}", sh_quote(&p.display().to_string())),
-        },
+        IconKind::Path(p) => {
+            // Icône explicite d'abord ; sinon celle du type (HIG ICO-11).
+            let (image, badge) = match def.icon.as_deref() {
+                Some(icon) => (find(&[icon, "folder"]), None),
+                None => path_image(p, theme, size),
+            };
+            Resolved {
+                label: def.label.clone().unwrap_or_else(|| {
+                    p.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| p.display().to_string())
+                }),
+                image,
+                command: format!("xdg-open {}", sh_quote(&p.display().to_string())),
+                badge,
+            }
+        }
         IconKind::Exec {
             cmd,
             terminal: in_term,
@@ -593,6 +835,7 @@ pub fn resolve(def: &IconDef, theme: Option<&str>, size: u16, terminal: &str) ->
             } else {
                 cmd.clone()
             },
+            badge: None,
         },
     }
 }
@@ -600,6 +843,17 @@ pub fn resolve(def: &IconDef, theme: Option<&str>, size: u16, terminal: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Codes de sortie de `xdg-open` : 0 n'est pas une erreur, les autres
+    /// sont nommés (HIG DAT-03).
+    #[test]
+    fn codes_xdg_open() {
+        assert_eq!(xdg_open_error(0), None);
+        for c in 1..=5 {
+            assert!(xdg_open_error(c).is_some_and(|e| !e.contains("code")));
+        }
+        assert!(xdg_open_error(9).is_some_and(|e| e.contains('9')));
+    }
 
     const FIREFOX: &str = "[Desktop Entry]\nName=Firefox\nName[fr]=Navigateur Firefox\nExec=/usr/lib/firefox/firefox %u\nIcon=firefox\nType=Application\n\n[Desktop Action new-window]\nName=New Window\nExec=firefox --new-window %u\n";
 
@@ -616,6 +870,60 @@ mod tests {
             parse_desktop_entry(FIREFOX, "en_US.UTF-8").unwrap().name,
             "Firefox"
         );
+    }
+
+    /// HIG ICO-11 : le type d'un fichier se lit dans `globs2` (poids, casse,
+    /// extension composée) et donne ses noms d'icône dans l'ordre freedesktop.
+    #[test]
+    fn type_et_icones_d_un_fichier() {
+        let mut db = MimeDb::default();
+        db.add_globs(
+            "# commentaire\n50:application/gzip:*.gz\n50:application/x-compressed-tar:*.tar.gz\n\
+             50:text/x-csrc:*.c\n10:text/x-c:*.c\n50:application/x-zip:*.ZIP\n\
+             50:text/x-makefile:Makefile\n60:text/x-readme:README*\n\
+             50:text/x-c++src:*.C:cs\n",
+        );
+        db.add_generic("application/x-zip:package-x-generic\n");
+        let t = |n: &str| db.type_of(Path::new(n)).map(str::to_string);
+        assert_eq!(
+            t("/a/b.tar.gz").as_deref(),
+            Some("application/x-compressed-tar")
+        );
+        assert_eq!(t("/a/b.gz").as_deref(), Some("application/gzip"));
+        assert_eq!(
+            t("/a/b.c").as_deref(),
+            Some("text/x-csrc"),
+            "poids le plus fort"
+        );
+        assert_eq!(
+            t("/a/B.Zip").as_deref(),
+            Some("application/x-zip"),
+            "casse ignorée"
+        );
+        assert_eq!(t("/a/Makefile"), None, "motifs sans extension ignorés");
+        assert_eq!(t("/a/b.C").as_deref(), Some("text/x-c++src"), "drapeau cs");
+        assert_eq!(t("/a/.gz"), None, "fichier caché sans extension");
+        assert_eq!(
+            db.icon_names("application/x-zip"),
+            [
+                "application-x-zip",
+                "package-x-generic",
+                "application-x-generic"
+            ]
+        );
+        assert_eq!(
+            db.icon_names("text/x-csrc"),
+            ["text-x-csrc", "text-x-generic"]
+        );
+        assert_eq!(
+            extension_badge(Path::new("/a/notes.md")).as_deref(),
+            Some("MD")
+        );
+        assert_eq!(
+            extension_badge(Path::new("/a/x.markdown")).as_deref(),
+            Some("MARK")
+        );
+        assert_eq!(extension_badge(Path::new("/a/Makefile")), None);
     }
 
     #[test]

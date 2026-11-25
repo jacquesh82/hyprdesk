@@ -35,7 +35,7 @@
 ---@field shortcuts? { name: string, icon: string, command: string }[]
 
 ---@class HD.ConfigSpec
----@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, search_desktop?: string|false, overview?: string|false, take?: string[]|false, media?: boolean }
+---@field keys? { toggle?: string|false, launcher?: string|false, hide?: string|false, settings?: string|false, lock?: string|false, leave?: string|false, switch?: string|false, search?: string|false, search_desktop?: string|false, overview?: string|false, focus_bar?: string|false, focus_dock?: string|false, focus_notifications?: string|false, focus_settings?: string|false, force_quit?: string|false, keyboard_access?: string|false, take?: string[]|false, media?: boolean }
 ---@field suspend_binds? boolean # desktop shown: suspend Hyprland's shortcuts
 ---@field clipboard_history? boolean # clipboard history: hyprdesk runs cliphist (":clip" in search)
 ---@field plugin_options? table<string, table<string, boolean|number|string>> # plugin options (Settings → Plugins → Configure), for every instance except options written on the instance
@@ -69,6 +69,7 @@
 ---@field icon_scope? "global"|"screen"|"workspace"
 ---@field workspace_selector? "relief"|"rail"|"thumbnails"|"icons" # style du sélecteur de workspaces dans la barre
 ---@field icon_double_click? boolean
+---@field keyboard_access? boolean # full keyboard access: Tab reaches every control in Settings (default: true; keys.keyboard_access, CTRL + F1, toggles it)
 ---@field icon_theme? string
 ---@field font? string # "Mindlog" by default (embedded), or an installed family
 ---@field font_size? number

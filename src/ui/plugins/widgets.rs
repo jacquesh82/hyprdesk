@@ -3,10 +3,11 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, row, slider, toggler};
+use iced::widget::{Space, button, column, row};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
-use super::super::panel::{Panel, PanelMsg};
+use super::super::etats::Etat;
+use super::super::panel::{Panel, PanelMsg, SliderLook, SliderSpec};
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
 use crate::config::resolve::resolve;
@@ -29,12 +30,28 @@ pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Widgets(m)))
 }
 
+/// Valeur d'un décalage de widget, en pixels signés.
+fn en_px_signes(v: f64) -> String {
+    format!("{v:+.0} px")
+}
+
+/// Valeur de la taille du texte d'un widget : « auto » tant qu'elle n'est pas fixée.
+fn en_taille(v: f64) -> String {
+    if v <= 0.0 {
+        "auto".to_string()
+    } else {
+        format!("{v:.0} px")
+    }
+}
+
 /// État propre à ce paquet, porté par le tiroir des réglages.
 #[derive(Default)]
 pub struct State {
     pub widget_sel: Option<String>,
     /// Widget dont la suppression attend confirmation.
     pub pending_delete: Option<String>,
+    /// Astuce de la page (HIG DAT-07), choisie à son ouverture.
+    pub tip: Option<&'static crate::tips::Tip>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +61,8 @@ pub enum Msg {
     RescanWidgets,
     OpenWidgetDir,
     SelectWidget(String),
+    /// Ferme l'astuce de la page (HIG DAT-07).
+    TipClose,
     WidgetAnchor(Anchor),
     WidgetX(f32),
     WidgetY(f32),
@@ -52,12 +71,136 @@ pub enum Msg {
     /// Écran du widget, et que faire s'il est débranché.
     WidgetScreen(crate::config::WidgetScreen),
     WidgetIfMissing(crate::config::IfMissing),
+    /// Taille du widget : couches d'information (HIG SYS-15).
+    WidgetFamily(crate::config::WidgetFamily),
     WidgetReset,
     /// Supprime un widget placé dans les réglages (premier appui : arme ; second : confirme).
     DeleteWidget(String),
 }
 
+/// Vignette d'aperçu d'une rangée du catalogue, en pixels (HIG SYS-11).
+const PREVIEW: (f32, f32) = (112.0, 56.0);
+
+/// Sorte d'aperçu d'un type du catalogue : données simulées pour les
+/// widgets intégrés, forme provisoire pour les autres (HIG SYS-11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Preview {
+    Clock,
+    Calendar,
+    System,
+    Media,
+    Controls,
+    Launcher,
+    Placeholder,
+}
+
+fn preview_of(type_id: &str) -> Preview {
+    match type_id {
+        "clock" => Preview::Clock,
+        "calendar" => Preview::Calendar,
+        "system" => Preview::System,
+        "media" => Preview::Media,
+        "controls" => Preview::Controls,
+        "launcher" => Preview::Launcher,
+        _ => Preview::Placeholder,
+    }
+}
+
 impl App {
+    /// Aperçu d'un widget du catalogue, rien d'actionnable, sans accent : ce
+    /// qu'il montrera, en données simulées réalistes, ou une forme provisoire
+    /// quand son rendu n'est pas connu sans l'exécuter (HIG SYS-11).
+    fn catalog_preview(&self, type_id: &str) -> Element<'_, UiMsg> {
+        use iced::widget::{container, progress_bar};
+        let fg = color(self.cfg.general.theme.fg, 1.0);
+        let dim = self.ink().dim;
+        let faint = Color { a: 0.18, ..fg };
+        // La vignette grandit avec le texte (HIG TYP-08), jusqu'à une fois et
+        // demie : la description garde sa place dans un tiroir étroit.
+        let grow = crate::ui::tokens::text_growth().min(1.5);
+        let line = |width: f32| -> Element<'_, UiMsg> {
+            container(Space::new().width(width).height(6))
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(faint.into()),
+                    border: Border::default().rounded(3),
+                    ..Default::default()
+                })
+                .into()
+        };
+        let small = |s: String, c: Color| {
+            text(s)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(11.0))
+                .color(c)
+        };
+        // Pastille ronde (réglages rapides) ou icône d'application (lanceur).
+        let tile = move |radius: f32| {
+            container(Space::new().width(18).height(18)).style(move |_| {
+                iced::widget::container::Style {
+                    background: Some(faint.into()),
+                    border: Border::default().rounded(radius),
+                    ..Default::default()
+                }
+            })
+        };
+        let body: Element<'_, UiMsg> = match preview_of(type_id) {
+            Preview::Clock => text(super::super::format_now("%H:%M"))
+                .font(self.numeric_font(iced::font::Weight::Light))
+                .size(crate::ui::tokens::ts_metric(24.0))
+                .color(fg)
+                .into(),
+            Preview::Calendar => column![
+                small(super::super::format_now("%A"), dim),
+                text(super::super::format_now("%-d"))
+                    .font(self.numeric_font(iced::font::Weight::Light))
+                    .size(crate::ui::tokens::ts_metric(24.0))
+                    .color(fg),
+            ]
+            .align_x(Alignment::Center)
+            .into(),
+            Preview::System => {
+                let gauge = |label: &'static str, r: f32| {
+                    row![
+                        small(crate::i18n::tr(label).to_string(), dim).width(30.0 * grow),
+                        progress_bar(0.0..=1.0, r)
+                            .girth(4)
+                            .length(Length::Fixed(56.0))
+                            .style(move |_| progress_bar::Style {
+                                background: faint.into(),
+                                bar: fg.into(),
+                                border: Border::default().rounded(2),
+                            }),
+                    ]
+                    .spacing(4)
+                    .align_y(Alignment::Center)
+                };
+                column![gauge("CPU", 0.12), gauge("RAM", 0.26)]
+                    .spacing(6)
+                    .into()
+            }
+            Preview::Media => column![
+                small(crate::i18n::tr("Titre du morceau").to_string(), fg),
+                small(crate::i18n::tr("Artiste").to_string(), dim),
+            ]
+            .spacing(2)
+            .into(),
+            Preview::Controls => row![tile(9.0), tile(9.0), tile(9.0)].spacing(8).into(),
+            Preview::Launcher => row![tile(5.0), tile(5.0), tile(5.0), tile(5.0)]
+                .spacing(4)
+                .into(),
+            Preview::Placeholder => column![line(64.0), line(40.0)].spacing(6).into(),
+        };
+        container(body)
+            .center_x(PREVIEW.0 * grow)
+            .center_y(PREVIEW.1 * grow)
+            .style(move |_| iced::widget::container::Style {
+                background: Some(Color { a: 0.06, ..fg }.into()),
+                border: Border::default().rounded(super::super::design::SMALL_RADIUS),
+                ..Default::default()
+            })
+            .into()
+    }
+
     pub(in crate::ui) fn tab_widgets<'a>(&'a self, p: &'a Panel) -> Element<'a, UiMsg> {
         let g = &self.cfg.general;
         let fg = color(g.theme.fg, 1.0);
@@ -88,7 +231,7 @@ impl App {
                 .count();
             let disabled = self.cfg.disabled.values().filter(|ty| *ty == &t.id).count();
             let source = match &t.source {
-                WidgetSource::Builtin => crate::i18n::tr("intégré").to_string(),
+                WidgetSource::Builtin => Etat::Integre.libelle().to_string(),
                 WidgetSource::Bundled => crate::i18n::tr("plugin livré").to_string(),
                 WidgetSource::Plugin(path) => format!(
                     "plugin · {}",
@@ -157,13 +300,19 @@ impl App {
             let actionable = t.error.is_none() && (t.toggleable || active || disabled > 0);
             let control: Element<'_, UiMsg> = if actionable {
                 let id = t.id.clone();
-                toggler(active)
-                    .on_toggle(move |on| wrap(Msg::WidgetToggle(id.clone(), on)))
-                    .into()
+                self.focusable(
+                    self.toggle(active)
+                        .named(&t.name)
+                        .on_toggle(move |on| wrap(Msg::WidgetToggle(id.clone(), on))),
+                )
             } else {
-                toggler(active).into()
+                self.toggle(active).named(&t.name).into()
             };
-            catalog = catalog.push(row![info, control].spacing(12).align_y(Alignment::Center));
+            catalog = catalog.push(
+                row![self.catalog_preview(&t.id), info, control]
+                    .spacing(12)
+                    .align_y(Alignment::Center),
+            );
         }
 
         // -- Widgets de ce bureau ---------------------------------------------
@@ -212,34 +361,36 @@ impl App {
             };
             active = active.push(
                 row![
-                    button(
-                        row![
-                            text(name)
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(14.0))
-                                .width(Length::Fill),
-                            text(format!("{label} · {from}"))
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(12.0))
-                                .color(dim)
-                        ]
-                        .spacing(8),
-                    )
-                    .width(Length::Fill)
-                    .padding([6, 10])
-                    .on_press(wrap(Msg::SelectWidget(w.id.clone())))
-                    .style(move |_, s| button::Style {
-                        background: if selected {
-                            Some(Background::Color(Color { a: 0.3, ..accent }))
-                        } else if matches!(s, button::Status::Hovered) {
-                            Some(Background::Color(Color { a: 0.08, ..fg }))
-                        } else {
-                            None
-                        },
-                        text_color: fg,
-                        border: Border::default().rounded(6),
-                        ..Default::default()
-                    }),
+                    self.focusable(
+                        button(
+                            row![
+                                text(name)
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(13.0))
+                                    .width(Length::Fill),
+                                text(format!("{label} · {from}"))
+                                    .font(self.font)
+                                    .size(crate::ui::tokens::ts(12.0))
+                                    .color(dim)
+                            ]
+                            .spacing(8),
+                        )
+                        .width(Length::Fill)
+                        .padding([6, 10])
+                        .on_press(wrap(Msg::SelectWidget(w.id.clone())))
+                        .style(move |_, s| button::Style {
+                            background: if selected {
+                                Some(Background::Color(Color { a: 0.3, ..accent }))
+                            } else if matches!(s, button::Status::Hovered) {
+                                Some(Background::Color(Color { a: 0.08, ..fg }))
+                            } else {
+                                None
+                            },
+                            text_color: fg,
+                            border: Border::default().rounded(6),
+                            ..Default::default()
+                        })
+                    ),
                     delete,
                 ]
                 .spacing(4)
@@ -258,20 +409,22 @@ impl App {
                 let accent = color(g.theme.accent, 1.0);
                 let cell = |a: Anchor| {
                     let on = pl.anchor == a;
-                    button(Space::new().width(26).height(18))
-                        .padding(0)
-                        .on_press(wrap(Msg::WidgetAnchor(a)))
-                        .style(move |_, s| button::Style {
-                            background: Some(Background::Color(if on {
-                                accent
-                            } else if matches!(s, button::Status::Hovered) {
-                                Color { a: 0.35, ..fg }
-                            } else {
-                                Color { a: 0.12, ..fg }
-                            })),
-                            border: Border::default().rounded(4),
-                            ..Default::default()
-                        })
+                    self.focusable(
+                        button(Space::new().width(26).height(18))
+                            .padding(0)
+                            .on_press(wrap(Msg::WidgetAnchor(a)))
+                            .style(move |_, s| button::Style {
+                                background: Some(Background::Color(if on {
+                                    accent
+                                } else if matches!(s, button::Status::Hovered) {
+                                    Color { a: 0.35, ..fg }
+                                } else {
+                                    Color { a: 0.12, ..fg }
+                                })),
+                                border: Border::default().rounded(4),
+                                ..Default::default()
+                            }),
+                    )
                 };
                 let grid = column![
                     row![
@@ -302,76 +455,109 @@ impl App {
                 let mut c = column![
                     text(crate::tr!("Placement de « {id} »", id = id))
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(14.0))
+                        .size(crate::ui::tokens::ts(13.0))
                         .color(fg),
                     self.field("Ancrage", "", grid),
                     self.field(
                         "Décalage horizontal",
                         "",
-                        row![
-                            slider(-800.0..=800.0f32, pl.x.clamp(-800.0, 800.0), |v| {
-                                wrap(Msg::WidgetX(v))
-                            })
-                            .step(2.0f32)
-                            .on_release(UiMsg::Panel(PanelMsg::Commit))
-                            .width(300),
-                            text(format!("{:+.0} px", pl.x))
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12),
+                        self.slider(
+                            &SliderSpec::new(
+                                "widget_x",
+                                (-800.0, 800.0),
+                                2.0,
+                                |v| wrap(Msg::WidgetX(v as f32)),
+                                UiMsg::Panel(PanelMsg::Commit),
+                            ),
+                            f64::from(pl.x.clamp(-800.0, 800.0)),
+                            en_px_signes,
+                            SliderLook::fixed(13.0, 300, Alignment::Start),
+                        ),
                     ),
                     self.field(
                         "Décalage vertical",
                         "",
-                        row![
-                            slider(-800.0..=800.0f32, pl.y.clamp(-800.0, 800.0), |v| {
-                                wrap(Msg::WidgetY(v))
-                            })
-                            .step(2.0f32)
-                            .on_release(UiMsg::Panel(PanelMsg::Commit))
-                            .width(300),
-                            text(format!("{:+.0} px", pl.y))
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12),
+                        self.slider(
+                            &SliderSpec::new(
+                                "widget_y",
+                                (-800.0, 800.0),
+                                2.0,
+                                |v| wrap(Msg::WidgetY(v as f32)),
+                                UiMsg::Panel(PanelMsg::Commit),
+                            ),
+                            f64::from(pl.y.clamp(-800.0, 800.0)),
+                            en_px_signes,
+                            SliderLook::fixed(13.0, 300, Alignment::Start),
+                        ),
                     ),
                     self.field(
                         "Taille du texte",
                         "",
-                        row![
-                            slider(0.0..=160.0f32, pl.size.clamp(0.0, 160.0), |v| wrap(
-                                Msg::WidgetSize(v)
-                            ))
-                            .step(1.0f32)
-                            .on_release(UiMsg::Panel(PanelMsg::Commit))
-                            .width(300),
-                            text(if pl.size <= 0.0 {
-                                "auto".to_string()
-                            } else {
-                                format!("{:.0} px", pl.size)
-                            })
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0)),
-                        ]
-                        .spacing(12),
+                        self.slider(
+                            &SliderSpec::new(
+                                "widget_size",
+                                (0.0, 160.0),
+                                1.0,
+                                |v| wrap(Msg::WidgetSize(v as f32)),
+                                UiMsg::Panel(PanelMsg::Commit),
+                            ),
+                            f64::from(pl.size.clamp(0.0, 160.0)),
+                            en_taille,
+                            SliderLook::fixed(13.0, 300, Alignment::Start),
+                        ),
                     ),
                     self.field(
                         "Fond en carte",
                         "",
-                        toggler(pl.card).on_toggle(|v| wrap(Msg::WidgetCard(v)))
+                        self.focusable(
+                            self.toggle(pl.card).on_toggle(|v| wrap(Msg::WidgetCard(v)))
+                        )
                     ),
                     self.widget_screen_field(&pl),
-                    button(
-                        text("Réinitialiser la position")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(13.0))
-                    )
-                    .padding([6, 12])
-                    .on_press(wrap(Msg::WidgetReset)),
+                    self.focusable(
+                        button(
+                            text("Réinitialiser la position")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(13.0))
+                        )
+                        .padding([6, 12])
+                        .on_press(wrap(Msg::WidgetReset))
+                    ),
                 ]
                 .spacing(12);
+                // Taille du widget, pour ceux qui en ont plusieurs (HIG SYS-15).
+                let sized = self
+                    .cfg
+                    .widgets
+                    .iter()
+                    .find(|w| w.id == id)
+                    .is_some_and(|w| w.kind.has_family());
+                if sized {
+                    use crate::config::WidgetFamily as F;
+                    let choice = |label: &'static str, v: F| {
+                        self.focusable(
+                            iced::widget::radio(crate::i18n::tr(label), v, Some(pl.family), |v| {
+                                wrap(Msg::WidgetFamily(v))
+                            })
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(14.0)),
+                        )
+                    };
+                    c = c.push(
+                        self.field(
+                            "Taille du widget",
+                            "",
+                            row![
+                                choice("Petit", F::Small),
+                                choice("Moyen", F::Medium),
+                                choice("Grand", F::Large),
+                                choice("Très grand", F::XLarge),
+                            ]
+                            .spacing(16)
+                            .wrap(),
+                        ),
+                    );
+                }
                 if user_widget {
                     c = c.push(text("Widget de hyprdesk.lua : sa position est enregistrée dans les réglages (hd.place), votre fichier n'est pas modifié.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim));
                 }
@@ -379,37 +565,40 @@ impl App {
             }
         };
 
+        // Astuce de la page (HIG DAT-07) : le glisser d'un widget sur le
+        // bureau, à la cadence des astuces, plus une ligne figée.
+        let tip = p
+            .widgets
+            .tip
+            .map(|tip| crate::ui::search::tip_row(self, tip, fg, dim, wrap(Msg::TipClose)));
         if self.on_subtab(INFO.id, "bureau") {
-            return column![
-                self.section("Sur ce bureau"),
-                text("Astuce : réglages ouverts, glissez un widget directement sur le bureau.")
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim),
-                active,
-                editor,
-            ]
-            .spacing(14)
-            .into();
+            return column![self.section("Sur ce bureau"), tip, active, editor,]
+                .spacing(14)
+                .into();
         }
         column![
             self.section("Widgets disponibles"),
+            tip,
             catalog,
             row![
-                button(
-                    text("Rechercher de nouveaux widgets")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 12])
-                .on_press(wrap(Msg::RescanWidgets)),
-                button(
-                    text("Ouvrir le dossier des plugins")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                )
-                .padding([6, 12])
-                .on_press(wrap(Msg::OpenWidgetDir)),
+                self.focusable(
+                    button(
+                        text("Rechercher de nouveaux widgets")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(Msg::RescanWidgets))
+                ),
+                self.focusable(
+                    button(
+                        text("Ouvrir le dossier des plugins")
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    )
+                    .padding([6, 12])
+                    .on_press(wrap(Msg::OpenWidgetDir))
+                ),
             ]
             .spacing(8),
             text(crate::tr!(
@@ -455,19 +644,25 @@ impl App {
         }
         let selected = choices.iter().find(|c| c.0 == pl.screen).cloned();
         let mut col = column![
-            iced::widget::pick_list(choices, selected, |c: Choice| wrap(Msg::WidgetScreen(c.0)))
+            self.choosable(
+                iced::widget::pick_list(choices, selected, |c: Choice| wrap(Msg::WidgetScreen(
+                    c.0
+                )))
                 .font(self.font)
                 .text_size(13)
                 .width(260)
+            )
         ]
         .spacing(8);
         if matches!(pl.screen, WidgetScreen::Named(_)) {
             let missing = |label: &'static str, v: IfMissing| {
-                iced::widget::radio(crate::i18n::tr(label), v, Some(pl.if_missing), |v| {
-                    wrap(Msg::WidgetIfMissing(v))
-                })
-                .font(self.font)
-                .size(crate::ui::tokens::ts(14.0))
+                self.focusable(
+                    iced::widget::radio(crate::i18n::tr(label), v, Some(pl.if_missing), |v| {
+                        wrap(Msg::WidgetIfMissing(v))
+                    })
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(14.0)),
+                )
             };
             col = col.push(
                 column![
@@ -552,6 +747,10 @@ impl App {
                     true,
                 )
             }
+            Msg::TipClose => {
+                panel.widgets.tip = None;
+                Task::none()
+            }
             Msg::SelectWidget(id) => {
                 panel.widgets.widget_sel = Some(id);
                 Task::none()
@@ -577,6 +776,10 @@ impl App {
             }
             Msg::WidgetIfMissing(v) => {
                 let t = self.edit_placement(|p| p.if_missing = v);
+                Task::batch([t, self.save()])
+            }
+            Msg::WidgetFamily(v) => {
+                let t = self.edit_placement(|p| p.family = v);
                 Task::batch([t, self.save()])
             }
             Msg::DeleteWidget(id) => {
@@ -612,9 +815,11 @@ impl App {
                         .find(|t| t.id == w.type_id)
                         .map(|t| t.anchor)
                         .unwrap_or_default();
-                    // Position remise à zéro ; l'écran choisi reste.
+                    // Position remise à zéro ; l'écran choisi et la taille
+                    // du widget (son contenu, HIG SYS-15) restent.
                     let (screen, if_missing) = (w.screen.clone(), w.if_missing);
                     w.set_placement(&Placement {
+                        family: w.family,
                         anchor,
                         x: 0.0,
                         y: 0.0,
@@ -630,5 +835,41 @@ impl App {
                 self.commit_reload()
             }
         }
+    }
+}
+
+impl App {
+    /// Astuce de la page Widgets (HIG DAT-07), à son ouverture : une fois,
+    /// au plus une par jour toutes surfaces confondues.
+    pub(in crate::ui) fn widgets_tip(&mut self) -> Task<UiMsg> {
+        if self.panel.as_ref().is_none_or(|p| p.widgets.tip.is_some()) {
+            return Task::none();
+        }
+        let (tip, saved) = self.take_tip(crate::tips::Surface::Settings);
+        if let Some(p) = self.panel.as_mut() {
+            p.widgets.tip = tip;
+        }
+        saved
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Chaque widget intégré qu'on active d'un clic a son aperçu en données
+    /// simulées ; commande, Lua et plugins prennent la forme provisoire
+    /// (HIG SYS-11).
+    #[test]
+    fn chaque_widget_integre_a_son_apercu() {
+        for b in crate::widgets::BUILTINS {
+            let p = preview_of(b.id);
+            if matches!(b.id, "command" | "lua") {
+                assert_eq!(p, Preview::Placeholder, "{}", b.id);
+            } else {
+                assert_ne!(p, Preview::Placeholder, "{} sans aperçu", b.id);
+            }
+        }
+        assert_eq!(preview_of("network"), Preview::Placeholder);
     }
 }

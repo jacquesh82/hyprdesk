@@ -8,9 +8,10 @@
 use crate::i18n::text;
 use iced::keyboard::key::{Code, Named, Physical};
 use iced::keyboard::{Key, Modifiers};
-use iced::widget::{Space, button, column, container, row, text_input, toggler};
+use iced::widget::{Space, button, column, container, row, text_input};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
+use super::super::etats::Etat;
 use super::super::panel::PanelMsg;
 use super::super::{App, Msg as UiMsg, color};
 use super::{PluginInfo, PluginMsg};
@@ -111,11 +112,20 @@ const KEY_LABELS: &[(usize, &str)] = &[
     (1, "Ouvrir les réglages"),
     (6, "Lanceur d'applications (tous les modes)"),
     (9, "Lanceur d'applications en plein bureau (vide : le même)"),
-    (7, "Fenêtres (Alt+Tab ; avec Maj : en arrière)"),
+    (7, "Fenêtres (SUPER + Tab ; avec Maj : en arrière)"),
     (8, "Vue d'ensemble des fenêtres"),
     (10, "Ouvrir LYRA (assistant IA)"),
     (5, "Verrouiller la session"),
     (2, "Sortie de secours (bureau affiché)"),
+    // Un raccourci par surface du shell (HIG ENT-02).
+    (11, crate::keymap::FOCUS_LABELS[0]),
+    (12, crate::keymap::FOCUS_LABELS[1]),
+    (13, crate::keymap::FOCUS_LABELS[2]),
+    (14, crate::keymap::FOCUS_LABELS[3]),
+    // Les boîtes de dialogue du shell (HIG ENT-10).
+    (15, crate::keymap::DIALOG_LABELS[0]),
+    // Accès clavier complet (HIG ENT-01).
+    (16, crate::keymap::ACCESS_LABEL),
 ];
 
 /// Case de `State::keys` d'une clé de configuration (`keys.toggle`).
@@ -132,6 +142,12 @@ pub(in crate::ui) fn key_index(key: &str) -> Option<usize> {
         "keys.overview" => 8,
         "keys.search_desktop" => 9,
         "keys.assistant" => 10,
+        "keys.focus_bar" => 11,
+        "keys.focus_dock" => 12,
+        "keys.focus_notifications" => 13,
+        "keys.focus_settings" => 14,
+        "keys.force_quit" => 15,
+        "keys.keyboard_access" => 16,
         _ => return None,
     })
 }
@@ -149,6 +165,12 @@ fn key_value(k: &crate::config::Keys, i: usize) -> &str {
         7 => &k.switch,
         8 => &k.overview,
         10 => &k.assistant,
+        11 => &k.focus_bar,
+        12 => &k.focus_dock,
+        13 => &k.focus_notifications,
+        14 => &k.focus_settings,
+        15 => &k.force_quit,
+        16 => &k.keyboard_access,
         _ => &k.search_desktop,
     }
 }
@@ -178,7 +200,7 @@ pub struct State {
     pub capture: Option<Target>,
     /// Numéro de la capture : un délai écoulé d'une capture finie est ignoré.
     pub capture_seq: u64,
-    pub keys: [String; 11],
+    pub keys: [String; 17],
     pub key_error: Option<String>,
     /// Commande de vue d'ensemble en cours de saisie.
     pub overview_cmd: Option<String>,
@@ -253,6 +275,12 @@ pub fn default_key(i: usize) -> String {
         7 => k.switch,
         8 => k.overview,
         10 => k.assistant,
+        11 => k.focus_bar,
+        12 => k.focus_dock,
+        13 => k.focus_notifications,
+        14 => k.focus_settings,
+        15 => k.force_quit,
+        16 => k.keyboard_access,
         _ => k.search_desktop,
     }
 }
@@ -414,19 +442,19 @@ pub fn combo_of(key: &Key, physical: &Physical, mods: Modifiers) -> Result<Optio
             }
         }
     };
-    let mut parts: Vec<&str> = Vec::new();
-    if mods.logo() {
-        parts.push("SUPER");
-    }
-    if mods.alt() {
-        parts.push("ALT");
-    }
-    if mods.control() {
-        parts.push("CTRL");
-    }
-    if mods.shift() {
-        parts.push("SHIFT");
-    }
+    // Toujours dans cet ordre : CTRL, ALT, SHIFT, SUPER (HIG ENT-04).
+    let held = |bit: u32| match bit {
+        1 => mods.shift(),
+        4 => mods.control(),
+        8 => mods.alt(),
+        64 => mods.logo(),
+        _ => false,
+    };
+    let mut parts: Vec<&str> = crate::hypr::MODIFIER_ORDER
+        .iter()
+        .filter(|(bit, _)| held(*bit))
+        .map(|(_, name)| *name)
+        .collect();
     // Sans SUPER, ALT ni CTRL, une touche d'écriture ne servirait plus à écrire.
     if !bare && !(mods.logo() || mods.alt() || mods.control()) {
         return Err(crate::i18n::tr(
@@ -559,6 +587,12 @@ impl App {
             7 => &mut s.key_switch,
             8 => &mut s.key_overview,
             10 => &mut s.key_assistant,
+            11 => &mut s.key_focus_bar,
+            12 => &mut s.key_focus_dock,
+            13 => &mut s.key_focus_notifications,
+            14 => &mut s.key_focus_settings,
+            15 => &mut s.key_force_quit,
+            16 => &mut s.key_keyboard_access,
             _ => &mut s.key_search_desktop,
         };
         *field = v;
@@ -677,15 +711,23 @@ impl App {
 
     /// Bouton « Capturer » : la prochaine combinaison pressée.
     fn capture_button<'a>(&self, t: Target) -> Element<'a, UiMsg> {
-        button(
-            text(crate::i18n::tr("Capturer"))
-                .font(self.font)
-                .size(crate::ui::tokens::ts(12.0)),
+        // Pas pendant une capture (HIG ENT-01) : Entrée, qui peut en être la
+        // touche, la relancerait.
+        let capturing = self
+            .panel
+            .as_ref()
+            .is_some_and(|p| p.keys.capture.is_some());
+        self.focusable_when(
+            button(
+                text(crate::i18n::tr("Capturer"))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([4, 10])
+            .style(button::secondary)
+            .on_press(wrap(Msg::Capture(t))),
+            !capturing,
         )
-        .padding([4, 10])
-        .style(button::secondary)
-        .on_press(wrap(Msg::Capture(t)))
-        .into()
     }
 
     /// Bouton « Par défaut », avec la valeur rendue.
@@ -695,15 +737,16 @@ impl App {
         } else {
             crate::tr!("Par défaut ({k})", k = pretty(&default))
         };
-        button(
-            text(label)
-                .font(self.font)
-                .size(crate::ui::tokens::ts(12.0)),
+        self.focusable(
+            button(
+                text(label)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0)),
+            )
+            .padding([4, 10])
+            .style(button::text)
+            .on_press(wrap(Msg::Reset(t))),
         )
-        .padding([4, 10])
-        .style(button::text)
-        .on_press(wrap(Msg::Reset(t)))
-        .into()
     }
 
     /// Capture en cours : la consigne, l'erreur éventuelle, « Annuler ».
@@ -736,14 +779,16 @@ impl App {
                     border: Border::default().rounded(6).width(1).color(accent),
                     ..Default::default()
                 }),
-            button(
-                text(crate::i18n::tr("Annuler"))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-            )
-            .padding([4, 10])
-            .style(button::secondary)
-            .on_press(wrap(Msg::CaptureCancel)),
+            self.focusable(
+                button(
+                    text(crate::i18n::tr("Annuler"))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .style(button::secondary)
+                .on_press(wrap(Msg::CaptureCancel))
+            ),
         ]
         .spacing(8)
         .align_y(Alignment::Center)
@@ -996,14 +1041,24 @@ impl App {
             fg
         };
         let toggle_row = s.row.clone();
-        let switch = toggler(s.on)
-            .on_toggle_maybe(toggle_row.map(|r| move |v| wrap(Msg::Toggle(r.clone(), v))));
+        let switch = self.focusable_when(
+            self.toggle(s.on)
+                .named(&s.what)
+                .on_toggle_maybe(toggle_row.map(|r| move |v| wrap(Msg::Toggle(r.clone(), v)))),
+            s.row.is_some(),
+        );
         let chip: Element<'a, UiMsg> = match &s.capture {
-            Some(t) => button(self.key_chip(s.combo.clone(), chip_color))
-                .padding(0)
-                .style(button::text)
-                .on_press(wrap(Msg::Capture(t.clone())))
-                .into(),
+            // Pas pendant une capture : la touche capturée la relancerait.
+            Some(t) => self.focusable_when(
+                button(self.key_chip(s.combo.clone(), chip_color))
+                    .padding(0)
+                    .style(button::text)
+                    .on_press(wrap(Msg::Capture(t.clone()))),
+                !self
+                    .panel
+                    .as_ref()
+                    .is_some_and(|p| p.keys.capture.is_some()),
+            ),
             None => self.key_chip(s.combo.clone(), chip_color),
         };
         let mut what = column![
@@ -1016,7 +1071,7 @@ impl App {
         .spacing(2);
         if !s.on {
             what = what.push(
-                text(crate::i18n::tr("Désactivé"))
+                text(Etat::Inactive.libelle())
                     .font(self.font)
                     .size(crate::ui::tokens::ts(11.0))
                     .color(warn),
@@ -1040,22 +1095,24 @@ impl App {
         let menu_open = s.row.is_some() && p.keys.menu == s.row;
         if let Some(r) = &s.row {
             line = line.push(
-                button(
-                    text(crate::i18n::tr(if menu_open {
-                        "Fermer"
+                self.focusable(
+                    button(
+                        text(crate::i18n::tr(if menu_open {
+                            "Fermer"
+                        } else {
+                            "Actions"
+                        }))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .style(if menu_open {
+                        button::primary
                     } else {
-                        "Actions"
-                    }))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0)),
-                )
-                .padding([4, 10])
-                .style(if menu_open {
-                    button::primary
-                } else {
-                    button::text
-                })
-                .on_press(wrap(Msg::Menu((!menu_open).then(|| r.clone())))),
+                        button::text
+                    })
+                    .on_press(wrap(Msg::Menu((!menu_open).then(|| r.clone())))),
+                ),
             );
         }
         let mut col = column![line].spacing(8);
@@ -1069,8 +1126,9 @@ impl App {
         if let Some(c) = &p.keys.clash
             && s.capture.as_ref() == Some(&c.target)
         {
-            col = col.push(
-                row![
+            col =
+                col.push(
+                    row![
                     text(crate::tr!(
                         "{k} sert déjà à « {w} » ({o}). Le remplacer désactive ce raccourci-là.",
                         k = pretty(&c.combo),
@@ -1081,65 +1139,75 @@ impl App {
                     .size(crate::ui::tokens::ts(12.0))
                     .color(warn)
                     .width(Length::Fill),
-                    button(
+                    self.focusable(button(
                         text(crate::i18n::tr("Remplacer"))
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0))
                     )
                     .padding([4, 10])
                     .style(button::primary)
-                    .on_press(wrap(Msg::ClashReplace)),
-                    button(
+                    .on_press(wrap(Msg::ClashReplace))),
+                    self.focusable(button(
                         text(crate::i18n::tr("Annuler"))
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0))
                     )
                     .padding([4, 10])
                     .style(button::secondary)
-                    .on_press(wrap(Msg::ClashCancel)),
+                    .on_press(wrap(Msg::ClashCancel))),
                 ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            );
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                );
         }
         if menu_open && let Some(r) = &s.row {
             let mut m = row![].spacing(8).align_y(Alignment::Center);
             if let Some(t) = &s.capture {
                 m = m.push(
-                    button(
-                        text(crate::i18n::tr("Capturer une combinaison"))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::Capture(t.clone()))),
+                    self.focusable_when(
+                        button(
+                            text(crate::i18n::tr("Capturer une combinaison"))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::Capture(t.clone()))),
+                        !self
+                            .panel
+                            .as_ref()
+                            .is_some_and(|p| p.keys.capture.is_some()),
+                    ),
                 );
             }
             m = m.push(
-                button(
-                    text(crate::i18n::tr(if s.on {
-                        "Désactiver"
-                    } else {
-                        "Activer"
-                    }))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0)),
-                )
-                .padding([4, 10])
-                .style(button::secondary)
-                .on_press(wrap(Msg::Toggle(r.clone(), !s.on))),
+                self.focusable(
+                    button(
+                        text(crate::i18n::tr(if s.on {
+                            "Désactiver"
+                        } else {
+                            "Activer"
+                        }))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                    )
+                    .padding([4, 10])
+                    .style(button::secondary)
+                    .on_press(wrap(Msg::Toggle(r.clone(), !s.on))),
+                ),
             );
             if s.deletable {
                 m = m.push(
-                    button(
-                        text(crate::i18n::tr("Supprimer…"))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([4, 10])
-                    .style(button::danger)
-                    .on_press(wrap(Msg::AskDelete(Some(r.clone())))),
+                    self.focusable(
+                        button(
+                            text(crate::i18n::tr("Supprimer…"))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::danger)
+                        .on_press(wrap(Msg::AskDelete(Some(r.clone())))),
+                    ),
                 );
             } else {
                 m = m.push(
@@ -1169,38 +1237,42 @@ impl App {
                 .font(self.font)
                 .size(crate::ui::tokens::ts(12.0))
                 .width(Length::Fill),
-                button(
+                self.focusable(button(
                     text(crate::i18n::tr("Supprimer la ligne"))
                         .font(self.font)
                         .size(crate::ui::tokens::ts(12.0))
                 )
                 .padding([4, 10])
                 .style(button::danger)
-                .on_press(wrap(Msg::Delete(r.clone()))),
+                .on_press(wrap(Msg::Delete(r.clone())))),
             ]
             .spacing(8)
             .align_y(Alignment::Center);
             if s.on {
                 c = c.push(
+                    self.focusable(
+                        button(
+                            text(crate::i18n::tr("Désactiver le raccourci"))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::Toggle(r, false))),
+                    ),
+                );
+            }
+            c = c.push(
+                self.focusable(
                     button(
-                        text(crate::i18n::tr("Désactiver plutôt"))
+                        text(crate::i18n::tr("Annuler"))
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0)),
                     )
                     .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::Toggle(r, false))),
-                );
-            }
-            c = c.push(
-                button(
-                    text(crate::i18n::tr("Annuler"))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0)),
-                )
-                .padding([4, 10])
-                .style(button::text)
-                .on_press(wrap(Msg::AskDelete(None))),
+                    .style(button::text)
+                    .on_press(wrap(Msg::AskDelete(None))),
+                ),
             );
             col = col.push(container(c).padding([8, 12]).style(move |_| {
                 container::Style {
@@ -1238,18 +1310,20 @@ impl App {
         let warn = crate::ui::tone::warning();
         let desktop = p.keys.desktop_view;
         let mode = |label: &'static str, on: bool, v: bool| {
-            button(
-                text(crate::i18n::tr(label))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0)),
+            self.focusable(
+                button(
+                    text(crate::i18n::tr(label))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0)),
+                )
+                .padding([6, 14])
+                .style(if on {
+                    button::primary
+                } else {
+                    button::secondary
+                })
+                .on_press(wrap(Msg::View(v))),
             )
-            .padding([6, 14])
-            .style(if on {
-                button::primary
-            } else {
-                button::secondary
-            })
-            .on_press(wrap(Msg::View(v)))
         };
         let mut col = column![
             self.section("Vue d'ensemble"),
@@ -1277,25 +1351,29 @@ impl App {
             .align_y(Alignment::Center);
             if n.undo.is_some() {
                 r = r.push(
+                    self.focusable(
+                        button(
+                            text(crate::i18n::tr("Annuler"))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::Undo)),
+                    ),
+                );
+            }
+            r = r.push(
+                self.focusable(
                     button(
-                        text(crate::i18n::tr("Annuler"))
+                        text(crate::i18n::tr("Fermer"))
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0)),
                     )
                     .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::Undo)),
-                );
-            }
-            r = r.push(
-                button(
-                    text(crate::i18n::tr("Fermer"))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0)),
-                )
-                .padding([4, 10])
-                .style(button::text)
-                .on_press(wrap(Msg::CloseNotice)),
+                    .style(button::text)
+                    .on_press(wrap(Msg::CloseNotice)),
+                ),
             );
             let edge = if n.error {
                 warn
@@ -1327,18 +1405,20 @@ impl App {
         let off = self.shown_disabled();
         let filter = p.keys.filter;
         let tab = |label: &'static str, n: usize, f: Filter| {
-            button(
-                text(crate::tr!("{l} ({n})", l = crate::i18n::tr(label), n = n))
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0)),
+            self.focusable(
+                button(
+                    text(crate::tr!("{l} ({n})", l = crate::i18n::tr(label), n = n))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 12])
+                .style(if filter == f {
+                    button::primary
+                } else {
+                    button::secondary
+                })
+                .on_press(wrap(Msg::Filter(f))),
             )
-            .padding([4, 12])
-            .style(if filter == f {
-                button::primary
-            } else {
-                button::secondary
-            })
-            .on_press(wrap(Msg::Filter(f)))
         };
         col = col.push(
             row![
@@ -1384,7 +1464,7 @@ impl App {
                         n = lines.len()
                     ))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 );
                 for s in lines {
@@ -1403,7 +1483,7 @@ impl App {
                         n = lines.len()
                     ))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
                 );
                 for s in lines {
@@ -1458,7 +1538,7 @@ impl App {
             self.field(
                 "Poser les raccourcis essentiels",
                 "keys.essentials",
-                toggler(g.keys.essentials).on_toggle(|v| wrap(Msg::Essentials(v))),
+                self.focusable(self.toggle(g.keys.essentials).on_toggle(|v| wrap(Msg::Essentials(v)))),
             ),
         ]
         .spacing(10);
@@ -1476,7 +1556,7 @@ impl App {
             col = col.push(
                 text(crate::i18n::tr(group.label()))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
             );
             for e in CATALOGUE.iter().filter(|e| e.group == group) {
@@ -1500,10 +1580,18 @@ impl App {
                     );
                 }
                 head = head.push(
-                    toggler(on).on_toggle_maybe(
-                        g.keys
+                    self.focusable_when(
+                        self.toggle(on)
+                            .named(crate::i18n::tr(e.label))
+                            .on_toggle_maybe(
+                                g.keys
+                                    .essentials
+                                    .then_some(move |v| wrap(Msg::Essential(id, v))),
+                            ),
+                        (g.keys
                             .essentials
-                            .then_some(move |v| wrap(Msg::Essential(id, v))),
+                            .then_some(move |v| wrap(Msg::Essential(id, v))))
+                        .is_some(),
                     ),
                 );
                 col = col.push(head);
@@ -1596,26 +1684,30 @@ impl App {
                     match &l.state {
                         Ess::Taken { by, .. } if !by.starts_with("hyprdesk") => {
                             r = r.push(
-                                button(
-                                    text(crate::i18n::tr("hyprdesk le prend"))
-                                        .font(self.font)
-                                        .size(crate::ui::tokens::ts(12.0)),
-                                )
-                                .padding([4, 10])
-                                .style(button::secondary)
-                                .on_press(wrap(Msg::TakeKey(l.combo.clone()))),
+                                self.focusable(
+                                    button(
+                                        text(crate::i18n::tr("Donner à hyprdesk"))
+                                            .font(self.font)
+                                            .size(crate::ui::tokens::ts(12.0)),
+                                    )
+                                    .padding([4, 10])
+                                    .style(button::secondary)
+                                    .on_press(wrap(Msg::TakeKey(l.combo.clone()))),
+                                ),
                             );
                         }
                         Ess::TakenOver => {
                             r = r.push(
-                                button(
-                                    text(crate::i18n::tr("Rendre"))
-                                        .font(self.font)
-                                        .size(crate::ui::tokens::ts(12.0)),
-                                )
-                                .padding([4, 10])
-                                .style(button::secondary)
-                                .on_press(wrap(Msg::ReleaseKey(l.combo.clone()))),
+                                self.focusable(
+                                    button(
+                                        text(crate::i18n::tr("Rendre la combinaison"))
+                                            .font(self.font)
+                                            .size(crate::ui::tokens::ts(12.0)),
+                                    )
+                                    .padding([4, 10])
+                                    .style(button::secondary)
+                                    .on_press(wrap(Msg::ReleaseKey(l.combo.clone()))),
+                                ),
                             );
                         }
                         _ => {}
@@ -1675,23 +1767,32 @@ impl App {
         let mut col = column![
             self.section("Raccourcis"),
             self.key_conflicts_view(),
-            self.adv(self.field(
+            self.adv(
                 "Bureau affiché : suspendre les raccourcis de Hyprland",
-                "suspend_binds",
-                toggler(g.suspend_binds).on_toggle(|v| wrap(Msg::SuspendBinds(v))),
-            )),
-            self.adv(text("Les raccourcis de Hyprland n'agissent plus sur les fenêtres cachées derrière le bureau. Seuls restent actifs ceux de hyprdesk et ceux marqués { submap_universal = true } dans hyprland.lua.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim)),
+                || column![
+                    self.field(
+                        "",
+                        "suspend_binds",
+                        self.focusable(self.toggle(g.suspend_binds).on_toggle(|v| wrap(Msg::SuspendBinds(v)))),
+                    ),
+                    text("Les raccourcis de Hyprland n'agissent plus sur les fenêtres cachées derrière le bureau. Seuls restent actifs ceux de hyprdesk et ceux marqués { submap_universal = true } dans hyprland.lua.")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim),
+                ]
+                .spacing(6),
+            ),
             key_field(0, "Changer de mode (no-desktop → launcher-only → full-desktop)", "keys.toggle"),
             key_field(3, "launcher-only (lanceur seul)", "keys.launcher"),
             key_field(4, "no-desktop (masquer)", "keys.hide"),
             key_field(1, crate::i18n::tr("Ouvrir les réglages"), "keys.settings"),
             key_field(6, crate::i18n::tr("Lanceur d'applications (tous les modes)"), "keys.search"),
             key_field(9, crate::i18n::tr("Lanceur d'applications en plein bureau (vide : le même)"), "keys.search_desktop"),
-            key_field(7, crate::i18n::tr("Fenêtres (Alt+Tab ; avec Maj : en arrière)"), "keys.switch"),
+            key_field(7, crate::i18n::tr("Fenêtres (SUPER + Tab ; avec Maj : en arrière)"), "keys.switch"),
             key_field(8, crate::i18n::tr("Vue d'ensemble des fenêtres"), "keys.overview"),
             key_field(10, crate::i18n::tr("Ouvrir LYRA (assistant IA)"), "keys.assistant"),
-            self.adv(self.field(
-                "Vue d'ensemble par un plugin de Hyprland",
+            self.adv("Vue d'ensemble par un plugin de Hyprland", || self.field(
+                "",
                 "overview_command",
                 text_input(
                     crate::i18n::tr("vide : le sélecteur de hyprdesk"),
@@ -1714,7 +1815,20 @@ impl App {
             .font(self.font)
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
-            self.adv(key_field(2, crate::i18n::tr("Sortie de secours (bureau affiché)"), "keys.leave")),
+            // Le clavier va à chaque surface du shell (HIG ENT-02) : aucun de
+            // ces raccourcis ne referme ni ne bascule de mode.
+            key_field(11, crate::i18n::tr(crate::keymap::FOCUS_LABELS[0]), "keys.focus_bar"),
+            key_field(12, crate::i18n::tr(crate::keymap::FOCUS_LABELS[1]), "keys.focus_dock"),
+            key_field(13, crate::i18n::tr(crate::keymap::FOCUS_LABELS[2]), "keys.focus_notifications"),
+            key_field(14, crate::i18n::tr(crate::keymap::FOCUS_LABELS[3]), "keys.focus_settings"),
+            // La boîte de dialogue « Forcer à quitter » (HIG ENT-10).
+            key_field(15, crate::i18n::tr(crate::keymap::DIALOG_LABELS[0]), "keys.force_quit"),
+            // Accès clavier complet (HIG ENT-01) : Tab atteint chaque commande.
+            key_field(16, crate::i18n::tr(crate::keymap::ACCESS_LABEL), "keys.keyboard_access"),
+            self.adv(
+                "Sortie de secours (bureau affiché)",
+                || key_field(2, "", "keys.leave"),
+            ),
             text("Valider avec Entrée. Vide = aucun raccourci.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
         ]
         .spacing(10);
@@ -1752,7 +1866,7 @@ impl App {
                         n = r.issues.len()
                     ))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(warn)
                     .width(Length::Fill),
                     self.lyra_button(crate::i18n::tr("Raccourcis"), crate::keymap::lyra_prompt(r)),
@@ -1773,14 +1887,16 @@ impl App {
             .align_y(Alignment::Center);
             if i.holder().is_some() {
                 line = line.push(
-                    button(
-                        text(crate::i18n::tr("hyprdesk le prend"))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::TakeKey(i.action.combo.clone()))),
+                    self.focusable(
+                        button(
+                            text(crate::i18n::tr("Donner à hyprdesk"))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::TakeKey(i.action.combo.clone()))),
+                    ),
                 );
             }
             col = col.push(line);
@@ -1789,7 +1905,7 @@ impl App {
             col = col.push(
                 text(crate::i18n::tr("Pris à hyprland.lua par hyprdesk"))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .color(fg),
             );
         }
@@ -1816,14 +1932,16 @@ impl App {
                 .any(|t| crate::keymap::norm(t) == crate::keymap::norm(&h.action.combo))
             {
                 line = line.push(
-                    button(
-                        text(crate::i18n::tr("Rendre"))
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([4, 10])
-                    .style(button::secondary)
-                    .on_press(wrap(Msg::ReleaseKey(h.action.combo.clone()))),
+                    self.focusable(
+                        button(
+                            text(crate::i18n::tr("Rendre la combinaison"))
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0)),
+                        )
+                        .padding([4, 10])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::ReleaseKey(h.action.combo.clone()))),
+                    ),
                 );
             }
             col = col.push(line);
@@ -1927,6 +2045,12 @@ impl App {
                         7 => s.key_switch = None,
                         8 => s.key_overview = None,
                         10 => s.key_assistant = None,
+                        11 => s.key_focus_bar = None,
+                        12 => s.key_focus_dock = None,
+                        13 => s.key_focus_notifications = None,
+                        14 => s.key_focus_settings = None,
+                        15 => s.key_force_quit = None,
+                        16 => s.key_keyboard_access = None,
                         _ => s.key_search_desktop = None,
                     }
                     self.commit()
@@ -2093,7 +2217,7 @@ impl App {
                     .to_string();
                 if !v.is_empty() && crate::hypr::parse_combo(&v).is_none() {
                     panel.keys.key_error = Some(crate::tr!(
-                        "« {v} » : raccourci illisible (ex. SUPER + SHIFT + D)",
+                        "« {v} » : raccourci illisible (ex. SHIFT + SUPER + D)",
                         v = v
                     ));
                     return Task::none();
@@ -2111,6 +2235,12 @@ impl App {
                     8 => ("keys.overview", &mut keys.overview),
                     9 => ("keys.search_desktop", &mut keys.search_desktop),
                     10 => ("keys.assistant", &mut keys.assistant),
+                    11 => ("keys.focus_bar", &mut keys.focus_bar),
+                    12 => ("keys.focus_dock", &mut keys.focus_dock),
+                    13 => ("keys.focus_notifications", &mut keys.focus_notifications),
+                    14 => ("keys.focus_settings", &mut keys.focus_settings),
+                    15 => ("keys.force_quit", &mut keys.force_quit),
+                    16 => ("keys.keyboard_access", &mut keys.keyboard_access),
                     _ => ("keys.leave", &mut keys.leave),
                 };
                 *target = v.clone();
@@ -2137,6 +2267,12 @@ impl App {
                     8 => self.settings.key_overview = Some(v),
                     9 => self.settings.key_search_desktop = Some(v),
                     10 => self.settings.key_assistant = Some(v),
+                    11 => self.settings.key_focus_bar = Some(v),
+                    12 => self.settings.key_focus_dock = Some(v),
+                    13 => self.settings.key_focus_notifications = Some(v),
+                    14 => self.settings.key_focus_settings = Some(v),
+                    15 => self.settings.key_force_quit = Some(v),
+                    16 => self.settings.key_keyboard_access = Some(v),
                     _ => self.settings.key_leave = Some(v),
                 }
                 self.commit()
@@ -2186,10 +2322,18 @@ mod tests {
     fn capture() {
         let sup = Modifiers::LOGO;
         let none = Physical::Unidentified(iced::keyboard::key::NativeCode::Unidentified);
-        // Lettre : en minuscules, avec SUPER.
+        // Lettre : en minuscules, avec SUPER ; CTRL, ALT, SHIFT, SUPER dans cet ordre (HIG ENT-04).
         assert_eq!(
             combo_of(&ch("d"), &none, sup | Modifiers::SHIFT),
-            Ok(Some("SUPER + SHIFT + d".into()))
+            Ok(Some("SHIFT + SUPER + d".into()))
+        );
+        assert_eq!(
+            combo_of(
+                &ch("d"),
+                &none,
+                sup | Modifiers::SHIFT | Modifiers::ALT | Modifiers::CTRL
+            ),
+            Ok(Some("CTRL + ALT + SHIFT + SUPER + d".into()))
         );
         // Rangée des chiffres (AZERTY : « & ») : par code physique.
         assert_eq!(
@@ -2198,7 +2342,7 @@ mod tests {
                 &Physical::Code(Code::Digit1),
                 sup | Modifiers::ALT
             ),
-            Ok(Some("SUPER + ALT + code:10".into()))
+            Ok(Some("ALT + SUPER + code:10".into()))
         );
         // Ponctuation : son keysym.
         assert_eq!(
@@ -2212,7 +2356,7 @@ mod tests {
         // Flèches, F5 seul, Impr. écran seul.
         assert_eq!(
             combo_of(&Key::Named(Named::ArrowLeft), &none, sup | Modifiers::CTRL),
-            Ok(Some("SUPER + CTRL + left".into()))
+            Ok(Some("CTRL + SUPER + left".into()))
         );
         assert_eq!(
             combo_of(&Key::Named(Named::F5), &none, Modifiers::empty()),

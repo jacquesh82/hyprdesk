@@ -28,6 +28,9 @@ use iced_layershell::reexport::{
 };
 
 use super::menu::{Item, Line, groups};
+use super::overview::OMsg;
+use super::plugins::bar::window;
+use super::toasts::TMsg;
 use super::{App, Msg, color};
 use crate::config::IconKind;
 
@@ -39,10 +42,37 @@ const EDIT_WIDTH: f32 = 220.0;
 /// Largeur de la carte des propriétés.
 const PROPS_WIDTH: f32 = 400.0;
 const ROW: f32 = 34.0;
-const SHADOW: f32 = 16.0;
+pub(in crate::ui) const SHADOW: f32 = 16.0;
 /// Marge intérieure de la carte d'un menu.
 const PAD: f32 = 6.0;
 const INPUT_ID: &str = "hyprdesk-icon-rename";
+/// Défilement des lignes d'une carte plafonnée à l'écran (HIG MENU-02).
+const SCROLL: &str = "hyprdesk-icon-menu-list";
+
+/// Hauteur de la surface d'une carte de `full` pixels dans un écran de
+/// `screen` : toute la carte, ou l'écran quand elle le dépasse. Ses lignes
+/// défilent alors dans la carte, comme dans les menus de la barre.
+fn window_height(full: f32, screen: f32) -> (f32, bool) {
+    if full > screen {
+        (screen, true)
+    } else {
+        (full, false)
+    }
+}
+
+/// Décalage qui rend visible la ligne `[top, top + row]` d'un contenu de
+/// `content` pixels montré dans une fenêtre de `view` pixels, depuis le
+/// décalage `from` : le plus court, sans sortir du contenu.
+fn follow(from: f32, view: f32, content: f32, top: f32, row: f32) -> f32 {
+    let to = if top + row > from + view {
+        top + row - view
+    } else if top < from {
+        top
+    } else {
+        from
+    };
+    to.clamp(0.0, (content - view).max(0.0))
+}
 
 /// Ce que vise le menu.
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +84,41 @@ pub enum MenuTarget {
     App(AppRef),
     /// Champ de saisie sous le curseur (MLG-309).
     Edit(EditRef),
+    /// Fenêtre de l'aperçu des espaces (HIG MENU-06).
+    Window(WindowRef),
+    /// Carte d'espace de l'aperçu : son titre ou son fond (HIG ENT-07).
+    Space(SpaceRef),
+    /// Carte de notification du centre de notifications (HIG ENT-07).
+    Notification(NotificationRef),
+}
+
+/// Espace visé par le menu de sa carte dans l'aperçu : le rang de sa carte et
+/// son nom, lus à l'ouverture. Le rang peut vieillir (un espace fermé depuis
+/// décale les cartes) : le nom retrouve la carte à l'action.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpaceRef {
+    pub card: usize,
+    pub name: String,
+}
+
+/// Notification visée par le menu de sa carte dans le centre : son
+/// identifiant, et `openable` quand un clic sur la carte mène quelque part
+/// (action `default`, ou l'application). Fermée depuis, un message qui porte
+/// son identifiant ne fait rien.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NotificationRef {
+    pub id: u32,
+    pub openable: bool,
+}
+
+/// Fenêtre visée par le menu de l'aperçu : son adresse, son état lu à
+/// l'ouverture (`hyprctl clients -j`) et le nombre de fenêtres de son
+/// application. Le menu est celui de la barre (`plugins::bar::window`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowRef {
+    pub address: String,
+    pub state: serde_json::Value,
+    pub same_app: usize,
 }
 
 /// Application visée par un menu du dock ou de la grille du Lanceur.
@@ -116,10 +181,23 @@ pub struct IconMenu {
     pub origin: Point,
     /// Entrée choisie au clavier (rang dans les lignes).
     pub hover: Option<usize>,
+    /// La carte dépasse l'écran : la surface est plafonnée et ses lignes
+    /// défilent (HIG MENU-02).
+    pub scrolls: bool,
+    /// Carte plafonnée : hauteur visible des lignes, et décalage du
+    /// défilement que le clavier a demandé en dernier.
+    pub viewport: f32,
+    pub offset: f32,
     /// Entrée `.desktop` de l'application visée : ses actions, son terminal.
     pub entry: Option<crate::launch::DesktopEntry>,
     /// « Partager… » : les destinations, à la place des entrées.
     pub share: Option<Vec<Share>>,
+    /// « Déplacer vers l'espace » d'une fenêtre : ses espaces, à la place des
+    /// entrées.
+    pub spaces: Option<Vec<Line<CMsg>>>,
+    /// La carte s'ouvre vers le haut (dock en bas) : le groupe le plus près du
+    /// pointeur vient en dernier (HIG MENU-09).
+    pub upward: bool,
 }
 
 impl IconMenu {
@@ -141,8 +219,75 @@ impl IconMenu {
             monitor: String::new(),
             origin: Point::ORIGIN,
             hover: None,
+            scrolls: false,
+            viewport: 0.0,
+            offset: 0.0,
             entry: None,
             share: None,
+            spaces: None,
+            upward: false,
+        }
+    }
+
+    /// Carte de `full` pixels sur un écran de `screen` : hauteur de sa
+    /// surface — l'écran quand la carte le dépasse, ses lignes défilent
+    /// alors (HIG MENU-02). Sans écran connu, la carte garde sa taille.
+    pub(in crate::ui) fn cap(&mut self, full: f32, screen: Option<f32>) -> f32 {
+        let (h, scrolls) = match screen {
+            Some(screen) => window_height(full, screen),
+            None => (full, false),
+        };
+        self.scrolls = scrolls;
+        self.viewport = if scrolls {
+            h - 2.0 * (SHADOW + PAD)
+        } else {
+            0.0
+        };
+        self.offset = 0.0;
+        h
+    }
+}
+
+/// Retrait du bureau ou du dock, à annuler depuis sa bulle (HIG PAT-12) :
+/// l'élément et son rang d'origine.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ShellUndo {
+    Icon {
+        at: usize,
+        def: crate::config::IconDef,
+    },
+    Widget {
+        at: usize,
+        def: crate::config::WidgetDef,
+    },
+    Pin {
+        at: usize,
+        app: String,
+    },
+}
+
+impl ShellUndo {
+    /// Rétablit l'élément à son rang (borné à la liste actuelle) ; déjà
+    /// revenu par ailleurs, il ne l'est pas deux fois.
+    pub(super) fn apply(self, settings: &mut crate::settings::Settings, pinned: Vec<String>) {
+        match self {
+            ShellUndo::Icon { at, def } => {
+                if !settings.icons.iter().any(|i| i.id == def.id) {
+                    settings.icons.insert(at.min(settings.icons.len()), def);
+                }
+            }
+            ShellUndo::Widget { at, def } => {
+                if !settings.widgets.iter().any(|w| w.id == def.id) {
+                    settings.widgets.insert(at.min(settings.widgets.len()), def);
+                }
+            }
+            ShellUndo::Pin { at, app } => {
+                let mut l = pinned;
+                if !l.contains(&app) {
+                    l.insert(at.min(l.len()), app);
+                }
+                settings.launcher_pinned = Some(l);
+            }
         }
     }
 }
@@ -187,6 +332,18 @@ pub enum CMsg {
     ShareTo(Share),
     /// Champ de saisie : commande d'édition rejouée dans sa surface.
     Edit(super::edit::Command),
+    /// Fenêtre de l'aperçu : une entrée de son menu (le rang de l'action, voir `plugins::bar::window`).
+    WindowAct(i64),
+    /// « Déplacer vers l'espace » : ses espaces (libellé, action), à la place des entrées.
+    WindowSpaces(Vec<(String, i64)>),
+    /// Carte d'espace de l'aperçu (HIG ENT-07) : ce que font le clic sur le
+    /// fond de la carte, le double-clic sur son titre.
+    SpaceShow,
+    SpaceRename,
+    /// Carte de notification du centre (HIG ENT-07) : ce que font le clic sur
+    /// la carte, son bouton de fermeture.
+    NotifOpen(u32),
+    NotifClose(u32),
     Close,
     Done(Result<(), String>),
 }
@@ -198,6 +355,15 @@ pub fn is_wallpaper(path: &Path) -> bool {
         .is_some_and(|e| matches!(e.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp"))
 }
 
+/// Icône d'une action d'application : le nom symbolique de celle qu'elle
+/// déclare, jamais un chemin (le menu ne charge que des noms).
+fn action_icon(a: &crate::launch::DesktopAction) -> Option<String> {
+    a.icon
+        .as_deref()
+        .filter(|i| !i.contains('/'))
+        .map(|i| format!("{}-symbolic", i.trim_end_matches("-symbolic")))
+}
+
 /// Nouveau nom acceptable : non vide, sans « / », ni « . » ni « .. ».
 pub fn valid_name(name: &str) -> bool {
     let n = name.trim();
@@ -207,7 +373,7 @@ pub fn valid_name(name: &str) -> bool {
 /// Renomme dans le même dossier, sans écraser un fichier existant.
 pub fn rename(path: &Path, name: &str) -> Result<PathBuf, String> {
     if !valid_name(name) {
-        return Err(crate::i18n::tr("Nom invalide.").into());
+        return Err(crate::i18n::tr("Choisissez un nom non vide, sans barre oblique (/)").into());
     }
     let to = path
         .parent()
@@ -220,7 +386,7 @@ pub fn rename(path: &Path, name: &str) -> Result<PathBuf, String> {
     Ok(to)
 }
 
-fn trash(path: &Path) -> Result<(), String> {
+pub(in crate::ui) fn trash(path: &Path) -> Result<(), String> {
     let o = std::process::Command::new("gio")
         .arg("trash")
         .arg(path)
@@ -495,6 +661,61 @@ fn share(p: &Path, t: &Share) -> Result<(), String> {
     Ok(())
 }
 
+/// Une entrée du menu de la fenêtre (`plugins::bar::window`), pour la carte du
+/// clic droit. Le sous-menu « Déplacer vers l'espace » devient la ligne qui
+/// ouvre ses espaces en seconde page.
+fn window_line(e: crate::config::MenuEntry) -> Line<CMsg> {
+    match e {
+        crate::config::MenuEntry::Item {
+            label,
+            detail,
+            icon,
+            checked,
+            enabled,
+            action: Some(action),
+            ..
+        } => Item::new(
+            label,
+            icon.as_deref().unwrap_or(""),
+            CMsg::WindowAct(action),
+        )
+        .enabled(enabled)
+        .checked(checked.unwrap_or(false))
+        .detail(detail)
+        .into(),
+        crate::config::MenuEntry::Separator => Line::Separator,
+        crate::config::MenuEntry::Submenu {
+            label,
+            icon,
+            enabled,
+            children,
+            ..
+        } => {
+            let spaces = children
+                .into_iter()
+                .filter_map(|c| match c {
+                    crate::config::MenuEntry::Item {
+                        label,
+                        action: Some(action),
+                        ..
+                    } => Some((label, action)),
+                    _ => None,
+                })
+                .collect();
+            // Des points de suspension annoncent la suite, comme « Partager… ».
+            Item::new(
+                format!("{label}…"),
+                icon.as_deref().unwrap_or(""),
+                CMsg::WindowSpaces(spaces),
+            )
+            .enabled(enabled)
+            .into()
+        }
+        // Sans action, une entrée ne fait rien dans la carte.
+        _ => Line::Separator,
+    }
+}
+
 impl App {
     /// Lignes du menu : trois groupes au plus, les plus utiles en tête,
     /// l'action destructive en dernier (HIG Context menus).
@@ -502,6 +723,9 @@ impl App {
         let tr = |s: &str| crate::i18n::tr(s).to_string();
         if let Some(targets) = &m.share {
             return self.share_lines(m, targets);
+        }
+        if let Some(spaces) = &m.spaces {
+            return spaces.clone();
         }
         match &m.target {
             MenuTarget::Widget(id) => {
@@ -588,6 +812,36 @@ impl App {
                 ])
             }
             MenuTarget::App(a) => self.app_lines(m, a),
+            MenuTarget::Window(w) => self.window_lines(w),
+            // Deux entrées, celles des gestes de la carte (HIG ENT-07).
+            MenuTarget::Space(_) => groups(vec![vec![
+                Item::new(tr("Afficher l'espace"), "go-jump-symbolic", CMsg::SpaceShow).into(),
+                Item::new(tr("Renommer…"), "document-edit-symbolic", CMsg::SpaceRename).into(),
+            ]]),
+            // « Ouvrir » seulement quand la carte mène quelque part : une
+            // commande sans effet dans le contexte se retire (HIG Context
+            // menus).
+            MenuTarget::Notification(n) => groups(vec![
+                n.openable
+                    .then(|| {
+                        Item::new(
+                            tr("Ouvrir"),
+                            "document-open-symbolic",
+                            CMsg::NotifOpen(n.id),
+                        )
+                        .into()
+                    })
+                    .into_iter()
+                    .collect(),
+                vec![
+                    Item::new(
+                        tr("Fermer"),
+                        "window-close-symbolic",
+                        CMsg::NotifClose(n.id),
+                    )
+                    .into(),
+                ],
+            ]),
             MenuTarget::Edit(e) => groups(vec![
                 vec![
                     Item::new(
@@ -634,7 +888,7 @@ impl App {
                         .into(),
                     );
                 }
-                open.extend(self.action_lines(m));
+                let actions = self.place_actions(&mut open, m);
                 let mut keep: Vec<Line<CMsg>> = Vec::new();
                 if m.path.is_some() || m.own.is_some() {
                     keep.push(
@@ -661,25 +915,24 @@ impl App {
                 if let Some(a) = &m.app {
                     keep.extend(self.pin_line(a));
                 }
-                keep.push(
+                // Dernier groupe : ce qui ne porte pas sur le contenu du
+                // fichier, puis ce qui le retire (HIG MENU-12).
+                let mut tail: Vec<Line<CMsg>> = vec![
                     Item::new(
                         tr("Propriétés"),
                         "document-properties-symbolic",
                         CMsg::Properties,
                     )
                     .into(),
-                );
-                keep.push(
                     Item::new(
                         tr("Réglages des icônes…"),
                         "preferences-system-symbolic",
                         CMsg::Settings,
                     )
                     .into(),
-                );
-                let mut remove: Vec<Line<CMsg>> = Vec::new();
+                ];
                 if m.own.is_some() {
-                    remove.push(
+                    tail.push(
                         Item::new(
                             tr("Retirer du bureau"),
                             "list-remove-symbolic",
@@ -689,7 +942,7 @@ impl App {
                     );
                 }
                 if m.path.is_some() {
-                    remove.push(
+                    tail.push(
                         Item::new(
                             if m.confirm {
                                 tr("Confirmer : mettre à la corbeille")
@@ -703,7 +956,7 @@ impl App {
                         .into(),
                     );
                 }
-                groups(vec![open, keep, remove])
+                groups(vec![open, actions, keep, tail])
             }
         }
     }
@@ -720,25 +973,37 @@ impl App {
         })
     }
 
-    /// Actions `.desktop` de l'application visée (MLG-308).
+    /// Actions `.desktop` de l'application visée (MLG-308). Elles portent des
+    /// icônes seulement si chacune en déclare une qui la représente : tous ou
+    /// aucune, jamais d'icône de secours (HIG MENU-15).
     fn action_lines(&self, m: &IconMenu) -> Vec<Line<CMsg>> {
-        m.entry
+        let actions: Vec<&crate::launch::DesktopAction> =
+            m.entry.iter().flat_map(|e| e.actions.iter()).collect();
+        let icons = actions.iter().all(|a| action_icon(a).is_some());
+        actions
             .iter()
-            .flat_map(|e| e.actions.iter())
             .map(|a| {
-                Item::new(
-                    a.name.clone(),
-                    a.icon
-                        .as_deref()
-                        .filter(|i| !i.contains('/'))
-                        .map(|i| format!("{}-symbolic", i.trim_end_matches("-symbolic")))
-                        .as_deref()
-                        .unwrap_or("application-x-executable-symbolic"),
-                    CMsg::Action(a.id.clone()),
-                )
-                .into()
+                let icon = if icons {
+                    action_icon(a).unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                Item::new(a.name.clone(), &icon, CMsg::Action(a.id.clone())).into()
             })
             .collect()
+    }
+
+    /// Rangée des actions d'une application : dans `open`, avec leurs icônes,
+    /// comme « Ouvrir » ; sinon un groupe à part, sans icônes.
+    fn place_actions(&self, open: &mut Vec<Line<CMsg>>, m: &IconMenu) -> Vec<Line<CMsg>> {
+        let mut actions = self.action_lines(m);
+        let icons = actions
+            .first()
+            .is_some_and(|l| matches!(l, Line::Item(i) if i.icon.is_some()));
+        if icons {
+            open.append(&mut actions);
+        }
+        actions
     }
 
     /// Fenêtres ouvertes de l'application, la plus récente d'abord.
@@ -801,7 +1066,7 @@ impl App {
                 );
             }
         }
-        open.extend(self.action_lines(m));
+        let actions = self.place_actions(&mut open, m);
         let mut keep: Vec<Line<CMsg>> = Vec::new();
         if let Some(id) = &a.id {
             keep.extend(self.pin_line(id));
@@ -827,7 +1092,16 @@ impl App {
                 .into(),
             ),
         }
-        groups(vec![windows, open, keep])
+        let mut parts = vec![windows, open, actions, keep];
+        // Carte ouverte vers le haut : le groupe le plus près du bouton vient
+        // en dernier, la liste des fenêtres n'est plus à l'extrémité opposée au
+        // pointeur (HIG MENU-09). Carte plafonnée à l'écran : ordre conservé —
+        // le défilement part du haut, qui doit montrer les fenêtres, et
+        // l'action destructrice reste hors de vue tant qu'on n'a pas défilé.
+        if m.upward && !m.scrolls {
+            parts.reverse();
+        }
+        groups(parts)
     }
 
     /// Destinations de « Partager… » : seules celles qu'on peut utiliser.
@@ -849,6 +1123,91 @@ impl App {
                 Item::new(label, icon, CMsg::ShareTo(t.clone())).into()
             })
             .collect()
+    }
+
+    /// Menu d'une fenêtre de l'aperçu des espaces : celui de la barre
+    /// (`plugins::bar::window::entries`), mêmes libellés et mêmes icônes
+    /// (HIG Context menus). La carte n'a qu'un niveau : « Déplacer vers
+    /// l'espace », un sous-menu dans la barre, y prend une seconde page,
+    /// comme « Partager… ».
+    fn window_lines(&self, w: &WindowRef) -> Vec<Line<CMsg>> {
+        let workspaces = self.workspaces.clone();
+        window::entries(&w.state, &workspaces, w.same_app)
+            .map(|(_, entries)| entries.into_iter().map(window_line).collect())
+            .unwrap_or_default()
+    }
+
+    /// Clic droit sur une fenêtre de l'aperçu des espaces (HIG MENU-06) : son
+    /// menu, celui de la barre, au curseur. La fenêtre a pu fermer depuis la
+    /// dernière lecture des géométries : rien alors.
+    pub(super) fn open_window_menu(
+        &mut self,
+        surface: Id,
+        monitor: &str,
+        address: &str,
+    ) -> Task<Msg> {
+        let Some((state, same_app)) = window::named(address) else {
+            return Task::none();
+        };
+        let at = self.cursor.get(&surface).copied().unwrap_or_default();
+        let mut menu = IconMenu::new(
+            MenuTarget::Window(WindowRef {
+                address: address.to_string(),
+                state,
+                same_app,
+            }),
+            surface,
+        );
+        menu.monitor = monitor.to_string();
+        self.spawn_menu(menu, at, false)
+    }
+
+    /// Clic droit sur le titre ou le fond d'une carte de l'aperçu des espaces
+    /// (HIG ENT-07) : deux entrées, celles des gestes de la carte.
+    pub(super) fn open_space_menu(
+        &mut self,
+        surface: Id,
+        monitor: &str,
+        card: usize,
+        name: &str,
+    ) -> Task<Msg> {
+        let at = self.cursor.get(&surface).copied().unwrap_or_default();
+        let mut menu = IconMenu::new(
+            MenuTarget::Space(SpaceRef {
+                card,
+                name: name.to_string(),
+            }),
+            surface,
+        );
+        menu.monitor = monitor.to_string();
+        self.spawn_menu(menu, at, false)
+    }
+
+    /// Clic droit sur une carte de notification du centre (HIG ENT-07), dans
+    /// la surface `surface` qui la montre : « Ouvrir » quand la carte mène
+    /// quelque part, « Fermer » toujours. Fermée depuis, rien.
+    pub(super) fn open_notification_menu(
+        &mut self,
+        surface: Id,
+        monitor: &str,
+        id: u32,
+    ) -> Task<Msg> {
+        let Some(openable) = self
+            .toasts
+            .history
+            .iter()
+            .find(|n| n.id == id)
+            .map(super::toasts::card_openable)
+        else {
+            return Task::none();
+        };
+        let at = self.cursor.get(&surface).copied().unwrap_or_default();
+        let mut menu = IconMenu::new(
+            MenuTarget::Notification(NotificationRef { id, openable }),
+            surface,
+        );
+        menu.monitor = monitor.to_string();
+        self.spawn_menu(menu, at, false)
     }
 
     /// Titre de la carte (vide : pas de titre).
@@ -882,6 +1241,10 @@ impl App {
             }
             MenuTarget::Desktop => crate::i18n::tr("Bureau").to_string(),
             MenuTarget::App(a) => a.name.clone(),
+            // Sans titre : la fenêtre vient d'être cliquée, elle est sous le
+            // curseur ; la carte d'espace, la carte de notification aussi.
+            MenuTarget::Window(_) => String::new(),
+            MenuTarget::Space(_) | MenuTarget::Notification(_) => String::new(),
             MenuTarget::Edit(_) => String::new(),
         };
         if m.share.is_some() && !name.is_empty() {
@@ -896,7 +1259,7 @@ impl App {
     }
 
     /// Applications épinglées au dock (réglage en cours, sinon la config).
-    fn pinned(&self) -> Vec<String> {
+    pub(in crate::ui) fn pinned(&self) -> Vec<String> {
         self.settings
             .launcher_pinned
             .clone()
@@ -914,7 +1277,7 @@ impl App {
         }
     }
 
-    fn icon_menu_height(&self, m: &IconMenu) -> f32 {
+    pub(in crate::ui) fn icon_menu_height(&self, m: &IconMenu) -> f32 {
         if let Some(props) = &m.props {
             return props_height(props);
         }
@@ -1004,23 +1367,35 @@ impl App {
         } else {
             0.0
         };
-        let h = self.icon_menu_height(&menu) + room + 2.0 * SHADOW;
+        let full = self.icon_menu_height(&menu) + room + 2.0 * SHADOW;
         let w = Self::icon_menu_width(&menu) + 2.0 * SHADOW;
         let (mut x, mut y) = if exact {
             (at.x, at.y)
         } else {
             (at.x - SHADOW, at.y - SHADOW)
         };
-        if let Some(m) = self.monitors.iter().find(|m| m.name == menu.monitor) {
+        // Carte plus haute que l'écran (dock : toutes ses fenêtres, toutes ses
+        // actions) : la surface est plafonnée et le contenu défile (HIG MENU-02).
+        let screen = self.monitors.iter().find(|m| m.name == menu.monitor);
+        let h = menu.cap(full, screen.map(|m| m.height as f32));
+        if let Some(m) = screen {
             x = x.min(m.width as f32 - w).max(0.0);
             y = y.min(m.height as f32 - h).max(0.0);
         }
         menu.origin = Point::new(x, y);
         menu.win = Id::unique();
         menu.catcher = Id::unique();
-        // Dock, grille, champs : leur surface peut être au-dessus de la couche
-        // « Top » ; le capteur passe alors par-dessus elle.
-        let over = matches!(menu.target, MenuTarget::App(_) | MenuTarget::Edit(_));
+        // Dock, grille, champs, aperçu des espaces, carte de la barre : leur
+        // surface peut être au-dessus de la couche « Top » ; le capteur passe
+        // alors par-dessus elle.
+        let over = matches!(
+            menu.target,
+            MenuTarget::App(_)
+                | MenuTarget::Edit(_)
+                | MenuTarget::Window(_)
+                | MenuTarget::Space(_)
+                | MenuTarget::Notification(_)
+        );
         let monitor = menu.monitor.clone();
         for name in super::menu::icons(&self.icon_menu_lines(&menu)) {
             tasks.push(self.want_icon(&name));
@@ -1155,6 +1530,9 @@ impl App {
             _ => None,
         };
         menu.monitor = monitor.to_string();
+        // Dock en bas : la carte s'ouvre vers le haut, au-dessus du bouton.
+        menu.upward =
+            self.launcher_bar_position(monitor) == crate::config::LauncherPosition::Bottom;
         let size = iced::Size::new(
             Self::icon_menu_width(&menu) + 2.0 * SHADOW,
             self.icon_menu_height(&menu) + 2.0 * SHADOW,
@@ -1163,23 +1541,39 @@ impl App {
             return Task::none();
         };
         let close = self.close_launcher_popup();
-        Task::batch([close, self.spawn_menu(menu, at, true)])
+        // Le menu d'une application a servi : plus d'astuce (HIG DAT-07).
+        let used = self.tip_used("dock-clic-droit");
+        Task::batch([close, used, self.spawn_menu(menu, at, true)])
     }
 
     /// Clavier dans un menu ouvert : flèches et Début/Fin choisissent une
-    /// entrée, Entrée (ou Espace) la prend, Échap ferme. Le champ de
-    /// renommage garde ses touches.
-    pub(super) fn icon_menu_key(&mut self, key: &iced::keyboard::Key) -> Option<Task<Msg>> {
+    /// entrée, Entrée (ou Espace) la prend, Échap ferme. Tab avance, Maj+Tab
+    /// recule comme la flèche haut (HIG ENT-05). Le champ de renommage garde
+    /// ses touches. Dans une carte plafonnée à l'écran, l'entrée choisie
+    /// reste visible.
+    pub(super) fn icon_menu_key(
+        &mut self,
+        key: &iced::keyboard::Key,
+        shift: bool,
+    ) -> Option<Task<Msg>> {
         use iced::keyboard::{Key, key::Named};
+        use iced::widget::operation::{AbsoluteOffset, scroll_to};
         let m = self.icon_menu.as_ref()?;
         if m.rename.is_some() || m.props.is_some() {
             return None;
         }
         let lines = self.icon_menu_lines(m);
+        let head = if self.icon_menu_title(m).is_empty() {
+            0.0
+        } else {
+            super::menu::HEADER
+        };
+        let scrolls = m.scrolls;
         let hover = m.hover;
         let next = match key {
             Key::Named(Named::Escape) => return Some(self.close_icon_menu()),
-            Key::Named(Named::ArrowDown | Named::Tab) => super::menu::step(&lines, hover, true),
+            Key::Named(Named::Tab) => super::menu::step(&lines, hover, !shift),
+            Key::Named(Named::ArrowDown) => super::menu::step(&lines, hover, true),
             Key::Named(Named::ArrowUp) => super::menu::step(&lines, hover, false),
             Key::Named(Named::Home | Named::PageUp) => super::menu::edge(&lines, true),
             Key::Named(Named::End | Named::PageDown) => super::menu::edge(&lines, false),
@@ -1195,8 +1589,27 @@ impl App {
             }
             _ => return None,
         };
-        if let Some(m) = self.icon_menu.as_mut() {
-            m.hover = next;
+        let Some(m) = self.icon_menu.as_mut() else {
+            return Some(Task::none());
+        };
+        m.hover = next;
+        // Carte plafonnée : le défilement suit l'entrée choisie.
+        if let (true, Some(i)) = (scrolls, next) {
+            let top = super::menu::height;
+            m.offset = follow(
+                m.offset,
+                m.viewport,
+                head + top(&lines),
+                head + top(&lines[..i]),
+                top(&lines[i..i + 1]),
+            );
+            return Some(scroll_to(
+                SCROLL,
+                AbsoluteOffset {
+                    x: 0.0,
+                    y: m.offset,
+                },
+            ));
         }
         Some(Task::none())
     }
@@ -1366,13 +1779,24 @@ impl App {
                     return close;
                 };
                 let mut l = self.pinned();
+                let mut undo = Task::none();
                 if let Some(at) = l.iter().position(|x| x == &a) {
                     l.remove(at);
+                    // Retiré du dock : la bulle propose de le rétablir (HIG PAT-12).
+                    let name = self
+                        .apps
+                        .iter()
+                        .find(|x| x.id == a)
+                        .map_or_else(|| a.clone(), |x| x.name.clone());
+                    undo = self.show_undo(
+                        crate::tr!("Retiré du dock : « {name} »", name = name),
+                        ShellUndo::Pin { at, app: a },
+                    );
                 } else {
                     l.push(a);
                 }
                 self.settings.launcher_pinned = Some(l);
-                Task::batch([close, self.commit()])
+                Task::batch([close, self.commit(), undo])
             }
             CMsg::RemoveWidget => {
                 let target = self.icon_menu_target();
@@ -1385,8 +1809,25 @@ impl App {
                 {
                     p.widgets.widget_sel = None;
                 }
+                let undo = match self.settings.widgets.iter().position(|w| w.id == id) {
+                    Some(at) => {
+                        let def = self.settings.widgets[at].clone();
+                        // Le nom du catalogue, comme la page Widgets.
+                        let name = self
+                            .cfg
+                            .catalog
+                            .iter()
+                            .find(|t| t.id == def.type_id)
+                            .map_or_else(|| def.type_id.clone(), |t| t.name.clone());
+                        self.show_undo(
+                            crate::tr!("Widget retiré du bureau : « {name} »", name = name),
+                            ShellUndo::Widget { at, def },
+                        )
+                    }
+                    None => Task::none(),
+                };
                 self.settings.remove_widget(&id);
-                Task::batch([close, self.commit()])
+                Task::batch([close, self.commit(), undo])
             }
             CMsg::WidgetSettings => {
                 let target = self.icon_menu_target();
@@ -1437,9 +1878,27 @@ impl App {
                 let Some(i) = own else {
                     return close;
                 };
+                let undo = match self.settings.icons.get(i).cloned() {
+                    Some(def) => {
+                        // Le nom affiché sous l'icône (application résolue
+                        // comprise), sinon celui des réglages.
+                        let name = self
+                            .icons
+                            .get(idx)
+                            .map(|r| r.label.clone())
+                            .filter(|l| !l.is_empty())
+                            .or_else(|| def.label.clone())
+                            .unwrap_or_else(|| def.id.clone());
+                        self.show_undo(
+                            crate::tr!("Retiré du bureau : « {name} »", name = name),
+                            ShellUndo::Icon { at: i, def },
+                        )
+                    }
+                    None => Task::none(),
+                };
                 self.settings.remove_icon(i);
                 self.selected = None;
-                Task::batch([close, self.commit()])
+                Task::batch([close, self.commit(), undo])
             }
             CMsg::Settings => {
                 let page = match self.icon_menu_target() {
@@ -1599,6 +2058,86 @@ impl App {
                     None => close,
                 }
             }
+            // Comme l'entrée d'un menu de la barre (`popover.rs`, `MenuSource::Window`).
+            CMsg::WindowAct(action) => {
+                let address = match &menu.target {
+                    MenuTarget::Window(w) => Some(w.address.clone()),
+                    _ => None,
+                };
+                let close = self.close_icon_menu();
+                let Some(address) = address else {
+                    return close;
+                };
+                Task::batch([
+                    close,
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                if let Err(e) = window::act(&address, action) {
+                                    tracing::warn!("{}", crate::tr!("fenêtre : {e}", e = e));
+                                }
+                            })
+                            .await
+                        },
+                        |_| Msg::Noop,
+                    ),
+                ])
+            }
+            CMsg::WindowSpaces(list) => {
+                let Some(mut m) = self.icon_menu.take() else {
+                    return Task::none();
+                };
+                let close =
+                    Task::batch([iced::window::close(m.win), iced::window::close(m.catcher)]);
+                m.spaces = Some(
+                    list.into_iter()
+                        .map(|(label, action)| Item::new(label, "", CMsg::WindowAct(action)).into())
+                        .collect(),
+                );
+                m.hover = None;
+                Task::batch([close, self.reopen_icon_menu(m)])
+            }
+            // Carte d'espace de l'aperçu (HIG ENT-07) : le clic sur le fond de
+            // la carte, puis le double-clic sur son titre. La carte est
+            // retrouvée par son nom : son rang a pu vieillir.
+            CMsg::SpaceShow => {
+                let name = match &menu.target {
+                    MenuTarget::Space(s) => Some(s.name.clone()),
+                    _ => None,
+                };
+                let close = self.close_icon_menu();
+                match name {
+                    Some(name) => Task::batch([close, self.overview_update(OMsg::Pick(name))]),
+                    None => close,
+                }
+            }
+            CMsg::SpaceRename => {
+                let r = match &menu.target {
+                    MenuTarget::Space(s) => Some(s.clone()),
+                    _ => None,
+                };
+                let close = self.close_icon_menu();
+                let Some(r) = r else {
+                    return close;
+                };
+                let card = self
+                    .overview_cards()
+                    .iter()
+                    .position(|c| c.name == r.name)
+                    .unwrap_or(r.card);
+                Task::batch([close, self.overview_update(OMsg::RenameStart(card))])
+            }
+            // Carte de notification du centre (HIG ENT-07) : ce que font le
+            // clic sur la carte, son bouton de fermeture. L'identifiant est
+            // celui du menu : fermée depuis, ces commandes ne font rien.
+            CMsg::NotifOpen(id) => {
+                let close = self.close_icon_menu();
+                Task::batch([close, self.toasts_update(TMsg::Card(id))])
+            }
+            CMsg::NotifClose(id) => {
+                let close = self.close_icon_menu();
+                Task::batch([close, self.toasts_update(TMsg::Close(id))])
+            }
             CMsg::Close => self.close_icon_menu(),
             CMsg::Done(r) => {
                 if let Err(e) = r {
@@ -1707,7 +2246,11 @@ impl App {
                 ));
             }
             // Pas de « Propriétés » dans ces menus.
-            MenuTarget::App(_) | MenuTarget::Edit(_) => {}
+            MenuTarget::App(_)
+            | MenuTarget::Edit(_)
+            | MenuTarget::Window(_)
+            | MenuTarget::Space(_)
+            | MenuTarget::Notification(_) => {}
             MenuTarget::Desktop => {
                 if let Some(m) = self.monitor(desk) {
                     v.push((
@@ -1764,6 +2307,7 @@ impl App {
         &'a self,
         name: &str,
         props: &'a [(String, String)],
+        scrolls: bool,
     ) -> Element<'a, Msg> {
         let th = &self.cfg.general.theme;
         let fg = color(th.fg, 1.0);
@@ -1776,13 +2320,14 @@ impl App {
         let mut col = column![
             text(crate::tr!("Propriétés — {n}", n = name))
                 .font(self.title_font())
-                .size(crate::ui::tokens::ts(14.0))
+                .size(crate::ui::tokens::ts(13.0))
                 .color(fg)
                 .height(ROW)
         ]
         .spacing(6);
+        let mut list = column![].spacing(6);
         for (k, v) in props {
-            col = col.push(
+            list = list.push(
                 column![
                     text(k.clone())
                         .font(self.font)
@@ -1797,6 +2342,18 @@ impl App {
                 .spacing(1),
             );
         }
+        // Carte plafonnée à l'écran : les propriétés défilent, le titre et les
+        // commandes restent (HIG MENU-02).
+        let list: Element<'_, Msg> = if scrolls {
+            iced::widget::scrollable(list)
+                .id(SCROLL)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        } else {
+            list.into()
+        };
+        col = col.push(list);
         let btn = |label: &'static str, msg: CMsg| {
             button(
                 text(crate::i18n::tr(label))
@@ -1834,6 +2391,11 @@ impl App {
         let card = container(col)
             .padding(14)
             .width(PROPS_WIDTH)
+            .height(if scrolls {
+                Length::Fill
+            } else {
+                Length::Shrink
+            })
             .style(move |_| container::Style {
                 background: Some(bg.into()),
                 border: Border::default()
@@ -1848,7 +2410,12 @@ impl App {
                 text_color: Some(fg),
                 ..Default::default()
             });
-        container(card).padding(SHADOW).into()
+        let card = container(card).padding(SHADOW);
+        if scrolls {
+            card.height(Length::Fill).into()
+        } else {
+            card.into()
+        }
     }
 
     pub(super) fn view_icon_catcher(&self) -> Element<'_, Msg> {
@@ -1874,7 +2441,7 @@ impl App {
         );
         let name = self.icon_menu_title(m);
         if let Some(props) = &m.props {
-            return self.view_properties(&name, props);
+            return self.view_properties(&name, props, m.scrolls);
         }
         let ink = self.menu_ink(1.0);
         let mut col = column![].spacing(0);
@@ -1882,6 +2449,20 @@ impl App {
             col = col.push(self.menu_header(ink, name));
         }
         col = col.push(self.menu_lines(ink, &self.icon_menu_lines(m), m.hover, Msg::IconMenu));
+        // Carte plafonnée à l'écran : les lignes défilent dans la carte, qui
+        // garde son coin et son ombre ; le renommage, lui, reste en bas.
+        let scrolls = m.scrolls;
+        let mut col = if scrolls {
+            column![
+                iced::widget::scrollable(col)
+                    .id(SCROLL)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+            ]
+            .spacing(0)
+        } else {
+            col
+        };
         if let Some(r) = &m.rename {
             col = col.push(
                 text_input(crate::i18n::tr("Nouveau nom"), r)
@@ -1889,7 +2470,7 @@ impl App {
                     .on_input(|s| Msg::IconMenu(CMsg::RenameInput(s)))
                     .on_submit(Msg::IconMenu(CMsg::RenameSubmit))
                     .font(self.font)
-                    .size(crate::ui::tokens::ts(14.0))
+                    .size(crate::ui::tokens::ts(13.0))
                     .padding(8),
             );
         }
@@ -1904,6 +2485,11 @@ impl App {
         let card = container(col)
             .padding(PAD)
             .width(Self::icon_menu_width(m))
+            .height(if scrolls {
+                Length::Fill
+            } else {
+                Length::Shrink
+            })
             .style(move |_| container::Style {
                 background: Some(bg.into()),
                 border: Border::default()
@@ -1919,7 +2505,12 @@ impl App {
                 text_color: Some(fg),
                 ..Default::default()
             });
-        container(card).padding(SHADOW).into()
+        let card = container(card).padding(SHADOW);
+        if scrolls {
+            card.height(Length::Fill).into()
+        } else {
+            card.into()
+        }
     }
 }
 
@@ -1952,6 +2543,124 @@ mod tests {
         assert!(!valid_name("  "));
         assert!(!valid_name("a/b"));
         assert!(!valid_name(".."));
+    }
+
+    fn ecran(height: u32) -> crate::hypr::Monitor {
+        crate::hypr::Monitor {
+            dpms_off: false,
+            name: "A".into(),
+            width: 1920,
+            height,
+            workspace: "1".into(),
+            base: String::new(),
+            focused: true,
+            scale: 1.0,
+            reserved: (0.0, 0.0, 0.0, 0.0),
+            x: 0.0,
+            y: 0.0,
+        }
+    }
+
+    /// Le dock : `n` fenêtres d'une même application.
+    fn dock_et_ses_fenetres(n: usize) -> (App, IconMenu) {
+        let mut app = app();
+        app.monitors = vec![ecran(1080)];
+        app.clients = (0..n)
+            .map(|k| crate::hypr::Client {
+                address: format!("0x{k:x}"),
+                class: "firefox".into(),
+                title: format!("Fenêtre {k}"),
+                workspace: "1".into(),
+                monitor: "A".into(),
+            })
+            .collect();
+        let mut m = IconMenu::new(
+            MenuTarget::App(AppRef {
+                id: Some("firefox".into()),
+                class: None,
+                name: "Firefox".into(),
+            }),
+            Id::unique(),
+        );
+        m.monitor = "A".into();
+        (app, m)
+    }
+
+    /// Une carte plus haute que l'écran (dock : toutes ses fenêtres) est
+    /// plafonnée à l'écran et défile ; une carte qui tient garde sa taille
+    /// et sa surface fixe (HIG MENU-02).
+    #[test]
+    fn carte_plafonnee_a_l_ecran() {
+        assert_eq!(window_height(400.0, 1080.0), (400.0, false));
+        assert_eq!(window_height(2000.0, 1080.0), (1080.0, true));
+
+        let (mut app, m) = dock_et_ses_fenetres(2);
+        let _ = app.spawn_menu(m, Point::new(10.0, 10.0), false);
+        let menu = app.icon_menu.as_ref().unwrap();
+        assert!(!menu.scrolls && menu.viewport == 0.0);
+
+        let (mut app, m) = dock_et_ses_fenetres(80);
+        let _ = app.spawn_menu(m, Point::new(10.0, 10.0), false);
+        let menu = app.icon_menu.as_ref().unwrap();
+        assert!(menu.scrolls);
+        // La surface occupe l'écran ; la carte y garde son ombre et sa marge.
+        assert!((menu.viewport - (1080.0 - 2.0 * (SHADOW + PAD))).abs() < 0.5);
+        assert!(menu.origin.y >= 0.0 && menu.origin.y <= 2.0 * SHADOW);
+    }
+
+    #[test]
+    fn le_defilement_suite_l_entre_choisie() {
+        // Déjà visible : rien ne bouge.
+        assert_eq!(follow(0.0, 300.0, 900.0, 100.0, 30.0), 0.0);
+        assert_eq!(follow(600.0, 300.0, 900.0, 610.0, 30.0), 600.0);
+        // Sous la fenêtre : elle en devient le bas ; au-dessus : le haut.
+        assert_eq!(follow(0.0, 300.0, 900.0, 290.0, 30.0), 20.0);
+        assert_eq!(follow(600.0, 300.0, 900.0, 590.0, 30.0), 590.0);
+        // Jamais au-delà du contenu.
+        assert_eq!(follow(0.0, 300.0, 900.0, 880.0, 30.0), 600.0);
+        assert_eq!(follow(600.0, 300.0, 900.0, 0.0, 30.0), 0.0);
+    }
+
+    /// Tab avance, Maj+Tab recule comme la flèche haut (HIG ENT-05) ; dans
+    /// une carte plafonnée, le défilement mène l'entrée choisie.
+    #[test]
+    fn maj_tab_recule_et_la_carte_suite() {
+        use super::super::menu::{HEADER, height};
+        use iced::keyboard::key::Named;
+        let key = iced::keyboard::Key::Named;
+        let hover = |a: &App| a.icon_menu.as_ref().and_then(|m| m.hover);
+
+        let (mut app, m) = dock_et_ses_fenetres(2);
+        let _ = app.spawn_menu(m, Point::new(10.0, 10.0), false);
+        let _ = app.icon_menu_key(&key(Named::Tab), false);
+        assert_eq!(hover(&app), Some(0));
+        let _ = app.icon_menu_key(&key(Named::Tab), false);
+        assert_eq!(hover(&app), Some(1));
+        let _ = app.icon_menu_key(&key(Named::Tab), true);
+        assert_eq!(hover(&app), Some(0));
+        let up = app.icon_menu_key(&key(Named::Tab), true).is_some();
+        let last = {
+            let menu = app.icon_menu.as_ref().unwrap();
+            super::super::menu::edge(&app.icon_menu_lines(menu), false)
+        };
+        assert!(up && hover(&app) == last, "Maj+Tab boucle sur la dernière");
+
+        let (mut app, m) = dock_et_ses_fenetres(80);
+        let _ = app.spawn_menu(m, Point::new(10.0, 10.0), false);
+        let _ = app.icon_menu_key(&key(Named::ArrowDown), false);
+        let _ = app.icon_menu_key(&key(Named::ArrowDown), false);
+        let menu = app.icon_menu.as_ref().unwrap();
+        assert_eq!(menu.hover, Some(1));
+        assert_eq!(menu.offset, 0.0, "les premières entrées sont visibles");
+        let _ = app.icon_menu_key(&key(Named::End), false);
+        let menu = app.icon_menu.as_ref().unwrap();
+        let lines = app.icon_menu_lines(menu);
+        let head = if app.icon_menu_title(menu).is_empty() {
+            0.0
+        } else {
+            HEADER
+        };
+        assert_eq!(menu.offset, head + height(&lines) - menu.viewport);
     }
 
     fn app() -> App {
@@ -1994,6 +2703,99 @@ mod tests {
         );
         assert!(it.iter().any(|i| matches!(i.msg, CMsg::Share)));
         assert_eq!(it.iter().filter(|i| i.danger).count(), 1);
+    }
+
+    fn action(id: &str, icon: Option<&str>) -> crate::launch::DesktopAction {
+        crate::launch::DesktopAction {
+            id: id.into(),
+            name: id.into(),
+            icon: icon.map(str::to_string),
+            exec: String::new(),
+        }
+    }
+
+    fn action_items(lines: &[Line<CMsg>]) -> Vec<&super::super::menu::Item<CMsg>> {
+        items(lines)
+            .into_iter()
+            .filter(|i| matches!(i.msg, CMsg::Action(_)))
+            .collect()
+    }
+
+    /// Les actions d'une application portent des icônes tous ou aucune :
+    /// sans icône claire pour l'une, aucune n'en a, pas même de secours, et
+    /// le groupe se sépare de « Ouvrir ».
+    #[test]
+    fn actions_tous_ou_aucune_icone() {
+        let app = app();
+        let mut m = IconMenu::new(MenuTarget::Icon, Id::unique());
+        m.app = Some("exemple".into());
+        let mut entry = crate::launch::DesktopEntry {
+            actions: vec![
+                action("new-window", Some("window-new")),
+                action("bench", None),
+            ],
+            ..Default::default()
+        };
+        m.entry = Some(entry.clone());
+        let lines = app.icon_menu_lines(&m);
+        let acts = action_items(&lines);
+        assert_eq!(acts.len(), 2);
+        assert!(acts.iter().all(|i| i.icon.is_none()));
+        assert!(
+            items(&lines)
+                .iter()
+                .all(|i| i.icon.as_deref() != Some("application-x-executable-symbolic"))
+        );
+        assert!(matches!(
+            &lines[..3],
+            [Line::Item(_), Line::Separator, Line::Item(_)]
+        ));
+
+        entry.actions[1].icon = Some("applications-science-symbolic".into());
+        m.entry = Some(entry);
+        let lines = app.icon_menu_lines(&m);
+        let acts = action_items(&lines);
+        assert_eq!(acts.len(), 2);
+        assert_eq!(acts[0].icon.as_deref(), Some("window-new-symbolic"));
+        assert_eq!(
+            acts[1].icon.as_deref(),
+            Some("applications-science-symbolic")
+        );
+        // Avec leurs icônes, les actions suivent « Ouvrir » sans séparateur.
+        assert!(matches!(&lines[..2], [Line::Item(_), Line::Item(_)]));
+    }
+
+    /// Le groupe central garde au plus cinq commandes : « Propriétés » et
+    /// « Réglages des icônes… » passent au dernier groupe, avant la corbeille.
+    #[test]
+    fn proprietes_au_dernier_groupe() {
+        let app = app();
+        let mut m = IconMenu::new(MenuTarget::Icon, Id::unique());
+        m.path = Some("/tmp/hyprdesk-menus-tests/fond.jpg".into());
+        m.app = Some("exemple".into());
+        let lines = app.icon_menu_lines(&m);
+        let seps: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(i, l)| matches!(l, Line::Separator).then_some(i))
+            .collect();
+        assert_eq!(seps.len(), 2, "trois groupes");
+        let middle = &lines[seps[0] + 1..seps[1]];
+        assert!(middle.len() <= 5, "{} commandes au centre", middle.len());
+        assert!(middle.iter().all(|l| match l {
+            Line::Item(i) => !matches!(i.msg, CMsg::Properties | CMsg::Settings),
+            Line::Separator => false,
+        }));
+        assert!(matches!(
+            &lines[seps[1] + 1..seps[1] + 3],
+            [Line::Item(a), Line::Item(b)]
+                if matches!(a.msg, CMsg::Properties) && matches!(b.msg, CMsg::Settings)
+        ));
+        assert!(
+            items(&lines)
+                .last()
+                .is_some_and(|i| i.danger && matches!(i.msg, CMsg::Trash))
+        );
     }
 
     /// Application du dock avec deux fenêtres : elles d'abord, la sienne au
@@ -2048,6 +2850,72 @@ mod tests {
         assert!(!it2.iter().any(|i| matches!(i.msg, CMsg::CloseWindows)));
     }
 
+    /// Dock en bas : la carte s'ouvre vers le haut, les groupes en ordre
+    /// inverse — épingler et fermer en tête, la liste des fenêtres contre le
+    /// bouton (HIG MENU-09). Carte plafonnée : l'ordre ne change pas.
+    #[test]
+    fn menu_du_dock_ouvert_vers_le_haut() {
+        type Entry = super::super::menu::Item<CMsg>;
+        let group = |i: &Entry| match &i.msg {
+            CMsg::Focus(_) => 0,
+            CMsg::Launch => 1,
+            CMsg::Action(_) => 2,
+            _ => 3,
+        };
+        let keys =
+            |lines: &[Line<CMsg>]| items(lines).iter().map(|i| group(i)).collect::<Vec<u8>>();
+        let labels = |lines: &[Line<CMsg>], k: u8| {
+            items(lines)
+                .iter()
+                .filter(|i| group(i) == k)
+                .map(|i| i.label.clone())
+                .collect::<Vec<_>>()
+        };
+        let mut app = app();
+        let c = |a: &str, t: &str| crate::hypr::Client {
+            address: a.into(),
+            class: "firefox".into(),
+            title: t.into(),
+            workspace: "1".into(),
+            monitor: "A".into(),
+        };
+        app.clients = vec![c("0x1", "Un"), c("0x2", "Deux")];
+        let mut m = IconMenu::new(
+            MenuTarget::App(AppRef {
+                id: Some("firefox".into()),
+                class: None,
+                name: "Firefox".into(),
+            }),
+            Id::unique(),
+        );
+        // Vers le bas : fenêtres, ouvrir, actions, épingler et fermer.
+        let down = app.icon_menu_lines(&m);
+        let d = keys(&down);
+        assert!(d.windows(2).all(|w| w[0] <= w[1]), "{d:?}");
+        // Vers le haut : l'ordre des groupes s'inverse, pas celui des lignes.
+        m.upward = true;
+        let up = app.icon_menu_lines(&m);
+        let u = keys(&up);
+        assert!(u.windows(2).all(|w| w[0] >= w[1]), "{u:?}");
+        for k in 0..=3 {
+            assert_eq!(labels(&down, k), labels(&up, k), "groupe {k}");
+        }
+        let it = items(&up);
+        let n = it.len();
+        let windows: Vec<_> = it[n - 2..]
+            .iter()
+            .map(|i| match &i.msg {
+                CMsg::Focus(a) => Some(a.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(windows, vec![Some("0x1"), Some("0x2")]);
+        assert!(matches!(&it[0].msg, CMsg::Pin | CMsg::CloseWindows));
+        // Carte plafonnée à l'écran : l'ordre est celui d'origine.
+        m.scrolls = true;
+        assert_eq!(keys(&app.icon_menu_lines(&m)), d);
+    }
+
     /// Champ de saisie : Couper et Copier grisés sans sélection, Coller sans
     /// texte à coller ; Tout sélectionner toujours.
     #[test]
@@ -2070,6 +2938,222 @@ mod tests {
         };
         assert_eq!(edit(false, true), [false, false, true, true]);
         assert_eq!(edit(true, false), [true, true, false, true]);
+    }
+
+    /// Le menu d'une fenêtre de l'aperçu est celui de la barre : mêmes
+    /// libellés et mêmes icônes, coches et états compris ; « Déplacer vers
+    /// l'espace » ouvre ses espaces en seconde page (HIG MENU-06).
+    #[test]
+    fn menu_d_une_fenetre_de_l_apercu() {
+        let mut app = app();
+        app.monitors = vec![ecran(1080)];
+        app.workspaces = (1..=3)
+            .map(|id| crate::hypr::Workspace {
+                id,
+                name: format!("Projet {id}"),
+                monitor: "A".into(),
+                windows: 1,
+                fullscreen: false,
+            })
+            .collect();
+        let mut m = IconMenu::new(
+            MenuTarget::Window(WindowRef {
+                address: "0x6".into(),
+                state: serde_json::json!({
+                    "address": "0x6",
+                    "class": "kitty",
+                    "floating": true,
+                    "pinned": false,
+                    "fullscreen": 1,
+                    "workspace": { "id": 1, "name": "1" }
+                }),
+                same_app: 2,
+            }),
+            Id::unique(),
+        );
+        m.monitor = "A".into();
+        app.icon_menu = Some(m);
+        let lines = app.icon_menu_lines(app.icon_menu.as_ref().unwrap());
+        let it = items(&lines);
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        let labels: Vec<String> = it.iter().map(|i| i.label.clone()).collect();
+        assert_eq!(
+            labels,
+            [
+                tr("Réduire"),
+                tr("Agrandir"),
+                tr("Plein écran"),
+                tr("Flottante"),
+                tr("Sur tous les espaces"),
+                // La suite est annoncée, comme « Partager… ».
+                format!("{}…", tr("Déplacer vers l'espace")),
+                tr("Fermer toutes les fenêtres"),
+                tr("Fermer")
+            ]
+        );
+        // Mêmes icônes que la barre ; la coche marque l'état en cours.
+        assert_eq!(it[0].icon.as_deref(), Some("window-minimize-symbolic"));
+        assert_eq!(it[7].icon.as_deref(), Some("window-close-symbolic"));
+        assert_eq!(it[6].detail.as_deref(), Some("2"));
+        assert!(it[1].checked && it[3].checked, "agrandie, flottante");
+        assert!(!it[0].checked && !it[2].checked && !it[4].checked);
+        // Flottante : Hyprland accepte de l'épingler.
+        assert!(it.iter().all(|i| i.enabled));
+        // Deux groupes de séparation : états, déplacement, fermeture.
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|l| matches!(l, Line::Separator))
+                .count(),
+            2
+        );
+        // Sans titre : la fenêtre est sous le curseur.
+        assert!(
+            app.icon_menu_title(app.icon_menu.as_ref().unwrap())
+                .is_empty()
+        );
+        let list = match &it[5].msg {
+            CMsg::WindowSpaces(s) => s.clone(),
+            other => panic!("pas un changement de page : {other:?}"),
+        };
+        // La seconde page : les autres espaces, l'action de la barre à chacun.
+        let _ = app.icon_menu_update(CMsg::WindowSpaces(list));
+        let m = app.icon_menu.as_ref().unwrap();
+        let page = app.icon_menu_lines(m);
+        let spaces = items(&page);
+        let labels: Vec<&str> = spaces.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels, ["Projet 2", "Projet 3"]);
+        assert!(matches!(spaces[0].msg, CMsg::WindowAct(1002)));
+        assert!(matches!(spaces[1].msg, CMsg::WindowAct(1003)));
+    }
+
+    /// Carte d'espace de l'aperçu (HIG ENT-07) : deux entrées, celles des
+    /// gestes de la carte — afficher l'espace, le renommer ; sans titre.
+    #[test]
+    fn menu_d_une_carte_d_espace() {
+        let mut app = app();
+        app.monitors = vec![ecran(1080)];
+        let mut m = IconMenu::new(
+            MenuTarget::Space(SpaceRef {
+                card: 1,
+                name: "Projet 2".into(),
+            }),
+            Id::unique(),
+        );
+        m.monitor = "A".into();
+        app.icon_menu = Some(m);
+        let lines = app.icon_menu_lines(app.icon_menu.as_ref().unwrap());
+        let it = items(&lines);
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        let labels: Vec<String> = it.iter().map(|i| i.label.clone()).collect();
+        assert_eq!(labels, [tr("Afficher l'espace"), tr("Renommer…")]);
+        assert_eq!(it[0].icon.as_deref(), Some("go-jump-symbolic"));
+        assert_eq!(it[1].icon.as_deref(), Some("document-edit-symbolic"));
+        assert!(it.iter().all(|i| i.enabled));
+        assert!(matches!(it[0].msg, CMsg::SpaceShow));
+        assert!(matches!(it[1].msg, CMsg::SpaceRename));
+        // Court : un seul groupe.
+        assert!(
+            lines.iter().all(|l| !matches!(l, Line::Separator)),
+            "deux entrées, sans groupe"
+        );
+        assert!(
+            app.icon_menu_title(app.icon_menu.as_ref().unwrap())
+                .is_empty()
+        );
+    }
+
+    /// Carte de notification du centre (HIG ENT-07) : « Ouvrir » quand la
+    /// carte mène quelque part, « Fermer » toujours. Sans cible, l'entrée se
+    /// retire : une commande sans effet dans le contexte ne se grise pas.
+    #[test]
+    fn menu_d_une_carte_de_notification() {
+        let mut app = app();
+        app.monitors = vec![ecran(1080)];
+        let tr = |s: &str| crate::i18n::tr(s).to_string();
+        for (openable, attendu) in [
+            (true, vec![tr("Ouvrir"), tr("Fermer")]),
+            (false, vec![tr("Fermer")]),
+        ] {
+            let mut m = IconMenu::new(
+                MenuTarget::Notification(NotificationRef { id: 4, openable }),
+                Id::unique(),
+            );
+            m.monitor = "A".into();
+            app.icon_menu = Some(m);
+            let lines = app.icon_menu_lines(app.icon_menu.as_ref().unwrap());
+            let it = items(&lines);
+            let labels: Vec<String> = it.iter().map(|i| i.label.clone()).collect();
+            assert_eq!(labels, attendu);
+            // « Fermer » vient en dernier, toujours ; « Ouvrir » en tête.
+            let fermer = it.len() - 1;
+            assert_eq!(it[fermer].icon.as_deref(), Some("window-close-symbolic"));
+            assert!(matches!(it[fermer].msg, CMsg::NotifClose(4)));
+            if openable {
+                assert_eq!(it[0].icon.as_deref(), Some("document-open-symbolic"));
+                assert!(matches!(it[0].msg, CMsg::NotifOpen(4)));
+            }
+        }
+        assert!(
+            app.icon_menu_title(app.icon_menu.as_ref().unwrap())
+                .is_empty()
+        );
+    }
+
+    /// Les entrées du menu d'une carte d'espace (HIG ENT-07) font ce que font
+    /// les gestes de la carte, et le menu se ferme : « Renommer… » ouvre le
+    /// renommage de la carte — retrouvée par son nom quand son rang a vieilli
+    /// —, « Afficher l'espace » referme l'aperçu.
+    #[test]
+    fn les_entrees_du_menu_d_espace_agissent_comme_la_carte() {
+        let mut app = app();
+        app.monitors = vec![ecran(1080)];
+        app.workspaces = (1..=3)
+            .map(|id| crate::hypr::Workspace {
+                id,
+                name: format!("Projet {id}"),
+                monitor: "A".into(),
+                windows: 1,
+                fullscreen: false,
+            })
+            .collect();
+        let menu = |card: usize| {
+            let mut m = IconMenu::new(
+                MenuTarget::Space(SpaceRef {
+                    card,
+                    name: "Projet 3".into(),
+                }),
+                Id::unique(),
+            );
+            m.monitor = "A".into();
+            m
+        };
+        app.overview = Some(super::super::overview::Overview::new(
+            Id::unique(),
+            "A".into(),
+            super::super::Fade {
+                from: 1.0,
+                to: 1.0,
+                start: std::time::Instant::now(),
+                dur: std::time::Duration::ZERO,
+            },
+        ));
+        // Le rang lu à l'ouverture a vieilli : la carte est la troisième.
+        app.icon_menu = Some(menu(0));
+        let _ = app.icon_menu_update(CMsg::SpaceRename);
+        assert!(app.icon_menu.is_none(), "le menu se ferme");
+        assert_eq!(
+            app.overview.as_ref().and_then(|o| o.renaming.clone()),
+            Some((2, "Projet 3".to_string()))
+        );
+        app.overview.as_mut().unwrap().renaming = None;
+        app.icon_menu = Some(menu(2));
+        let _ = app.icon_menu_update(CMsg::SpaceShow);
+        assert!(app.icon_menu.is_none());
+        assert!(
+            app.overview.as_ref().is_none_or(|o| o.visibility.to == 0.0),
+            "l'aperçu se referme"
+        );
     }
 
     #[test]

@@ -808,14 +808,12 @@ fn request(target: &str, persist: Persist, device: Option<&str>) -> Result<Strin
     }
     let out = out?;
     if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(match out.status.code() {
-            Some(126 | 127) if err.is_empty() => {
-                crate::i18n::tr("Authentification annulée.").to_string()
-            }
-            _ if err.is_empty() => crate::i18n::tr("Échec, sans message.").to_string(),
-            _ => err.trim_start_matches("hyprdesk gpu : ").to_string(),
-        });
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(crate::polkit::pkexec_failure(
+            crate::i18n::tr("Changement de pilote graphique"),
+            out.status.code(),
+            err.trim().trim_start_matches("hyprdesk gpu : "),
+        ));
     }
     Ok(match persist {
         Persist::Boot => crate::tr!(

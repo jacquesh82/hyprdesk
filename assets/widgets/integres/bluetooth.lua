@@ -31,7 +31,7 @@ end
 
 return {
     name        = hd.t("Bluetooth"),
-    description = hd.t("Activation et appareils (connexion, déconnexion)."),
+    description = hd.t("Activer le Bluetooth et gérer ses appareils (connexion, déconnexion)."),
     interval    = 10,
     anchor      = "top-right",
     options     = { texte = false },
@@ -105,7 +105,7 @@ return {
                 local b = levels[d.mac]
                 if b == nil then b = battery(d.mac) end
                 b = b or nil
-                detail = hd.t("connecté") .. (b and (" · " .. b .. " %") or "")
+                detail = hd.t("Connecté") .. (b and (" · " .. b .. " %") or "")
             end
             m[#m + 1] = { label = d.name, detail = detail, checked = c or nil,
                           action = function()
