@@ -304,7 +304,8 @@ symbole : le survol dit le titre et l'état, le clic bascule, le clic droit
 **Le clavier à chaque surface.** Quatre raccourcis posent le clavier sur une
 surface du shell, sans en refermer ni changer de mode : `CTRL + F2` va à la
 barre de l'écran actif, `CTRL + F3` au dock (bureau masqué, il paraît sous les
-fenêtres, qui restent en place), `CTRL + F8` ouvre le centre de notifications,
+fenêtres, qui restent en place), `CTRL + F8` donne le clavier aux bulles à l'écran, sinon ouvre le centre de
+notifications,
 `CTRL + F6` ouvre le volet des Réglages et pose le focus sur son premier champ.
 Pressé deux fois, la barre et le dock rendent le clavier aux fenêtres ; le
 centre et le volet, qui restent ouverts, le gardent. Dans le volet, Tab et
@@ -325,6 +326,16 @@ déroulante, elles passent à l'option voisine sans ouvrir la liste.
 Le réglage est dans **Réglages → Clavier et souris → Clavier**
 (`keyboard_access`), le raccourci dans **Réglages → Raccourcis**
 (`keys.keyboard_access`).
+
+**Notifications au clavier.** Dans le centre de notifications, Tab et
+Maj + Tab passent d'une carte à l'autre sans sortir du centre : Entrée ouvre
+ce que la carte annonce (ou son menu court quand elle ne mène nulle part), et
+l'anneau atteint aussi « Fermer », les actions et les liens du pied. Des
+bulles à l'écran, `CTRL + F8` leur donne d'abord le clavier : Tab parcourt
+leurs commandes, Entrée active, Échap rend le clavier aux fenêtres ; pressé
+encore, il le rend et ouvre le centre. Le temps du parcours, les bulles
+n'expirent pas ; une action choisie ou le départ de la dernière bulle rend
+aussi le clavier.
 
 **Navigation au clavier dans la barre.** Flèches, Tab et Maj + Tab passent d'un
 module activable au suivant : ceux qu'ouvre un clic gauche (menus, volume,

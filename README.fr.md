@@ -200,7 +200,7 @@ désinstallation sont dans le
 | `SUPER + SHIFT + D` | Ouvre les Réglages |
 | `CTRL + F2` | Donne le clavier à la barre de l'écran actif : flèches et Tab d'un module au suivant, Entrée l'ouvre, Échap rend le clavier |
 | `CTRL + F3` | Donne le clavier au dock de l'écran actif (bureau masqué : il paraît sous les fenêtres, en place) |
-| `CTRL + F8` | Ouvre le centre de notifications et lui donne le clavier |
+| `CTRL + F8` | Donne le clavier aux bulles à l'écran, sinon ouvre le centre de notifications |
 | `CTRL + F6` | Donne le clavier au volet des Réglages : il s'ouvre s'il est fermé, et ne se referme pas |
 | `CTRL + F1` | Bascule l'accès clavier complet : Tab atteint chaque commande des Réglages, ou seulement les champs |
 | `ALT + SUPER + Escape` | Ouvre « Forcer à quitter » : une ligne par application, confirmation en deux temps, puis ses fenêtres sont tuées |

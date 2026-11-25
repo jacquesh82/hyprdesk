@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 181] = [
+const SCENES: [&str; 182] = [
     "desktop",
     "typography",
     "icons",
@@ -198,6 +198,9 @@ const SCENES: [&str; 181] = [
     // Carte Notifications au clavier : la deuxième carte porte l'anneau
     // (HIG ENT-01).
     "bar-notifications-clavier",
+    // Accès clavier complet (HIG ENT-01) : Réglages → Clavier et souris, la
+    // première commande du contenu porte l'anneau.
+    "acces-clavier",
     "bar-unread",
     "bar-island-unread",
     "reglages-valeur-saisie",
@@ -674,9 +677,12 @@ impl Preview {
                 | "bar-convex-pressed"
                 | "bar-convex-switch"
         );
-        // L'anneau de focus se pose une fois la carte affichée : deux Tab,
+        // L'anneau de focus se pose une fois la carte ou le tiroir affiché,
         // puis la capture (HIG ENT-01).
-        if SCENES[self.scene] == "bar-notifications-clavier" {
+        if matches!(
+            SCENES[self.scene],
+            "bar-notifications-clavier" | "acces-clavier"
+        ) {
             return Task::batch([
                 Task::perform(tokio::time::sleep(Duration::from_millis(250)), |_| {
                     PreviewMsg::BarGesture
@@ -977,7 +983,7 @@ impl Preview {
             "reseau" => Some("network"),
             "bluetooth" => Some("bt"),
             "plugin-config" => Some("plugins"),
-            "clavier-souris" => Some("input"),
+            "clavier-souris" | "acces-clavier" => Some("input"),
             "ecran-connexion" => Some("login"),
             "mots-de-passe" => Some("passwords"),
             "ia-services" | "smartui" => Some("assistant"),
@@ -1650,7 +1656,7 @@ impl Preview {
         }
         // Clavier et souris : la configuration de l'utilisateur (l'aperçu ne
         // lit pas Hyprland) et les dispositions de xkeyboard-config.
-        if SCENES[self.scene] == "clavier-souris"
+        if matches!(SCENES[self.scene], "clavier-souris" | "acces-clavier")
             && let Some(p) = self.app.panel.as_mut()
         {
             let (layouts, variants) = crate::inputs::layouts();
@@ -3506,6 +3512,15 @@ impl Preview {
                             super::focus::step(scope(), false),
                         ])
                         .map(|m| PreviewMsg::Ui(Box::new(m)));
+                    }
+                    // Ctrl+Maj + Tab sans focus : la première commande du
+                    // dernier groupe du tiroir, le contenu (« Configuration
+                    // avancée »).
+                    "acces-clavier" => {
+                        return self
+                            .app
+                            .panel_focus_jump(true)
+                            .map(|m| PreviewMsg::Ui(Box::new(m)));
                     }
                     _ => {}
                 }

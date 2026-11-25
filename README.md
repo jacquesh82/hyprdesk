@@ -189,7 +189,7 @@ in the [user guide](docs/GUIDE.md#installation-in-detail).
 | `SUPER + SHIFT + D`                       | Open Settings                                                                                        |
 | `CTRL + F2`                               | Give the keyboard to the bar of the active screen: arrows and Tab from module to module, Enter opens, Escape gives back |
 | `CTRL + F3`                               | Give the keyboard to the dock of the active screen (hidden desktop: it appears under the windows)   |
-| `CTRL + F8`                               | Open the notification center and give it the keyboard                                               |
+| `CTRL + F8`                               | Give the keyboard to the banners on screen, otherwise open the notification center                  |
 | `CTRL + F6`                               | Give the keyboard to the Settings drawer: it opens if closed, and never closes                       |
 | `CTRL + F1`                               | Toggle Full Keyboard Access: Tab reaches every control in Settings, or only text fields               |
 | `ALT + SUPER + Escape`                    | Open "Force Quit": one row per application, confirmed in two steps, then its windows are killed      |

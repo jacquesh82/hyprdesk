@@ -301,8 +301,8 @@ the menu.
 **The keyboard on every surface.** Four shortcuts put the keyboard on a
 shell surface without closing anything or changing mode: `CTRL + F2` goes to
 the bar of the active screen, `CTRL + F3` to the dock (hidden desktop: it
-appears under the windows, which stay in place), `CTRL + F8` opens the
-notification center, `CTRL + F6` opens the Settings drawer and focuses its
+appears under the windows, which stay in place), `CTRL + F8` gives the
+keyboard to the banners on screen, otherwise opens the notification center, `CTRL + F6` opens the Settings drawer and focuses its
 first field. Pressed twice, the bar and the dock return the keyboard to the
 windows; the center and the drawer, which stay open, keep it. In the drawer,
 Tab and Shift + Tab never leave it: they go through its fields and the
@@ -320,6 +320,16 @@ slider, the arrow keys change the value by the setting's step, Enter opens its
 field; on a pop-up list, they move to the next option without opening it. The setting lives in
 **Settings → Keyboard and mouse → Keyboard** (`keyboard_access`), the shortcut
 in **Settings → Shortcuts** (`keys.keyboard_access`).
+
+**Notifications from the keyboard.** In the notification center, Tab and
+Shift + Tab move from one card to the next without leaving the center: Enter
+opens what the card announces (or its short menu when it leads nowhere), and
+the ring also reaches “Close”, the actions and the footer links. With banners
+on screen, `CTRL + F8` first gives them the keyboard: Tab goes through their
+controls, Enter activates, Esc returns the keyboard to the windows; pressed
+again, it returns it and opens the center. While you go through them, banners
+do not expire; choosing an action or the last banner leaving also returns the
+keyboard.
 
 **Keyboard navigation in the bar.** The arrow keys, Tab and Shift + Tab move
 from one activable module to the next: those a left click opens (menus, volume,

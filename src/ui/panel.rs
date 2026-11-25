@@ -682,8 +682,6 @@ impl App {
         iced::widget::operation::focus(SEARCH_ID)
     }
 
-    /// Le contrôle suivant (précédent) du volet prend le focus ; l'opération
-    /// est bornée au volet (HIG ENT-02), elle ne va pas aux autres surfaces.
     /// La saisie d'une valeur refermée (Entrée, Échap) : le focus revient au
     /// curseur qui l'avait ouverte, accès clavier complet activé.
     fn slider_refocus(&self, key: &str) -> Task<Msg> {
@@ -694,6 +692,8 @@ impl App {
         }
     }
 
+    /// Le contrôle suivant (précédent) du volet prend le focus ; l'opération
+    /// est bornée au volet (HIG ENT-02), elle ne va pas aux autres surfaces.
     pub(super) fn panel_focus_step(&self, previous: bool) -> Task<Msg> {
         super::focus::step(iced::widget::Id::new(PANEL_ID), previous).chain(panel_reveal())
     }
