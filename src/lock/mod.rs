@@ -83,6 +83,14 @@ enum Msg {
     FingerPam(pam::Outcome),
 }
 
+/// Ton d'un indicateur sous le champ.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Tone {
+    Dim,
+    Error,
+    Plain,
+}
+
 struct Lock {
     st: LockState,
     font: Font,
@@ -628,6 +636,94 @@ impl Lock {
         self.retry_at.is_some_and(|t| Instant::now() < t)
     }
 
+    /// Indicateurs sous le champ, dans l'ordre affiché : majuscules et
+    /// disposition, erreur et nombre d'échecs, délai, messages de PAM,
+    /// empreinte. Partagés par la vue et l'arbre d'accessibilité.
+    fn notes(&self) -> Vec<(Tone, String)> {
+        let mut out = Vec::new();
+        if let Some((layout, caps)) = &self.keyboard {
+            let mut l = layout.clone();
+            if *caps {
+                l = crate::tr!("Majuscules verrouillées · {l}", l = l);
+            }
+            if !l.is_empty() {
+                out.push((Tone::Dim, l));
+            }
+        }
+        if let Some(e) = &self.error {
+            out.push((
+                Tone::Error,
+                if self.failures > 1 {
+                    crate::tr!("{e} ({n} échecs)", e = e, n = self.failures)
+                } else {
+                    crate::tr!("{e} ({n} échec)", e = e, n = self.failures)
+                },
+            ));
+        }
+        if let Some(n) = self.wait_secs() {
+            out.push((
+                Tone::Plain,
+                crate::tr!("Nouvel essai possible dans {n} s", n = n),
+            ));
+        }
+        for m in &self.messages {
+            out.push((Tone::Plain, m.clone()));
+        }
+        if self.finger {
+            out.push((
+                Tone::Dim,
+                crate::i18n::tr("Ou posez le doigt sur le lecteur d'empreintes.").to_string(),
+            ));
+        }
+        out
+    }
+
+    /// Arbre d'accessibilité de l'écran (HIG ACC-01) : une surface active,
+    /// le nom de la personne s'il est affiché, le champ du mot de passe au
+    /// focus (`PasswordText`, jamais son contenu), son état en description,
+    /// les indicateurs affichés en étiquettes. Sans l'interface `Text`, la
+    /// frappe n'est pas annoncée.
+    fn a11y_tree(&self) -> Vec<crate::a11y::model::Node> {
+        use crate::a11y::model::{Node, Role, State};
+        let status = if self.checking {
+            crate::i18n::tr("Vérification…").to_string()
+        } else if self.wait_secs().is_some() {
+            crate::i18n::tr("Patientez…").to_string()
+        } else {
+            String::new()
+        };
+        let mut frame = Node::new(Role::Frame, crate::i18n::tr("Écran verrouillé"))
+            .key("lock")
+            .state(State::Active);
+        if self.st.show_user && !self.real_name.is_empty() {
+            frame = frame.child(Node::new(Role::Label, self.real_name.clone()).key("user"));
+        }
+        frame = frame.child(
+            Node::new(Role::PasswordText, crate::i18n::tr("Mot de passe"))
+                .key("password")
+                .describe(status)
+                .state(State::Editable)
+                .state(State::Focusable)
+                .state(State::Focused),
+        );
+        frame = frame.children(
+            self.notes()
+                .into_iter()
+                .enumerate()
+                .map(|(k, (_, note))| Node::new(Role::Label, note).key(format!("note:{k}"))),
+        );
+        vec![frame]
+    }
+
+    /// Mise à jour, puis l'arbre au pont s'il est lu.
+    fn update_and_publish(&mut self, msg: Msg) -> Task<Msg> {
+        let t = self.update(msg);
+        if crate::a11y::wanted() {
+            crate::a11y::publish(self.a11y_tree());
+        }
+        t
+    }
+
     /// Secondes restantes avant un nouvel essai, pendant le délai.
     fn wait_secs(&self) -> Option<u64> {
         let left = self.retry_at?.checked_duration_since(Instant::now())?;
@@ -779,47 +875,13 @@ impl Lock {
         col = col.push(input);
         // Indicateurs : majuscules, disposition, échecs et messages de PAM.
         let mut notes = column![].align_x(side).spacing(4);
-        if let Some((layout, caps)) = &self.keyboard {
-            let mut l = layout.clone();
-            if *caps {
-                l = crate::tr!("Majuscules verrouillées · {l}", l = l);
-            }
-            if !l.is_empty() {
-                notes = notes.push(text(l).font(self.font).size(px(13.0)).color(dim));
-            }
-        }
-        if let Some(e) = &self.error {
-            notes = notes.push(
-                text(if self.failures > 1 {
-                    crate::tr!("{e} ({n} échecs)", e = e, n = self.failures)
-                } else {
-                    crate::tr!("{e} ({n} échec)", e = e, n = self.failures)
-                })
-                .font(self.font)
-                .size(px(14.0))
-                .color(error),
-            );
-        }
-        if let Some(n) = wait {
-            notes = notes.push(
-                text(crate::tr!("Nouvel essai possible dans {n} s", n = n))
-                    .font(self.font)
-                    .size(px(13.0))
-                    .color(fg),
-            );
-        }
-        for m in &self.messages {
-            notes = notes.push(text(m.clone()).font(self.font).size(px(13.0)).color(fg));
-        }
-        if self.finger {
-            notes = notes.push(
-                text(crate::i18n::tr(
-                    "Ou posez le doigt sur le lecteur d'empreintes.",
-                ))
-                .font(self.font)
-                .size(px(13.0))
-                .color(dim),
-            );
+        for (tone, note) in self.notes() {
+            let (size, color) = match tone {
+                Tone::Dim => (13.0, dim),
+                Tone::Error => (14.0, error),
+                Tone::Plain => (13.0, fg),
+            };
+            notes = notes.push(text(note).font(self.font).size(px(size)).color(color));
         }
         col = col.push(notes);
         // Bandeau : l'heure à gauche, le compte et la saisie à droite.
@@ -1011,6 +1073,9 @@ impl Lock {
                 }
                 _ => None,
             }),
+            // Pont d'accessibilité (HIG ACC-01) : servi seulement si un
+            // lecteur d'écran le demande ; il ne rend aucun message.
+            Subscription::run(crate::a11y::daemon::stream).map(|()| Msg::Tick),
         ];
         // Fonds vidéo : une boucle ffmpeg pour le fond commun, une par écran
         // qui a le sien. Sans ffmpeg : la couleur de fond reste.
@@ -1226,7 +1291,7 @@ pub fn run() -> ExitCode {
     };
     // Pas de presse-papiers : rien à coller dans le champ du mot de passe.
     iced_sessionlock::disable_clipboard();
-    let mut app = iced_sessionlock::application(Lock::new, Lock::update, Lock::view)
+    let mut app = iced_sessionlock::application(Lock::new, Lock::update_and_publish, Lock::view)
         .subscription(Lock::subscription)
         .default_font(crate::fonts::DEFAULT);
     for face in crate::fonts::bundled() {
@@ -1278,6 +1343,39 @@ mod tests {
         assert!(!is_strip(1440.0, 2560.0));
         assert!(!is_strip(450.0, 1600.0));
         assert!(!is_strip(0.0, 0.0));
+    }
+
+    /// HIG ACC-01 : le lecteur d'écran lit le champ du mot de passe au focus
+    /// et son état, jamais ce qui y est tapé.
+    #[test]
+    fn arbre_de_l_ecran_verrouille() {
+        use crate::a11y::model::{Role, State};
+        let mut lock = Lock::new().0;
+        lock.password = Zeroizing::new("secret-tape".into());
+        lock.checking = true;
+        lock.error = Some("Mot de passe incorrect".into());
+        let tree = lock.a11y_tree();
+        assert_eq!(tree.len(), 1);
+        assert!(tree[0].states.contains(State::Active));
+        let field = tree[0]
+            .children
+            .iter()
+            .find(|n| n.role == Role::PasswordText)
+            .expect("champ du mot de passe");
+        assert!(field.states.contains(State::Focused));
+        assert_eq!(field.description, crate::i18n::tr("Vérification…"));
+        assert!(
+            tree[0]
+                .children
+                .iter()
+                .any(|n| n.role == Role::Label && n.name.starts_with("Mot de passe incorrect"))
+        );
+        let dump = crate::a11y::root(tree).dump();
+        assert!(!dump.contains("secret"));
+        assert!(
+            !format!("{:?}", lock.a11y_tree()).contains("secret"),
+            "ni nom, ni description"
+        );
     }
 
     #[test]
