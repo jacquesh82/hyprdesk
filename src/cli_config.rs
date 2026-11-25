@@ -522,7 +522,7 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.hide.clone(),
         |s, v, c| { s.key_hide = Some(combo(v)?); Ok(()) },
         |s| s.key_hide = None;
-    "keys.settings", "keys", "raccourci | none — ouvrir ou fermer les réglages (SUPER + SHIFT + D)",
+    "keys.settings", "keys", "raccourci | none — ouvrir ou fermer les réglages (SUPER + comma)",
         |c| c.general.keys.settings.clone(),
         |s, v, c| { s.key_settings = Some(combo(v)?); Ok(()) },
         |s| s.key_settings = None;
@@ -530,11 +530,11 @@ pub static KEYS: &[Key] = keys![
         |c| c.general.keys.lock.clone(),
         |s, v, c| { s.key_lock = Some(combo(v)?); Ok(()) },
         |s| s.key_lock = None;
-    "keys.switch", "keys", "raccourci | none — sélecteur de fenêtres (Alt+Tab ; avec Maj : en arrière)",
+    "keys.switch", "keys", "raccourci | none — sélecteur de fenêtres (SUPER + Tab ; avec Maj : en arrière)",
         |c| c.general.keys.switch.clone(),
         |s, v, c| { s.key_switch = Some(combo(v)?); Ok(()) },
         |s| s.key_switch = None;
-    "keys.search", "keys", "raccourci | none — lanceur d'applications, dans tous les modes (SUPER + R)",
+    "keys.search", "keys", "raccourci | none — lanceur d'applications, dans tous les modes (SUPER + Space)",
         |c| c.general.keys.search.clone(),
         |s, v, c| { s.key_search = Some(combo(v)?); Ok(()) },
         |s| s.key_search = None;
@@ -551,7 +551,7 @@ pub static KEYS: &[Key] = keys![
             Ok(())
         },
         |s| s.key_take = None;
-    "keys.overview", "keys", "raccourci | none — vue d'ensemble des fenêtres (hyprdesk overview)",
+    "keys.overview", "keys", "raccourci | none — vue d'ensemble des fenêtres (CTRL + Up, hyprdesk overview)",
         |c| c.general.keys.overview.clone(),
         |s, v, c| { s.key_overview = Some(combo(v)?); Ok(()) },
         |s| s.key_overview = None;

@@ -884,9 +884,13 @@ hl.bind(mainMod .. " + Tab", function()
 
     #[test]
     fn lanceur_unifie_ou_non() {
-        let k = Keys::default();
+        // Le lanceur sur SUPER + R, que tient rofi dans le hyprland.lua d'essai.
+        let k = Keys {
+            search: "SUPER + R".into(),
+            ..Keys::default()
+        };
         let src = parse_source(LUA);
-        // Unifié (par défaut) : SUPER + R pris à hyprland.lua, rien en conflit.
+        // Unifié : SUPER + R pris à hyprland.lua, rien en conflit.
         let (r, plan) = analyse(&k, true, &binds(), &src);
         assert!(plan.take.iter().any(|t| t == "SUPER + R"), "{plan:?}");
         assert!(plan.outside("search", "SUPER + R") && plan.desktop("search", "SUPER + R"));
@@ -932,20 +936,23 @@ hl.bind(mainMod .. " + Tab", function()
         let i = r.issue_for("keys.overview").unwrap();
         assert!(matches!(i.kind, Kind::Universal(_)), "{i:?}");
         assert!(!plan.outside("overview", "Print") && !plan.desktop("overview", "Print"));
-        // SUPER + Tab de hyprland.lua face à la vue d'ensemble par défaut : conflit hors du bureau.
+        // SUPER + Tab de hyprland.lua face au commutateur par défaut (HIG
+        // ENT-06) : conflit hors du bureau.
         let (r, plan) = analyse(&Keys::default(), true, &binds(), &src);
-        let i = r.issue_for("keys.overview").unwrap();
+        let i = r.issue_for("keys.switch").unwrap();
         assert!(matches!(&i.kind, Kind::Hyprland(h) if h.what == "function" && h.line == Some(10)));
-        assert!(
-            !plan.outside("overview", "SUPER + Tab") && plan.desktop("overview", "SUPER + Tab")
-        );
+        assert!(!plan.outside("switch", "SUPER + Tab") && plan.desktop("switch", "SUPER + Tab"));
+        // Le lanceur par défaut, unifié, prend SUPER + Space à window.float
+        // (HIG ENT-09) : pas de conflit.
+        assert!(r.issue_for("keys.search").is_none(), "{r:?}");
+        assert!(plan.take.iter().any(|t| t == "SUPER + Space"), "{plan:?}");
         // Prise en main : plus de conflit, la combinaison est déliée.
         let taken = Keys {
             take: vec!["SUPER + Tab".into()],
             ..Keys::default()
         };
         let (r, plan) = analyse(&taken, true, &binds(), &src);
-        assert!(r.issue_for("keys.overview").is_none());
+        assert!(r.issue_for("keys.switch").is_none());
         assert!(plan.take.iter().any(|t| t == "SUPER + Tab"));
         // Une combinaison prise sans action de hyprdesk derrière n'est pas déliée.
         let useless = Keys {
@@ -953,6 +960,19 @@ hl.bind(mainMod .. " + Tab", function()
             ..Keys::default()
         };
         assert!(!wanted(&useless, true).iter().any(|t| t == "SUPER + V"));
+    }
+
+    /// Les raccourcis par défaut sont ceux de macOS (HIG ENT-06, ENT-09,
+    /// PAT-14 ; décision D2), sans doublon entre eux.
+    #[test]
+    fn raccourcis_facon_macos() {
+        let k = Keys::default();
+        assert_eq!(
+            [&k.switch, &k.search, &k.overview, &k.settings].map(String::as_str),
+            ["SUPER + Tab", "SUPER + Space", "CTRL + Up", "SUPER + comma"]
+        );
+        let (r, _) = analyse(&k, true, &Value::Null, &[]);
+        assert!(r.issues.is_empty(), "{r:?}");
     }
 
     #[test]

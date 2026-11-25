@@ -112,7 +112,7 @@ const KEY_LABELS: &[(usize, &str)] = &[
     (1, "Ouvrir les réglages"),
     (6, "Lanceur d'applications (tous les modes)"),
     (9, "Lanceur d'applications en plein bureau (vide : le même)"),
-    (7, "Fenêtres (Alt+Tab ; avec Maj : en arrière)"),
+    (7, "Fenêtres (SUPER + Tab ; avec Maj : en arrière)"),
     (8, "Vue d'ensemble des fenêtres"),
     (10, "Ouvrir LYRA (assistant IA)"),
     (5, "Verrouiller la session"),
@@ -1785,7 +1785,7 @@ impl App {
             key_field(1, crate::i18n::tr("Ouvrir les réglages"), "keys.settings"),
             key_field(6, crate::i18n::tr("Lanceur d'applications (tous les modes)"), "keys.search"),
             key_field(9, crate::i18n::tr("Lanceur d'applications en plein bureau (vide : le même)"), "keys.search_desktop"),
-            key_field(7, crate::i18n::tr("Fenêtres (Alt+Tab ; avec Maj : en arrière)"), "keys.switch"),
+            key_field(7, crate::i18n::tr("Fenêtres (SUPER + Tab ; avec Maj : en arrière)"), "keys.switch"),
             key_field(8, crate::i18n::tr("Vue d'ensemble des fenêtres"), "keys.overview"),
             key_field(10, crate::i18n::tr("Ouvrir LYRA (assistant IA)"), "keys.assistant"),
             self.adv("Vue d'ensemble par un plugin de Hyprland", self.field(

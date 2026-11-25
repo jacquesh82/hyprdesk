@@ -186,7 +186,7 @@ in the [user guide](docs/GUIDE.md#installation-in-detail).
 | `SUPER + D`                               | Next mode: hidden → dock → full desktop → hidden                                                     |
 | `SUPER + ALT + D`                         | Toggle the dock and keep windows in place                                                            |
 | `SUPER + CTRL + D`                        | Hide the desktop and dock                                                                            |
-| `SUPER + SHIFT + D`                       | Open Settings                                                                                        |
+| `SUPER + ,`                               | Open Settings                                                                                        |
 | `CTRL + F2`                               | Give the keyboard to the bar of the active screen: arrows and Tab from module to module, Enter opens, Escape gives back |
 | `CTRL + F3`                               | Give the keyboard to the dock of the active screen (hidden desktop: it appears under the windows)   |
 | `CTRL + F8`                               | Give the keyboard to the banners on screen, otherwise open the notification center                  |
@@ -194,9 +194,9 @@ in the [user guide](docs/GUIDE.md#installation-in-detail).
 | `CTRL + F1`                               | Toggle Full Keyboard Access: Tab reaches every control in Settings, or only text fields               |
 | `ALT + SUPER + Escape`                    | Open "Force Quit": one row per application, confirmed in two steps, then its windows are killed      |
 | `SUPER + SHIFT + L`                       | Open or close LYRA, the AI assistant                                                                 |
-| `SUPER + R`                               | `:f` searches files, `:r` settings, `:clip` the clipboard history, `:2fa`/`:mdp` the myMFA keyring   |
-| `ALT + Tab`                               | Switch windows                                                                                       |
-| `SUPER + Tab`                             | Workspaces overview: drag windows between workspaces                                                 |
+| `SUPER + Space`                           | `:f` searches files, `:r` settings, `:clip` the clipboard history, `:2fa`/`:mdp` the myMFA keyring   |
+| `SUPER + Tab`                             | Switch windows (`SUPER + SHIFT + Tab` goes back)                                                     |
+| `CTRL + Up`                               | Workspaces overview: drag windows between workspaces                                                 |
 | `Print` / `SUPER + Print` / `ALT + Print` | Capture an area, the screen, or a window                                                             |
 | `SUPER + L`                               | Lock the session                                                                                     |
 | `SUPER + Escape`                          | Emergency exit                                                                                       |

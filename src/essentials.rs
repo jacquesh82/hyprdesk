@@ -558,23 +558,24 @@ impl Ctx {
                 "hl.dsp.layout(\"zone {d}\")",
                 "layout(\"zone {d}\"",
             ),
-            // Virgule : une vraie touche en QWERTY comme en AZERTY ; ALT et
-            // CTRL plutôt que SHIFT, qui change la touche sur certains claviers.
+            // Point-virgule : une vraie touche en QWERTY comme en AZERTY (la
+            // virgule est aux Réglages, HIG PAT-14) ; ALT et CTRL plutôt que
+            // SHIFT, qui change la touche sur certains claviers.
             "mon-focus" => vec![want(
                 "",
-                format!("{ws} + comma"),
+                format!("{ws} + semicolon"),
                 "hl.dsp.focus({ monitor = \"+1\" })",
                 &["focus({monitor="],
             )],
             "mon-window" => vec![want(
                 "",
-                format!("{ws} + ALT + comma"),
+                format!("{ws} + ALT + semicolon"),
                 "hl.dsp.window.move({ monitor = \"+1\" })",
                 &["window.move({monitor="],
             )],
             "mon-workspace" => vec![want(
                 "",
-                format!("{ws} + CTRL + comma"),
+                format!("{ws} + CTRL + semicolon"),
                 "hl.dsp.workspace.move({ monitor = \"+1\" })",
                 &["workspace.move({monitor=", "workspace.swap_monitors("],
             )],

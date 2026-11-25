@@ -197,7 +197,7 @@ désinstallation sont dans le
 | `SUPER + D` | Mode suivant : masqué → dock → bureau complet → masqué |
 | `SUPER + ALT + D` | Fait apparaître ou disparaître le dock, fenêtres en place |
 | `SUPER + CTRL + D` | Masque le bureau et le dock |
-| `SUPER + SHIFT + D` | Ouvre les Réglages |
+| `SUPER + ,` | Ouvre les Réglages |
 | `CTRL + F2` | Donne le clavier à la barre de l'écran actif : flèches et Tab d'un module au suivant, Entrée l'ouvre, Échap rend le clavier |
 | `CTRL + F3` | Donne le clavier au dock de l'écran actif (bureau masqué : il paraît sous les fenêtres, en place) |
 | `CTRL + F8` | Donne le clavier aux bulles à l'écran, sinon ouvre le centre de notifications |
@@ -205,9 +205,9 @@ désinstallation sont dans le
 | `CTRL + F1` | Bascule l'accès clavier complet : Tab atteint chaque commande des Réglages, ou seulement les champs |
 | `ALT + SUPER + Escape` | Ouvre « Forcer à quitter » : une ligne par application, confirmation en deux temps, puis ses fenêtres sont tuées |
 | `SUPER + SHIFT + L` | Ouvre ou referme LYRA, l'assistant IA |
-| `SUPER + R` | Recherche des applications. `:f` fouille les fichiers, `:r` cherche un réglage, `:clip` le presse-papiers, `:2fa` et `:mdp` le trousseau myMFA |
-| `ALT + Tab` | Change de fenêtre |
-| `SUPER + Tab` | Vue des workspaces : glisser les fenêtres d'un workspace à l'autre |
+| `SUPER + Espace` | Recherche des applications. `:f` fouille les fichiers, `:r` cherche un réglage, `:clip` le presse-papiers, `:2fa` et `:mdp` le trousseau myMFA |
+| `SUPER + Tab` | Change de fenêtre (`SUPER + SHIFT + Tab` recule) |
+| `CTRL + Up` | Vue des workspaces : glisser les fenêtres d'un workspace à l'autre |
 | `Impr` / `SUPER + Impr` / `ALT + Impr` | Capture une zone, l'écran ou une fenêtre |
 | `SUPER + L` | Verrouille la session |
 | `SUPER + Échap` | Sortie de secours |

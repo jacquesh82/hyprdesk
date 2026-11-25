@@ -895,7 +895,7 @@
 "raccourci | none — mode suivant : no-desktop → launcher-only → full-desktop (SUPER + D)" = "shortcut | none — next mode: no-desktop → launcher-only → full-desktop (SUPER + D)"
 "raccourci | none — launcher-only (SUPER + ALT + D)" = "shortcut | none — launcher-only (SUPER + ALT + D)"
 "raccourci | none — no-desktop (SUPER + CTRL + D)" = "shortcut | none — no-desktop (SUPER + CTRL + D)"
-"raccourci | none — ouvrir ou fermer les réglages (SUPER + SHIFT + D)" = "shortcut | none — open or close Settings (SUPER + SHIFT + D)"
+"raccourci | none — ouvrir ou fermer les réglages (SUPER + comma)" = "shortcut | none — open or close Settings (SUPER + comma)"
 "raccourci | none — sortie de secours" = "shortcut | none — emergency exit"
 "raccourci | none — verrouiller la session ; none : celui de hyprland.lua (SUPER + L), réglé : hyprdesk le remplace" = "shortcut | none — lock the session; none: the one from hyprland.lua (SUPER + L), set: hyprdesk replaces it"
 "Raccourcis" = "Shortcuts"
@@ -1678,7 +1678,7 @@
 "Lecture des fenêtres…" = "Reading windows…"
 "  switch [prev]     sélecteur de fenêtres (Alt+Tab, keys.switch) : ouvre, ou passe" = "  switch [prev]     window switcher (Alt+Tab, keys.switch): opens it, or moves"
 "                    à la fenêtre suivante (prev : précédente)" = "                    to the next window (prev: previous)"
-"raccourci | none — sélecteur de fenêtres (Alt+Tab ; avec Maj : en arrière)" = "shortcut | none — window switcher (Alt+Tab; with Shift: backwards)"
+"raccourci | none — sélecteur de fenêtres (SUPER + Tab ; avec Maj : en arrière)" = "shortcut | none — window switcher (SUPER + Tab; with Shift: backwards)"
 
 # Écran de connexion greetd (MLG-23).
 "Connexion annulée." = "Login cancelled."
@@ -1793,7 +1793,7 @@
 # Raccourcis : recherche, fenêtres (MLG-7, MLG-22).
 "raccourci | none — lanceur avec recherche (toutes les applications)" = "shortcut | none — launcher with search (all applications)"
 "Recherche (toutes les applications)" = "Search (all applications)"
-"Fenêtres (Alt+Tab ; avec Maj : en arrière)" = "Windows (Alt+Tab; with Shift: backwards)"
+"Fenêtres (SUPER + Tab ; avec Maj : en arrière)" = "Windows (SUPER + Tab; with Shift: backwards)"
 "Définir comme fond d'écran" = "Set as wallpaper"
 
 # hyprdesk config fx.* (MLG-30).
@@ -1845,7 +1845,7 @@
 
 # Vue d'ensemble (MLG-22).
 "commande | none — vue d'ensemble par un plugin de Hyprland (sinon le sélecteur de hyprdesk)" = "command | none — overview through a Hyprland plugin (otherwise the hyprdesk switcher)"
-"raccourci | none — vue d'ensemble des fenêtres (hyprdesk overview)" = "shortcut | none — window overview (hyprdesk overview)"
+"raccourci | none — vue d'ensemble des fenêtres (CTRL + Up, hyprdesk overview)" = "shortcut | none — window overview (CTRL + Up, hyprdesk overview)"
 "  overview          vue d'ensemble des fenêtres (overview_command, sinon le sélecteur)" = "  overview          window overview (overview_command, otherwise the switcher)"
 "Vue d'ensemble des fenêtres" = "Window overview"
 "Ouvrir LYRA (assistant IA)" = "Open LYRA (AI assistant)"
@@ -1921,7 +1921,7 @@
 "Raccourci" = "Shortcut"
 "Suggestions (les plus lancées)" = "Suggestions (most launched)"
 "Un seul lanceur, quelle que soit la façon de l'ouvrir (raccourci, bouton du dock, hyprdesk apps) : en plein bureau, une grande feuille de toutes les applications ; dans les autres modes, une carte au centre de l'écran. Les applications que vous lancez le plus sont toujours mises en avant." = "One launcher, however you open it (shortcut, dock button, hyprdesk apps): in full-desktop, a large sheet with all applications; in the other modes, a card in the middle of the screen. The applications you launch the most are always highlighted."
-"Utiliser SUPER + R" = "Use SUPER + R"
+"Utiliser SUPER + Espace" = "Use SUPER + Space"
 "auto, sheet ou spotlight attendu" = "auto, sheet or spotlight expected"
 "hyprland.lua, qui le lie à « {what} » (un autre lanceur)" = "hyprland.lua, which binds it to “{what}” (another launcher)"
 "le raccourci {k} du lanceur d'applications" = "the application launcher shortcut {k}"
@@ -1972,7 +1972,7 @@
 # Raccourcis : lanceur unifié, conflits (MLG-40).
 "  keys              raccourcis de hyprdesk : où ils agissent, conflits avec hyprland.lua" = "  keys              hyprdesk shortcuts: where they act, conflicts with hyprland.lua"
 "on | off — le même lanceur dans tous les modes (keys.search pris à hyprland.lua) ; off : celui de hyprland.lua hors plein bureau" = "on | off — the same launcher in every mode (keys.search taken from hyprland.lua); off: hyprland.lua's one outside the full desktop"
-"raccourci | none — lanceur d'applications, dans tous les modes (SUPER + R)" = "shortcut | none — app launcher, in every mode (SUPER + R)"
+"raccourci | none — lanceur d'applications, dans tous les modes (SUPER + Space)" = "shortcut | none — app launcher, in every mode (SUPER + Space)"
 "raccourci | none — plein bureau : un autre raccourci pour le lanceur (none : keys.search)" = "shortcut | none — full desktop: another shortcut for the launcher (none: keys.search)"
 "raccourci,raccourci,… | none — raccourcis que hyprdesk prend à hyprland.lua (déliés là-bas)" = "shortcut,shortcut,… | none — shortcuts hyprdesk takes from hyprland.lua (unbound there)"
 "Fenêtres (Alt+Tab)" = "Windows (Alt+Tab)"
@@ -4348,7 +4348,7 @@
 "Recherche de fichiers" = "File search"
 "Rien n'est perdu" = "Nothing is lost"
 "SUPER + D passe de no-desktop (vos fenêtres seules) à launcher-only (le dock par-dessus), puis à full-desktop : le bureau complet, avec son fond, ses icônes et ses widgets, les fenêtres flottant au-dessus. Un appui de plus et tout se masque." = "SUPER + D goes from no-desktop (just your windows) to launcher-only (the dock on top), then to full-desktop: the whole desktop with its wallpaper, icons and widgets, windows floating above. One more press and everything hides."
-"SUPER + SHIFT + D ouvre ces Réglages, SUPER + R le lanceur d'applications, SUPER + L verrouille. En cas de souci, SUPER + Échap masque le bureau et rend tous ses raccourcis à Hyprland." = "SUPER + SHIFT + D opens these Settings, SUPER + R the application launcher, SUPER + L locks. If anything goes wrong, SUPER + Escape hides the desktop and gives every shortcut back to Hyprland."
+"SUPER + virgule ouvre ces Réglages, SUPER + Espace le lanceur d'applications, SUPER + L verrouille. En cas de souci, SUPER + Échap masque le bureau et rend tous ses raccourcis à Hyprland." = "SUPER + comma opens these Settings, SUPER + Space the application launcher, SUPER + L locks. If anything goes wrong, SUPER + Escape hides the desktop and gives every shortcut back to Hyprland."
 "Si une combinaison est déjà prise ailleurs, hyprdesk le signale et propose de la prendre, de garder l'existante ou d'en choisir une autre." = "If a combination is already taken elsewhere, hyprdesk says so and offers to take it, keep the existing one, or pick another."
 "Son, Wi-Fi, Bluetooth" = "Sound, Wi-Fi, Bluetooth"
 "Sortie et entrée audio, réseaux Wi-Fi et appareils Bluetooth." = "Audio output and input, Wi-Fi networks and Bluetooth devices."

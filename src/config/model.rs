@@ -1538,11 +1538,15 @@ impl Default for Keys {
         Keys {
             toggle: "SUPER + D".into(),
             launcher: "SUPER + ALT + D".into(),
-            switch: "ALT + Tab".into(),
+            // Raccourcis de macOS (HIG ENT-06, ENT-09, PAT-14 ; décision D2) :
+            // Commande-Tab, le commutateur ; Commande-Espace, le lanceur ;
+            // Contrôle-Flèche haut, Mission Control ; Commande-Virgule, les
+            // Réglages.
+            switch: "SUPER + Tab".into(),
             // Le lanceur de hyprdesk, dans tous les modes (apps_unified).
-            search: "SUPER + R".into(),
+            search: "SUPER + Space".into(),
             search_desktop: String::new(),
-            overview: "SUPER + Tab".into(),
+            overview: "CTRL + Up".into(),
             assistant: "SUPER + SHIFT + L".into(),
             // Un raccourci par surface du shell (HIG ENT-02), sur le modèle
             // de macOS : Control-F2, F3, F6 ; F8, libre, pour le centre.
@@ -1558,7 +1562,7 @@ impl Default for Keys {
             keyboard_access: "CTRL + F1".into(),
             take: Vec::new(),
             hide: "SUPER + CTRL + D".into(),
-            settings: "SUPER + SHIFT + D".into(),
+            settings: "SUPER + comma".into(),
             // Vide : le verrouillage de hyprland.lua (SUPER + L, posé par
             // scripts/install.sh). Réglé, hyprdesk le remplace.
             lock: String::new(),

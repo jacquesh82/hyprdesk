@@ -56,8 +56,8 @@ pub enum Msg {
     AppsShape(crate::config::LauncherShape, bool),
     AppsSuggestionsCommit,
     AppsCategories(bool),
-    /// keys.search = SUPER + R (à la place d'un autre lanceur).
-    UseSuperR,
+    /// keys.search = SUPER + Espace (à la place d'un autre lanceur, HIG ENT-09).
+    UseSuperSpace,
     /// Le même lanceur dans tous les modes (apps_unified).
     AppsUnified(bool),
     /// Plein bureau : raccourci propre (keys.search_desktop), saisi puis validé.
@@ -450,17 +450,17 @@ impl App {
             ));
             col = col.push(line);
         }
-        if g.keys.search != "SUPER + R" {
+        if g.keys.search != "SUPER + Space" {
             col = col.push(
                 self.focusable(
                     button(
-                        text(crate::i18n::tr("Utiliser SUPER + R"))
+                        text(crate::i18n::tr("Utiliser SUPER + Espace"))
                             .font(self.font)
                             .size(crate::ui::tokens::ts(13.0)),
                     )
                     .padding([6, 14])
                     .style(button::secondary)
-                    .on_press(wrap(Msg::UseSuperR)),
+                    .on_press(wrap(Msg::UseSuperSpace)),
                 ),
             );
         }
@@ -486,8 +486,8 @@ impl App {
                 self.settings.apps_categories = Some(v);
                 self.commit()
             }
-            Msg::UseSuperR => {
-                self.settings.key_search = Some("SUPER + R".into());
+            Msg::UseSuperSpace => {
+                self.settings.key_search = Some("SUPER + Space".into());
                 self.commit()
             }
             Msg::AppsUnified(v) => {

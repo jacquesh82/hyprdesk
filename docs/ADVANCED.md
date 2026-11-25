@@ -106,7 +106,7 @@ make sure a workspace never shows a desktop, or always switches to one when
 you arrive.
 
 `special:hyprdesk` is never treated as a screen's workspace, nor as a place
-to return to. The Alt+Tab switcher filters it out too.
+to return to. The SUPER + Tab switcher filters it out too.
 
 ## Talking to Hyprland
 
@@ -194,7 +194,7 @@ to return to. The Alt+Tab switcher filters it out too.
   answers. Settings → Shortcuts → hyprdesk shortcuts lists conflicts first,
   with a LYRA button; `hyprdesk keys` prints the same report and exits with
   1 if there is a conflict.
-- **Alt+Tab on the full desktop** lists the windows floating on it. Picking
+- **SUPER + Tab on the full desktop** lists the windows floating on it. Picking
   a window from another workspace hides the desktop and focuses it. A window opened from the
   desktop takes focus without leaving it.
 - The submap gives control back to Hyprland *before* calling hyprdesk. If the
