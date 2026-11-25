@@ -82,6 +82,12 @@ impl App {
         if let Some(l) = self.launcher_a11y() {
             out.push(l);
         }
+        if let Some(m) = self.menu_a11y() {
+            out.push(m);
+        }
+        if let Some(w) = self.switcher_a11y() {
+            out.push(w);
+        }
         out
     }
 
@@ -137,6 +143,75 @@ impl App {
         Some(frame)
     }
 
+    /// Menu ouvert depuis la barre : surface active, ses entrées en
+    /// `MenuItem`, sous-menus compris. Le focus clavier dans le menu est celui
+    /// des widgets iced, que l'`App` ne tient pas : pas encore de `Focused`.
+    fn menu_a11y(&self) -> Option<Node> {
+        let p = self.popover.as_ref().filter(|p| !p.closing())?;
+        let crate::ui::plugins::bar::popover::Kind::Menu { entries, .. } = &p.kind else {
+            return None;
+        };
+        // Nom : le titre du menu de la barre, sinon le libellé du module
+        // qui l'ouvre, sinon « Menu » ; jamais une clé interne.
+        let module = crate::ui::plugins::bar::popover::module_key(&p.key);
+        let name = crate::ui::plugins::bar::menus::titles()
+            .into_iter()
+            .find(|(key, ..)| *key == p.key)
+            .map(|(_, title, _)| tr(title).to_string())
+            .or_else(|| {
+                crate::config::BAR_ITEMS
+                    .iter()
+                    .find(|(id, _)| *id == module)
+                    .map(|(_, l)| tr(l).to_string())
+            })
+            .unwrap_or_else(|| tr("Menu").to_string());
+        Some(
+            Node::new(Role::Menu, name)
+                .key(p.key.clone())
+                .state(State::Active)
+                .children(menu_items(entries, p.sub)),
+        )
+    }
+
+    /// Commutateur de fenêtres ouvert : surface active, la fenêtre choisie
+    /// au focus.
+    fn switcher_a11y(&self) -> Option<Node> {
+        let sw = self.switcher.as_ref()?;
+        // Rien à choisir : le texte affiché à la place de la liste.
+        let empty = sw.wins.is_empty().then(|| {
+            Node::new(
+                Role::Label,
+                tr(if sw.loading {
+                    "Lecture des fenêtres…"
+                } else {
+                    "Aucune fenêtre ouverte."
+                }),
+            )
+        });
+        Some(
+            Node::new(Role::Frame, tr("Fenêtres"))
+                .key("switcher")
+                .state(State::Active)
+                .children(empty)
+                .children(sw.wins.iter().enumerate().map(|(k, w)| {
+                    let name = if w.title.is_empty() {
+                        &w.class
+                    } else {
+                        &w.title
+                    };
+                    let item = Node::new(Role::ListItem, name.clone())
+                        .key(format!("win:{}", w.address))
+                        .state(State::Selectable)
+                        .state(State::Focusable);
+                    if k == sw.selected {
+                        item.state(State::Selected).state(State::Focused)
+                    } else {
+                        item
+                    }
+                })),
+        )
+    }
+
     /// Nom d'une case du dock : celui de sa bulle ; pour une application
     /// regroupée, le nom de l'application plutôt que sa classe.
     fn dock_item_name(&self, popup: &PopupContent) -> String {
@@ -156,6 +231,68 @@ impl App {
             crate::a11y::publish(self.a11y_surfaces());
         }
     }
+}
+
+/// Entrées d'un menu : commandes en `MenuItem`, sous-menus en `Menu`
+/// (déplié si `open` est son rang), titres en `Label`, champs en `Entry`.
+fn menu_items(entries: &[crate::config::MenuEntry], open: Option<usize>) -> Vec<Node> {
+    use crate::config::MenuEntry;
+    let off = |mut n: Node, enabled: bool| {
+        if !enabled {
+            n.states = n.states.without(State::Enabled).without(State::Sensitive);
+        }
+        n
+    };
+    entries
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| match e {
+            MenuEntry::Item {
+                label,
+                checked,
+                enabled,
+                ..
+            } => {
+                let mut n = Node::new(Role::MenuItem, label.clone()).state(State::Focusable);
+                if let Some(c) = checked {
+                    n = n.state(State::Checkable);
+                    if *c {
+                        n = n.state(State::Checked);
+                    }
+                }
+                Some(off(n, *enabled))
+            }
+            MenuEntry::Submenu {
+                label,
+                enabled,
+                children,
+                ..
+            } => {
+                let mut n = Node::new(Role::Menu, label.clone())
+                    .state(State::Focusable)
+                    .state(State::Expandable)
+                    .state(State::HasPopup);
+                if open == Some(i) {
+                    n = n
+                        .state(State::Expanded)
+                        .children(menu_items(children, None));
+                }
+                Some(off(n, *enabled))
+            }
+            MenuEntry::Header(t) => Some(Node::new(Role::Label, t.clone())),
+            MenuEntry::Input {
+                label, placeholder, ..
+            } => Some(
+                Node::new(
+                    Role::Entry,
+                    label.clone().unwrap_or_else(|| placeholder.clone()),
+                )
+                .state(State::Editable)
+                .state(State::Focusable),
+            ),
+            MenuEntry::Separator | MenuEntry::Image(_) => None,
+        })
+        .collect()
 }
 
 fn button(name: impl Into<String>) -> Node {
@@ -246,6 +383,40 @@ mod tests {
         assert_eq!(launcher.children[0].name, "Rechercher dans les réglages…");
         assert_eq!(launcher.children.len(), 1, "pas de liste d'applications");
         app.search = None;
+
+        // Commutateur : la fenêtre choisie au focus, nommée par son titre.
+        let win = |address: &str, title: &str| crate::switcher::Win {
+            address: address.into(),
+            class: "firefox".into(),
+            title: title.into(),
+            workspace: "1".into(),
+            focus: 0,
+            stashed: false,
+        };
+        app.switcher = Some(crate::ui::switcher::Switcher {
+            win: Id::unique(),
+            wins: vec![win("0x1", "Courrier"), win("0x2", "")],
+            selected: 1,
+            loading: false,
+            back: false,
+        });
+        let sw = app.switcher_a11y().unwrap();
+        assert_eq!(
+            sw.dump(),
+            "frame « Fenêtres »\n  list item « Courrier »\n  list item « firefox »\n"
+        );
+        assert!(
+            sw.children[1]
+                .states
+                .contains(crate::a11y::model::State::Focused)
+        );
+        app.switcher.as_mut().unwrap().wins.clear();
+        app.switcher.as_mut().unwrap().loading = true;
+        assert_eq!(
+            app.switcher_a11y().unwrap().dump(),
+            "frame « Fenêtres »\n  label « Lecture des fenêtres… »\n"
+        );
+        app.switcher = None;
         let mut portrait = app.monitors[0].clone();
         portrait.name = "B".into();
         (portrait.width, portrait.height) = (900, 1440);
@@ -276,5 +447,41 @@ mod tests {
     push button « Réglages »
 "
         );
+    }
+
+    /// Menus : commandes, case cochée, entrée grisée, sous-menu déplié.
+    #[test]
+    fn entrees_de_menu() {
+        use crate::a11y::model::{Node, Role, State};
+        use crate::config::MenuEntry;
+        let item = |label: &str, enabled: bool, checked: Option<bool>| MenuEntry::Item {
+            label: label.into(),
+            detail: None,
+            icon: None,
+            checked,
+            enabled,
+            action: None,
+            confirm: None,
+        };
+        let entries = [
+            MenuEntry::Header("Son".into()),
+            item("Muet", true, Some(true)),
+            MenuEntry::Separator,
+            item("Sortie", false, None),
+            MenuEntry::Submenu {
+                label: "Périphérique".into(),
+                icon: None,
+                enabled: true,
+                children: vec![item("Casque", true, None)],
+            },
+        ];
+        let menu = Node::new(Role::Menu, "Volume").children(super::menu_items(&entries, Some(4)));
+        assert_eq!(
+            menu.dump(),
+            "menu « Volume »\n  label « Son »\n  menu item « Muet »\n  menu item « Sortie »\n  menu « Périphérique »\n    menu item « Casque »\n"
+        );
+        assert!(menu.children[1].states.contains(State::Checked));
+        assert!(!menu.children[2].states.contains(State::Enabled), "grisée");
+        assert!(menu.children[3].states.contains(State::Expanded));
     }
 }
