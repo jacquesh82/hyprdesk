@@ -108,7 +108,64 @@ impl App {
         if let Some(w) = self.switcher_a11y() {
             out.push(w);
         }
+        if let Some(s) = self.settings_a11y() {
+            out.push(s);
+        }
         out
+    }
+
+    /// Tiroir des Réglages ouvert : son champ de recherche, ses pages (la
+    /// navigation, recherche comprise : seules les pages qui ont une
+    /// correspondance), le titre de la page et ses onglets ; la page et
+    /// l'onglet affichés choisis. Pages et onglets s'activent comme leur clic.
+    fn settings_a11y(&self) -> Option<Node> {
+        use crate::ui::plugins;
+        let p = self.panel.as_ref().filter(|_| self.panel_open())?;
+        let nav = self.settings_pages();
+        let tab = |role_key: String, label: &str, on: bool| {
+            let n = Node::new(Role::PageTab, tr(label))
+                .key(role_key)
+                .state(State::Selectable)
+                .state(State::Focusable)
+                .action();
+            if on { n.state(State::Selected) } else { n }
+        };
+        let pages = nav
+            .iter()
+            .map(|i| tab(format!("page:{}", i.id), i.label, p.tab == i.id));
+        let mut frame = Node::new(Role::Frame, tr("Réglages"))
+            .key("settings")
+            .child(
+                Node::new(Role::Entry, tr("Rechercher un réglage…"))
+                    .describe(p.search.clone())
+                    .key("search")
+                    .state(State::Editable)
+                    .state(State::Focusable),
+            )
+            .child(
+                Node::new(Role::PageTabList, tr("Pages"))
+                    .key("pages")
+                    .children(pages),
+            );
+        if let Some(page) = plugins::BUILTIN.iter().find(|i| i.id == p.tab) {
+            frame = frame.child(Node::new(Role::Heading, tr(page.label)).key("title"));
+        }
+        let on = self.subtab(p.tab);
+        let tabs = plugins::visible_tabs(p.tab, self.advanced());
+        // Tiroir large : les onglets sont sous l'entrée de la page dans la
+        // navigation, absents avec elle (recherche sans correspondance).
+        let shown = self.panel_width() < 640.0 || nav.iter().any(|i| i.id == p.tab);
+        if !tabs.is_empty() && shown {
+            frame = frame.child(
+                Node::new(Role::PageTabList, tr("Onglets"))
+                    .key("tabs")
+                    .children(
+                        tabs.into_iter()
+                            .map(|(t, l)| tab(format!("tab:{t}"), l, t == on)),
+                    ),
+            );
+        }
+        Some(frame)
     }
 
     /// Le dock de l'écran `m`, seul ou logé dans la barre : ses cases en
@@ -155,6 +212,20 @@ impl App {
                 Slot::Separator => None,
             },
         ))
+    }
+
+    /// Pages de la navigation des Réglages, dans l'ordre de la vue.
+    fn settings_pages(&self) -> Vec<&'static crate::ui::plugins::PluginInfo> {
+        let query = self
+            .panel
+            .as_ref()
+            .map(|p| p.search.trim().to_string())
+            .unwrap_or_default();
+        let found = super::settings_search::search(&query, |id| self.setting_visible(id));
+        crate::ui::plugins::GROUPS
+            .iter()
+            .flat_map(|g| self.nav_items(g.ids, &found))
+            .collect()
     }
 
     /// Place de la barre `id` à l'écran : celle que sa forme lui donne
@@ -396,6 +467,41 @@ impl App {
             return press.map_or_else(Task::none, Task::done);
         }
         match (head, rest) {
+            // Réglages : une page de la navigation, un onglet de la page.
+            ("settings", item) => {
+                use crate::ui::plugins;
+                // Seulement ce que l'arbre montre : tiroir ouvert, page de
+                // la navigation, onglet affiché.
+                let Some(tree) = self.settings_a11y() else {
+                    return Task::none();
+                };
+                let tab_shown = |t: &str| {
+                    tree.children
+                        .iter()
+                        .filter(|n| n.key == "tabs")
+                        .flat_map(|n| n.children.iter())
+                        .any(|n| n.key == format!("tab:{t}"))
+                };
+                if let Some(id) = item.strip_prefix("pages/page:") {
+                    return match self.settings_pages().into_iter().find(|i| i.id == id) {
+                        Some(i) => self.panel_update(super::panel::PanelMsg::Tab(i.id)),
+                        None => Task::none(),
+                    };
+                }
+                let Some(t) = item.strip_prefix("tabs/tab:").filter(|t| tab_shown(t)) else {
+                    return Task::none();
+                };
+                let Some(pkg) = self.panel.as_ref().map(|p| p.tab) else {
+                    return Task::none();
+                };
+                match plugins::visible_tabs(pkg, self.advanced())
+                    .into_iter()
+                    .find(|(id, _)| *id == t)
+                {
+                    Some((id, _)) => self.panel_update(super::panel::PanelMsg::SubTab(pkg, id)),
+                    None => Task::none(),
+                }
+            }
             ("switcher", win) => {
                 let address = win.strip_prefix("win:").unwrap_or_default();
                 let Some(sw) = self.switcher.as_mut() else {
@@ -836,6 +942,74 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    /// Réglages : champ de recherche, pages (la page affichée choisie),
+    /// titre, onglets ; une page s'ouvre par `DoAction`.
+    #[test]
+    fn reglages_decrits() {
+        use crate::a11y::model::{Role, State};
+        let (mut app, _) =
+            App::boot_with(PathBuf::from("/tmp/hyprdesk-a11y-tests/config.lua"), true);
+        app.surfaces.insert(Id::unique(), "A".into());
+        assert!(app.settings_a11y().is_none(), "fermés : rien");
+        let _ = app.open_panel();
+        let s = app.settings_a11y().expect("ouverts");
+        assert_eq!(s.children[0].role, Role::Entry);
+        let pages = &s.children[1];
+        assert_eq!(pages.role, Role::PageTabList);
+        let chosen: Vec<&str> = pages
+            .children
+            .iter()
+            .filter(|n| n.states.contains(State::Selected))
+            .map(|n| n.key.as_str())
+            .collect();
+        let tab = app.panel.as_ref().unwrap().tab;
+        assert_eq!(chosen, [format!("page:{tab}")]);
+        assert!(pages.children.iter().all(|n| n.action));
+        // Une autre page, par le lecteur d'écran.
+        let other = pages
+            .children
+            .iter()
+            .find(|n| !n.states.contains(State::Selected))
+            .expect("une autre page")
+            .key
+            .clone();
+        let _ = app.a11y_action(&format!("/settings/pages/{other}"));
+        assert_eq!(
+            format!("page:{}", app.panel.as_ref().unwrap().tab),
+            other,
+            "la page lue est affichée"
+        );
+        let s = app.settings_a11y().unwrap();
+        let page = crate::ui::plugins::BUILTIN
+            .iter()
+            .find(|i| format!("page:{}", i.id) == other)
+            .unwrap();
+        assert!(
+            s.children
+                .iter()
+                .any(|n| n.role == Role::Heading && n.name == crate::i18n::tr(page.label))
+        );
+        assert_eq!(
+            s.children[0].name,
+            crate::i18n::tr("Rechercher un réglage…")
+        );
+        // Un onglet inconnu : rien ne change.
+        let before = app.subtab(app.panel.as_ref().unwrap().tab);
+        let _ = app.a11y_action("/settings/tabs/tab:inexistant");
+        assert_eq!(app.subtab(app.panel.as_ref().unwrap().tab), before);
+        // Recherche : seules les pages qui ont une correspondance, la requête
+        // lue dans le champ.
+        app.panel.as_mut().unwrap().search = "fond d'écran".into();
+        let s = app.settings_a11y().unwrap();
+        assert_eq!(s.children[0].description, "fond d'écran");
+        assert!(s.children[1].children.len() < pages.children.len());
+        // Tiroir fermé : plus d'arbre, plus d'action.
+        let _ = app.close_panel();
+        let tab = app.panel.as_ref().map(|p| p.tab);
+        let _ = app.a11y_action(&format!("/settings/pages/{}", pages.children[0].key));
+        assert_eq!(app.panel.as_ref().map(|p| p.tab), tab);
     }
 
     /// Menus : commandes, case cochée, entrée grisée, sous-menu déplié.

@@ -561,6 +561,26 @@ impl App {
         }
     }
 
+    /// Entrées de la navigation pour le groupe `ids`, dans son ordre :
+    /// paquets montrés ; pendant une recherche (`found` non vide ou requête
+    /// posée), ceux qui ont une correspondance. Partagé par la vue et l'arbre
+    /// d'accessibilité (HIG ACC-01).
+    pub(in crate::ui) fn nav_items(
+        &self,
+        ids: &[&str],
+        found: &[&'static super::settings_search::Entry],
+    ) -> Vec<&'static plugins::PluginInfo> {
+        let searching = self
+            .panel
+            .as_ref()
+            .is_some_and(|p| !p.search.trim().is_empty());
+        ids.iter()
+            .filter_map(|id| plugins::BUILTIN.iter().find(|i| i.id == *id))
+            .filter(|i| self.setting_visible(i.id))
+            .filter(|i| !searching || found.iter().any(|e| e.page == i.id))
+            .collect()
+    }
+
     /// Paquet dont les réglages se montrent et se trouvent : plugin actif,
     /// configuration avancée suffisante. Le tiroir et le lanceur (`:r`) ont
     /// la même liste (HIG PAT-13).
@@ -1399,13 +1419,7 @@ impl App {
         let mut nav = column![].spacing(2);
         let mut first = true;
         for g in plugins::GROUPS {
-            let items: Vec<&'static plugins::PluginInfo> = g
-                .ids
-                .iter()
-                .filter_map(|id| plugins::BUILTIN.iter().find(|i| i.id == *id))
-                .filter(|i| self.setting_visible(i.id))
-                .filter(|i| !searching || count(i.id) > 0)
-                .collect();
+            let items = self.nav_items(g.ids, &found);
             if items.is_empty() {
                 continue;
             }
