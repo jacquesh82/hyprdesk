@@ -228,12 +228,75 @@ impl Application {
 /// le registre.
 pub struct Handle {
     pub conn: zbus::Connection,
+    /// Référence rendue par le registre ; nulle tant que le pont n'est pas
+    /// inscrit.
     pub parent: Ref,
+    shared: Arc<Shared>,
+    count: usize,
+}
+
+impl Handle {
+    /// La racine, telle que le registre l'inscrit.
+    fn plug(&self) -> Ref {
+        Ref::new(&self.shared.name, ROOT_PATH)
+    }
+
+    fn set_parent(&mut self, parent: Ref) {
+        *self.shared.parent.lock().unwrap_or_else(|e| e.into_inner()) = parent.clone();
+        self.parent = parent;
+    }
+
+    /// Inscrit la racine auprès du registre (`Socket.Embed`) ; la référence
+    /// rendue devient son parent. À refaire si le registre renaît.
+    pub async fn embed(&mut self) -> zbus::Result<()> {
+        let reply = self
+            .conn
+            .call_method(
+                Some(REGISTRY),
+                ROOT_PATH,
+                Some(SOCKET),
+                "Embed",
+                &(self.plug(),),
+            )
+            .await?;
+        let parent: Ref = reply.body().deserialize()?;
+        self.set_parent(parent);
+        Ok(())
+    }
+
+    /// Le registre est parti : l'inscription est perdue avec lui.
+    pub fn lost(&mut self) {
+        self.set_parent(Ref::null());
+    }
+
+    /// Désinscrit la racine (`Socket.Unembed`).
+    pub async fn unembed(&mut self) -> zbus::Result<()> {
+        self.conn
+            .call_method(
+                Some(REGISTRY),
+                ROOT_PATH,
+                Some(SOCKET),
+                "Unembed",
+                &(self.plug(),),
+            )
+            .await?;
+        self.lost();
+        Ok(())
+    }
+
+    /// Retire les objets servis ; la connexion se ferme avec le pont.
+    pub async fn stop(self) {
+        let server = self.conn.object_server();
+        let _ = server.remove::<Application, _>(ROOT_PATH).await;
+        for i in 0..self.count {
+            let _ = server.remove::<Accessible, _>(Tree::path(i)).await;
+        }
+    }
 }
 
 /// Sert l'arbre `root` (dont la racine devient l'application) sur `conn`,
-/// puis l'inscrit auprès du registre.
-pub async fn start(conn: zbus::Connection, root: &Node) -> zbus::Result<Handle> {
+/// sans l'inscrire.
+pub async fn serve(conn: zbus::Connection, root: &Node) -> zbus::Result<Handle> {
     let name = conn
         .unique_name()
         .map(|n| n.to_string())
@@ -243,7 +306,7 @@ pub async fn start(conn: zbus::Connection, root: &Node) -> zbus::Result<Handle> 
     let shared = Arc::new(Shared {
         tree: Mutex::new(tree),
         parent: Mutex::new(Ref::null()),
-        name: name.clone(),
+        name,
     });
     let server = conn.object_server();
     server.at(ROOT_PATH, Application { id: 0 }).await?;
@@ -254,26 +317,33 @@ pub async fn start(conn: zbus::Connection, root: &Node) -> zbus::Result<Handle> 
         };
         server.at(Tree::path(i), node).await?;
     }
-    // La racine est servie : le registre peut l'interroger dès l'inscription.
-    let plug = Ref::new(&name, ROOT_PATH);
-    let reply = conn
-        .call_method(Some(REGISTRY), ROOT_PATH, Some(SOCKET), "Embed", &(plug,))
-        .await?;
-    let parent: Ref = reply.body().deserialize()?;
-    *shared.parent.lock().unwrap_or_else(|e| e.into_inner()) = parent.clone();
-    Ok(Handle { conn, parent })
+    Ok(Handle {
+        conn,
+        parent: Ref::null(),
+        shared,
+        count,
+    })
+}
+
+/// Sert l'arbre, puis l'inscrit : la racine est servie avant l'inscription,
+/// le registre peut l'interroger aussitôt.
+pub async fn start(conn: zbus::Connection, root: &Node) -> zbus::Result<Handle> {
+    let mut h = serve(conn, root).await?;
+    h.embed().await?;
+    Ok(h)
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::a11y::model::{Role, State};
     use zbus::zvariant::{OwnedValue, Value};
 
     /// Faux registre : retient la référence inscrite et rend la sienne.
-    struct FakeRegistry {
-        seen: Arc<Mutex<Option<Ref>>>,
-        name: String,
+    pub(crate) struct FakeRegistry {
+        pub(crate) seen: Arc<Mutex<Option<Ref>>>,
+        pub(crate) gone: Arc<Mutex<Option<Ref>>>,
+        pub(crate) name: String,
     }
 
     #[zbus::interface(name = "org.a11y.atspi.Socket")]
@@ -281,6 +351,10 @@ mod tests {
         fn embed(&self, plug: Ref) -> Ref {
             *self.seen.lock().unwrap() = Some(plug);
             Ref::new(&self.name, ROOT_PATH)
+        }
+
+        fn unembed(&self, plug: Ref) {
+            *self.gone.lock().unwrap() = Some(plug);
         }
     }
 
@@ -316,11 +390,13 @@ mod tests {
         let reg = zbus::Connection::session().await.unwrap();
         let reg_name = reg.unique_name().unwrap().to_string();
         let seen: Arc<Mutex<Option<Ref>>> = Default::default();
+        let gone: Arc<Mutex<Option<Ref>>> = Default::default();
         reg.object_server()
             .at(
                 ROOT_PATH,
                 FakeRegistry {
                     seen: seen.clone(),
+                    gone: gone.clone(),
                     name: reg_name.clone(),
                 },
             )
@@ -337,7 +413,7 @@ mod tests {
                     .child(Node::new(Role::PushButton, "Firefox").state(State::Focusable)),
             )
             .child(Node::new(Role::Frame, "Barre des menus"));
-        let h = start(app, &root).await.unwrap();
+        let mut h = start(app, &root).await.unwrap();
         assert_eq!(seen.lock().unwrap().clone(), Some(Ref::new(&me, ROOT_PATH)));
         assert_eq!(h.parent, Ref::new(&reg_name, ROOT_PATH));
 
@@ -409,5 +485,21 @@ mod tests {
         assert_ne!(state[0] & 1 << State::Focusable as u32, 0);
         let app_ref: Ref = call(&at, &me, &firefox, "GetApplication").await;
         assert_eq!(app_ref, Ref::new(&me, ROOT_PATH));
+
+        // Lecteur coupé : désinscription, puis plus aucun objet.
+        h.unembed().await.unwrap();
+        assert_eq!(gone.lock().unwrap().clone(), Some(Ref::new(&me, ROOT_PATH)));
+        assert_eq!(h.parent, Ref::null());
+        h.stop().await;
+        let r = at
+            .call_method(
+                Some(me.as_str()),
+                firefox.as_str(),
+                Some(ACC),
+                "GetRole",
+                &(),
+            )
+            .await;
+        assert!(r.is_err(), "objet retiré");
     }
 }

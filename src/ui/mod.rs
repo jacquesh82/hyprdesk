@@ -6275,6 +6275,9 @@ impl App {
             Subscription::run(mymfa::stream).map(|e| Msg::Mymfa(mymfa::MMsg::Event(e))),
             // Démon de notifications (bulles) ; inactif si un autre tient le nom.
             Subscription::run(toasts::stream).map(|e| Msg::Toasts(toasts::TMsg::Event(e))),
+            // Pont d'accessibilité (AT-SPI) : servi seulement si un lecteur
+            // d'écran le demande (HIG ACC-01).
+            Subscription::run(crate::a11y::daemon::stream).map(|()| Msg::Noop),
             Subscription::run(control::signal_stream).map(Msg::Control),
             Subscription::run(hypr::stream).map(Msg::Hypr),
             Subscription::run_with(self.config_path.clone(), |path: &PathBuf| {

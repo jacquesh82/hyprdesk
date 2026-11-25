@@ -217,7 +217,7 @@ async fn follow<T: Send + Sync + 'static>(
 }
 
 /// Flux des `PropertiesChanged` d'un service (et de ses objets sous `namespace`).
-async fn properties_changed(
+pub(crate) async fn properties_changed(
     conn: &zbus::Connection,
     sender: &'static str,
     namespace: &'static str,

@@ -1421,6 +1421,8 @@
 "notifications : un autre démon est en place, hyprdesk ne les affiche pas" = "notifications: another daemon is running, hyprdesk does not display them"
 "notifications : {e}" = "notifications: {e}"
 "notifications affichées par hyprdesk" = "notifications displayed by hyprdesk"
+"accessibilité : {e}" = "accessibility: {e}"
+"accessibilité : arbre servi aux lecteurs d'écran" = "accessibility: tree served to screen readers"
 
 # Mises à jour en attente (MLG-31).
 "APT" = "APT"
