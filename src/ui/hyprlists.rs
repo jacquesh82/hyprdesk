@@ -5,9 +5,7 @@
 //! quel. Les éléments incomplets (sans nom, sans workspace…) restent dans
 //! les Réglages mais ne sont pas écrits (`hyprset::complete`).
 
-use iced::widget::{
-    Space, button, column, container, pick_list, row, text_input, toggler, tooltip,
-};
+use iced::widget::{Space, button, column, container, pick_list, row, text_input, tooltip};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::hyprset::{Msg, wrap};
@@ -529,7 +527,8 @@ impl App {
         let cur = json_get(body, path);
         let set = move |v: Option<J>| wrap(Msg::Spec(list, i, path.to_string(), v));
         match kind {
-            Field::Bool => toggler(cur.and_then(J::as_bool).unwrap_or(false))
+            Field::Bool => self
+                .toggle(cur.and_then(J::as_bool).unwrap_or(false))
                 .on_toggle(move |v| set(v.then_some(J::Bool(true))))
                 .into(),
             Field::Bool3 => {
@@ -720,29 +719,26 @@ impl App {
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.rules_of(RuleKind::Window),
-            self.adv(
-                "Règles de couches",
-                column![
-                    text(
-                        "Surfaces des barres, lanceurs et notifications (layer-shell), \
+            self.adv("Règles de couches", || column![
+                text(
+                    "Surfaces des barres, lanceurs et notifications (layer-shell), \
                          repérées par leur espace de noms : hyprctl layers les liste."
-                    )
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim),
-                    self.rules_of(RuleKind::Layer),
-                    self.section("Règles de workspaces"),
-                    text(
-                        "Écran, nom, espacements et décorations d'un workspace. Le nombre de \
+                )
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim),
+                self.rules_of(RuleKind::Layer),
+                self.section("Règles de workspaces"),
+                text(
+                    "Écran, nom, espacements et décorations d'un workspace. Le nombre de \
                          workspaces et leurs écrans se règlent dans Workspaces."
-                    )
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim),
-                    self.rules_of(RuleKind::Workspace),
-                ]
-                .spacing(12)
-            ),
+                )
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim),
+                self.rules_of(RuleKind::Workspace),
+            ]
+            .spacing(12)),
         ]
         .spacing(12)
         .into()

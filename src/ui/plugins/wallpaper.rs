@@ -7,9 +7,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::i18n::text;
-use iced::widget::{
-    Space, button, column, container, image, pick_list, radio, row, text_input, toggler,
-};
+use iced::widget::{Space, button, column, container, image, pick_list, radio, row, text_input};
 use iced::{Alignment, Border, Color, Element, Task};
 
 use super::super::panel::{Panel, PanelMsg, SWATCHES, SliderLook, SliderSpec};
@@ -356,7 +354,7 @@ impl App {
                     col = col.push(self.field(
                         "Ordre aléatoire",
                         "",
-                        self.focusable(toggler(*shuffle).on_toggle(|v| wrap(Msg::Shuffle(v)))),
+                        self.focusable(self.toggle(*shuffle).on_toggle(|v| wrap(Msg::Shuffle(v)))),
                     ));
                     col = col.push(text("Pour changer de dossier : saisir le dossier, puis choisir à nouveau « Diaporama ».").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim));
                 }

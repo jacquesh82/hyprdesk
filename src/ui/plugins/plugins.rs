@@ -10,7 +10,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, container, row, text_input, toggler};
+use iced::widget::{button, column, container, row, text_input};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::etats::Etat;
@@ -152,7 +152,9 @@ impl App {
                     badge(Etat::Coeur.libelle(), true).into()
                 } else {
                     self.focusable(
-                        toggler(on).on_toggle(move |v| wrap(Msg::Package(id.clone(), v))),
+                        self.toggle(on)
+                            .named(crate::i18n::tr(info.label))
+                            .on_toggle(move |v| wrap(Msg::Package(id.clone(), v))),
                     )
                 };
                 // Paquet configurable : « Configurer » ouvre sa page de réglages.
@@ -286,11 +288,11 @@ impl App {
             // déclaration dans hyprdesk.lua, plugin en erreur).
             if t.error.is_none() && (t.toggleable || active) {
                 let id = t.id.clone();
-                line = line.push(self.focusable(toggler(active).on_toggle(move |v| {
-                    super::widgets::wrap(super::widgets::Msg::WidgetToggle(id.clone(), v))
-                })));
+                line = line.push(self.focusable(self.toggle(active).named(&t.name).on_toggle(
+                    move |v| super::widgets::wrap(super::widgets::Msg::WidgetToggle(id.clone(), v)),
+                )));
             } else {
-                line = line.push(toggler(active));
+                line = line.push(self.toggle(active).named(&t.name));
             }
             bucket.push(line.into());
             if p.plugins.configuring.as_deref() == Some(t.id.as_str()) {
@@ -510,20 +512,18 @@ impl App {
                 self.section("Plugins de widget de barre"),
                 lua,
                 // Plugin tiers : configuration avancée.
-                self.adv("Ajouter un plugin tiers",
-                    column![
-                        text(crate::tr!(
-                            "Un plugin Lua (fichier, dossier avec init.lua, ou dépôt git) est installé \
+                self.adv("Ajouter un plugin tiers", || column![
+                    text(crate::tr!(
+                        "Un plugin Lua (fichier, dossier avec init.lua, ou dépôt git) est installé \
                              dans {p0} ; il apparaît aussitôt ci-dessus et dans Widgets.",
-                            p0 = user.display()
-                        ))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                        .color(dim),
-                        add,
-                    ]
-                    .spacing(14)
-                ),
+                        p0 = user.display()
+                    ))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+                    add,
+                ]
+                .spacing(14)),
             ]
             .spacing(14)
             .into(),
@@ -553,7 +553,8 @@ impl App {
                 OptValue::Bool(b) => {
                     let (id, key) = (t.id.clone(), k.clone());
                     self.focusable(
-                        toggler(*b)
+                        self.toggle(*b)
+                            .named(k.replace('_', " "))
                             .on_toggle(move |v| wrap(Msg::OptBool(id.clone(), key.clone(), v))),
                     )
                 }
@@ -605,39 +606,38 @@ impl App {
             );
         }
         if t.id == "updates" {
-            let keep = toggler(p.plugins.polkit_keep);
+            let keep = self
+                .toggle(p.plugins.polkit_keep)
+                .named(crate::i18n::tr("Un seul mot de passe par mise à jour"));
             let keep = if p.plugins.polkit_busy {
                 Element::from(keep)
             } else {
                 self.focusable(keep.on_toggle(|v| wrap(Msg::PolkitKeep(v))))
             };
             // Règle polkit posée dans /etc : avancé.
-            col = col.push(
-                self.adv(
-                    "Règle polkit d'un seul mot de passe",
-                    column![
-                        row![
-                            text(crate::i18n::tr("Un seul mot de passe par mise à jour"))
-                                .font(self.font)
-                                .size(crate::ui::tokens::ts(13.0))
-                                .width(Length::Fill),
-                            keep,
-                        ]
-                        .spacing(10)
-                        .align_y(Alignment::Center),
-                        text(crate::i18n::tr(
-                            "Règle polkit : pendant 5 minutes, les étapes d'une même mise à jour \
+            col = col.push(self.adv("Règle polkit d'un seul mot de passe", || {
+                column![
+                    row![
+                        text(crate::i18n::tr("Un seul mot de passe par mise à jour"))
+                            .font(self.font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .width(Length::Fill),
+                        keep,
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                    text(crate::i18n::tr(
+                        "Règle polkit : pendant 5 minutes, les étapes d'une même mise à jour \
                      (pacman, apt-get, dnf, zypper, appelés par pkexec, aussi par yay ou paru) \
                      ne redemandent pas le mot de passe. Toute autre commande le redemande. \
                      Posée dans /etc/polkit-1/rules.d (mot de passe demandé une fois).",
-                        ))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                        .color(dim),
-                    ]
-                    .spacing(8),
-                ),
-            );
+                    ))
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+                ]
+                .spacing(8)
+            }));
             col = col.push(
                 text(crate::i18n::tr("Commandes utilisées"))
                     .font(self.title_font())

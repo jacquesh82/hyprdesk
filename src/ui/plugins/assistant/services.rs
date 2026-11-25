@@ -502,7 +502,7 @@ impl App {
             }
         };
         let mut col = column![
-            self.focusable(iced::widget::toggler(on)
+            self.focusable(self.toggle(on)
                 .label(crate::i18n::tr(
                     "Génération automatique (icônes validées d'office)"
                 ))
@@ -704,7 +704,7 @@ impl App {
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.focusable(
-                iced::widget::toggler(l.smartui)
+                self.toggle(l.smartui)
                     .label(crate::i18n::tr(
                         "Utiliser le thème SmartUI (lanceur, bureau, SUPER+R, barre, notifications)"
                     ))

@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use iced::widget::{Space, button, column, container, pick_list, row, text_input, toggler};
+use iced::widget::{Space, button, column, container, pick_list, row, text_input};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::color_picker::{Picker, PickerMsg, well};
@@ -330,7 +330,7 @@ impl App {
                     Some(OptValue::Bool(b)) => *b,
                     _ => matches!(theirs, Some("true") | Some("1")),
                 };
-                toggler(on)
+                self.toggle(on)
                     .on_toggle(move |v| wrap(Msg::Set(store, p.clone(), Some(OptValue::Bool(v)))))
                     .into()
             }
@@ -706,7 +706,7 @@ impl App {
         let mut col = column![].spacing(14);
         for (_, title, paths) in crate::hyprset::GROUPS.iter().filter(|(k, _, _)| *k == key) {
             let fields = column(paths.iter().map(|p| self.opt_field(Store::Hypr, p))).spacing(14);
-            col = col.push(self.adv(title, fields));
+            col = col.push(self.adv(title, || fields));
         }
         col.into()
     }
@@ -746,7 +746,8 @@ impl App {
             self.field(
                 "Bordures aux couleurs du thème",
                 "",
-                toggler(self.hypr_cfg().theme_borders).on_toggle(|v| wrap(Msg::ThemeBorders(v))),
+                self.toggle(self.hypr_cfg().theme_borders)
+                    .on_toggle(|v| wrap(Msg::ThemeBorders(v))),
             ),
             self.small(
                 crate::i18n::tr(

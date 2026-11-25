@@ -218,6 +218,9 @@ pub struct SliderSpec {
     /// Enregistre, comme au relâchement. Sans la valeur : posée juste avant,
     /// elle ne doit pas être écrasée par celle d'avant la saisie.
     pub(in crate::ui) save: Msg,
+    /// Nom lu par le lecteur d'écran (HIG ACC-01) quand le curseur n'est pas
+    /// dans une `field`, dont le libellé le nomme sinon.
+    pub(in crate::ui) name: Option<Arc<str>>,
 }
 
 impl SliderSpec {
@@ -234,6 +237,16 @@ impl SliderSpec {
             step,
             pose: Arc::new(pose),
             save,
+            name: None,
+        }
+    }
+
+    /// Le curseur nommé pour le lecteur d'écran : le libellé que sa rangée
+    /// affiche à côté de lui, hors d'une `field`.
+    pub(in crate::ui) fn named(self, name: impl Into<Arc<str>>) -> Self {
+        SliderSpec {
+            name: Some(name.into()),
+            ..self
         }
     }
 }
@@ -676,6 +689,27 @@ impl App {
         control: impl Into<Element<'a, Msg>>,
     ) -> Element<'a, Msg> {
         super::focus::choose(control, self.ink().fg, self.cfg.general.keyboard_access)
+    }
+
+    /// Interrupteur d'un réglage : le `toggler` d'iced, décrit à l'arbre
+    /// d'accessibilité (HIG ACC-01) en `CheckBox`, coché selon `on`, actif
+    /// seulement avec un message (`on_toggle`), nommé par son libellé
+    /// (`label`) ou par celui de la `field` qui l'enveloppe.
+    pub(in crate::ui) fn toggle<'s, 'a>(&'s self, on: bool) -> Switch<'s, 'a> {
+        use crate::a11y::model::{Node, Role, State};
+        let noted = self.a11y_note(|| {
+            let n = Node::new(Role::CheckBox, "");
+            let n = Node {
+                states: n.states.without(State::Enabled).without(State::Sensitive),
+                ..n
+            };
+            if on { n.state(State::Checked) } else { n }
+        });
+        Switch {
+            app: self,
+            noted,
+            toggler: iced::widget::toggler(on),
+        }
     }
 
     pub(in crate::ui) fn focusable<'a>(
@@ -1802,13 +1836,16 @@ impl App {
             titled = true;
         }
         let control = control.into();
+        // Arbre d'accessibilité : le libellé nomme la commande déposée par
+        // le contrôle, évalué avant cette fonction (HIG ACC-01).
+        let noted = self.a11y_field(label);
         if !titled {
-            return control;
+            return super::accessible::keep(noted, control);
         }
         // L'avis passe sous le libellé quand le texte agrandi (ou une
         // traduction longue) ne les tient plus côte à côte (HIG TYP-08).
         let head: Element<'_, Msg> = head.wrap().into();
-        column![head, control].spacing(6).into()
+        super::accessible::keep(noted, column![head, control].spacing(6).into())
     }
 
     /// Curseur d'un réglage et sa valeur, saisissable au clavier (HIG SEL-08).
@@ -1827,6 +1864,18 @@ impl App {
         look: SliderLook,
     ) -> Element<'a, Msg> {
         let (min, max) = spec.range;
+        // Arbre d'accessibilité (HIG ACC-01) : le curseur, sa valeur affichée
+        // en description, nommé par le libellé de la `field` qui l'enveloppe.
+        // Un curseur se dessine donc dans une `field`.
+        let noted = self.a11y_note(|| {
+            crate::a11y::model::Node::new(
+                crate::a11y::model::Role::Slider,
+                spec.name.as_deref().unwrap_or(""),
+            )
+            .key(format!("slider:{}", spec.key))
+            .describe(affiche(value))
+            .state(crate::a11y::model::State::Focusable)
+        });
         let pose = Arc::clone(&spec.pose);
         let slider = iced::widget::slider(min as f32..=max as f32, value as f32, move |v| {
             pose(f64::from(v))
@@ -1961,11 +2010,14 @@ impl App {
         // La valeur garde sous elle la place de l'échelle : centrée ou en
         // haut, elle reste sur la ligne du curseur.
         let value = beside_slider(spec, value);
-        row![slider, value]
-            .spacing(f32::from(look.spacing))
-            .width(rangee)
-            .align_y(look.align_y)
-            .into()
+        super::accessible::keep(
+            noted,
+            row![slider, value]
+                .spacing(f32::from(look.spacing))
+                .width(rangee)
+                .align_y(look.align_y)
+                .into(),
+        )
     }
 
     /// Couleurs de texte lisibles du tiroir (WCAG AA sur son fond) : texte,
@@ -1984,6 +2036,10 @@ impl App {
     }
 
     pub(in crate::ui) fn section<'a>(&self, title: &'a str) -> Element<'a, Msg> {
+        // Arbre d'accessibilité : une clôture, sans nœud (HIG ACC-01) ; une
+        // page construit parfois un titre après son contenu, l'ordre de
+        // l'arbre le trahirait.
+        self.a11y_bound();
         // Titre accentué : l'encre garantie à 4,5:1 (HIG FON-05).
         let accent = self.ink().accent;
         column![
@@ -2341,6 +2397,71 @@ pub(in crate::ui) async fn defaults_job(
     })
     .await
     .unwrap_or_else(|e| Err(e.to_string()))
+}
+
+/// Un `toggler` d'iced et son nœud d'accessibilité ([`App::toggle`]) : les
+/// méthodes du `toggler` dont les pages se servent, dont `label` et
+/// `on_toggle` qui nomment et activent aussi le nœud.
+pub(in crate::ui) struct Switch<'s, 'a> {
+    app: &'s App,
+    noted: Option<super::accessible::Noted>,
+    toggler: iced::widget::Toggler<'a, Msg>,
+}
+
+impl<'a> Switch<'_, 'a> {
+    pub(in crate::ui) fn label(self, label: impl iced::widget::text::IntoFragment<'a>) -> Self {
+        let label = label.into_fragment();
+        self.app.a11y_rename(self.noted.as_ref(), &label);
+        Switch {
+            toggler: self.toggler.label(label),
+            ..self
+        }
+    }
+
+    /// Nom lu par le lecteur d'écran, sans libellé à l'écran : celui que la
+    /// rangée affiche à côté de l'interrupteur (hors d'une `field`).
+    pub(in crate::ui) fn named(self, name: impl AsRef<str>) -> Self {
+        self.app.a11y_rename(self.noted.as_ref(), name.as_ref());
+        self
+    }
+
+    pub(in crate::ui) fn on_toggle(self, f: impl Fn(bool) -> Msg + 'a) -> Self {
+        self.app.a11y_enable(self.noted.as_ref());
+        Switch {
+            toggler: self.toggler.on_toggle(f),
+            ..self
+        }
+    }
+
+    pub(in crate::ui) fn on_toggle_maybe(self, f: Option<impl Fn(bool) -> Msg + 'a>) -> Self {
+        if f.is_some() {
+            self.app.a11y_enable(self.noted.as_ref());
+        }
+        Switch {
+            toggler: self.toggler.on_toggle_maybe(f),
+            ..self
+        }
+    }
+
+    pub(in crate::ui) fn font(self, font: iced::Font) -> Self {
+        Switch {
+            toggler: self.toggler.font(font),
+            ..self
+        }
+    }
+
+    pub(in crate::ui) fn text_size(self, size: impl Into<iced::Pixels>) -> Self {
+        Switch {
+            toggler: self.toggler.text_size(size),
+            ..self
+        }
+    }
+}
+
+impl<'a> From<Switch<'_, 'a>> for Element<'a, Msg> {
+    fn from(s: Switch<'_, 'a>) -> Self {
+        super::accessible::keep(s.noted, s.toggler.into())
+    }
 }
 
 #[cfg(test)]

@@ -10,6 +10,51 @@ use crate::ui::plugins::dock::{PopupContent, Slot};
 use crate::ui::{App, Msg};
 use iced::Task;
 
+/// Collecteur des nœuds de la page des Réglages (HIG ACC-01), ouvert le
+/// temps d'un dessin pour l'arbre (`App::a11y_page_nodes`) : les entrées
+/// dans l'ordre du dessin, `bound` le rang après la dernière clôture.
+#[derive(Default)]
+pub(in crate::ui) struct Collect {
+    entries: Vec<Entry>,
+    bound: usize,
+    next: usize,
+}
+
+/// Un nœud déposé : son numéro, ce qui dit s'il est encore dessiné (vivant
+/// tant que l'élément de sa primitive l'est), la commande qu'un libellé de
+/// `field` désigne.
+struct Entry {
+    seq: usize,
+    node: Node,
+    life: std::rc::Weak<()>,
+    claim: Option<usize>,
+}
+
+/// Jeton d'un nœud déposé ([`App::a11y_note`]) : lié à l'élément de la
+/// primitive par [`keep`], il garde le nœud tant que l'élément existe.
+pub(in crate::ui) struct Noted {
+    seq: usize,
+    life: std::rc::Rc<()>,
+}
+
+/// Lie le nœud du jeton à l'élément : jeté, l'élément emporte le jeton et
+/// le nœud sort de l'arbre. Sans jeton (arbre non lu), l'élément tel quel.
+pub(in crate::ui) fn keep<'a>(
+    noted: Option<Noted>,
+    el: iced::Element<'a, Msg>,
+) -> iced::Element<'a, Msg> {
+    match noted {
+        Some(n) => {
+            let life = n.life;
+            el.map(move |m| {
+                let _ = &life;
+                m
+            })
+        }
+        None => el,
+    }
+}
+
 impl App {
     /// Une `Frame` par barre et par dock, dans l'ordre des écrans ; en
     /// Graphite, le dock logé dans la barre est une `Frame` dans la sienne.
@@ -165,6 +210,15 @@ impl App {
                     ),
             );
         }
+        // Le contenu de la page, sous ses onglets, comme à l'écran.
+        let content = self.a11y_page_nodes(p);
+        if !content.is_empty() {
+            frame = frame.child(
+                Node::new(Role::Panel, tr("Contenu"))
+                    .key("content")
+                    .children(content),
+            );
+        }
         Some(frame)
     }
 
@@ -212,6 +266,174 @@ impl App {
                 Slot::Separator => None,
             },
         ))
+    }
+
+    /// Rangées et commandes de la page affichée des Réglages : la page est
+    /// dessinée pour l'arbre, et ses primitives (`section`, `adv`, `field`,
+    /// `slider`, `toggle`) y déposent leurs nœuds dans l'ordre du dessin.
+    /// Chaque nœud vit avec l'élément de sa primitive : ce qui est construit
+    /// puis jeté (l'onglet qu'une page écarte par `match`, une branche non
+    /// retenue) n'y entre pas. Calculé quand l'arbre l'est (pont actif,
+    /// `hyprdesk a11y dump`), jamais pendant le dessin de l'écran : l'arbre
+    /// suit l'état, pas la dernière image. Résultats de la recherche en
+    /// liste : pas de page, rien.
+    fn a11y_page_nodes(&self, p: &crate::ui::panel::Panel) -> Vec<Node> {
+        if p.search_list && !p.search.trim().is_empty() {
+            return Vec::new();
+        }
+        let mut nodes = self.a11y_collected(|| crate::ui::plugins::view(self, p, p.tab));
+        // Une commande restée sans nom (hors d'une `field`, sans `named`) ne
+        // sert à rien au lecteur d'écran : elle n'est pas montrée.
+        nodes.retain(|n| !n.name.is_empty());
+        nodes
+    }
+
+    /// Les nœuds que le dessin `view` dépose, collecteur ouvert le temps de
+    /// ce dessin (voir [`App::a11y_page_nodes`]).
+    fn a11y_collected<'a>(&'a self, view: impl FnOnce() -> iced::Element<'a, Msg>) -> Vec<Node> {
+        *self.a11y_collect.borrow_mut() = Some(Collect::default());
+        let page = view();
+        let entries = self
+            .a11y_collect
+            .borrow_mut()
+            .take()
+            .map(|c| c.entries)
+            .unwrap_or_default();
+        // Vivants tant que la page l'est : ce qu'elle a gardé.
+        let kept: Vec<Entry> = entries
+            .into_iter()
+            .filter(|e| e.life.strong_count() > 0)
+            .collect();
+        drop(page);
+        // Le libellé d'une `field` nomme la commande qu'il désigne et
+        // s'efface (pas de lecture en double) ; commande jetée, il reste.
+        let alive: std::collections::HashSet<usize> = kept.iter().map(|e| e.seq).collect();
+        let mut names: std::collections::HashMap<usize, String> = kept
+            .iter()
+            .filter_map(|e| {
+                e.claim
+                    .filter(|l| alive.contains(l))
+                    .map(|l| (l, e.node.name.clone()))
+            })
+            .collect();
+        kept.into_iter()
+            .filter(|e| !e.claim.is_some_and(|l| alive.contains(&l)))
+            .map(|e| {
+                let mut n = e.node;
+                if let Some(name) = names.remove(&e.seq) {
+                    n.name = name;
+                }
+                // Une clé stable par nœud (rôle et nom) : la différence suit
+                // le nœud d'un dessin à l'autre, pas son rang.
+                if n.key.is_empty() {
+                    n.key = format!("{}:{}", n.role.name(), n.name);
+                }
+                n
+            })
+            .collect()
+    }
+
+    /// Nœud déposé par une primitive de page pendant le dessin pour l'arbre
+    /// (sans effet sinon). Le jeton rendu le garde en vie : la primitive le
+    /// lie à son élément ([`keep`]).
+    pub(in crate::ui) fn a11y_note(&self, node: impl FnOnce() -> Node) -> Option<Noted> {
+        let mut g = self.a11y_collect.borrow_mut();
+        let c = g.as_mut()?;
+        let life = std::rc::Rc::new(());
+        let seq = c.next;
+        c.next += 1;
+        c.entries.push(Entry {
+            seq,
+            node: node(),
+            life: std::rc::Rc::downgrade(&life),
+            claim: None,
+        });
+        Some(Noted { seq, life })
+    }
+
+    /// Clôture : une `field` qui suit ne nomme que ce qui est déposé après
+    /// (titre de section, triangle d'une section avancée).
+    pub(in crate::ui) fn a11y_bound(&self) {
+        if let Some(c) = self.a11y_collect.borrow_mut().as_mut() {
+            c.bound = c.entries.len();
+        }
+    }
+
+    /// Le nœud du jeton `at`, s'il est encore au collecteur.
+    fn a11y_with(&self, at: Option<&Noted>, f: impl FnOnce(&mut Node)) {
+        let mut g = self.a11y_collect.borrow_mut();
+        if let (Some(c), Some(at)) = (g.as_mut(), at)
+            && let Some(e) = c.entries.iter_mut().rev().find(|e| e.seq == at.seq)
+        {
+            f(&mut e.node);
+        }
+    }
+
+    /// Nomme le nœud du jeton `at` (libellé d'un interrupteur).
+    pub(in crate::ui) fn a11y_rename(&self, at: Option<&Noted>, name: &str) {
+        self.a11y_with(at, |n| n.name = name.to_string());
+    }
+
+    /// Le nœud du jeton `at` devient actif (commande avec message) :
+    /// focalisable au clavier quand l'accès clavier complet l'y met.
+    pub(in crate::ui) fn a11y_enable(&self, at: Option<&Noted>) {
+        let keys = self.cfg.general.keyboard_access;
+        self.a11y_with(at, |n| {
+            n.states = n.states.with(State::Enabled).with(State::Sensitive);
+            if keys {
+                n.states = n.states.with(State::Focusable);
+            }
+        });
+    }
+
+    /// Fin d'une `field` : son libellé nomme la commande que son contrôle a
+    /// déposée (un curseur, un interrupteur). Le contrôle s'évalue avant la
+    /// `field` : ses commandes sont celles déposées sans nom depuis la
+    /// dernière clôture. Une seule sans nom : le libellé la désigne (il la
+    /// nommera si elle est gardée, sinon il reste seul) ; sinon le libellé en
+    /// `Label`, avant les commandes du contrôle. Une commande sans libellé se
+    /// dessine donc dans une `field`, ou se nomme (`named`). Libellé vide
+    /// : celui du triangle d'une section avancée qui l'enveloppe
+    /// directement, pour sa seule commande. Le jeton rendu lie le libellé à
+    /// l'élément de la `field`.
+    pub(in crate::ui) fn a11y_field(&self, label: &str) -> Option<Noted> {
+        let mut g = self.a11y_collect.borrow_mut();
+        let c = g.as_mut()?;
+        let open: Vec<usize> = (c.bound..c.entries.len())
+            .filter(|&i| c.entries[i].node.name.is_empty())
+            .collect();
+        let mut noted = None;
+        if label.is_empty() {
+            let adv = c
+                .bound
+                .checked_sub(1)
+                .and_then(|i| c.entries.get(i))
+                .filter(|e| e.node.key.starts_with("adv:"))
+                .map(|e| e.node.name.clone());
+            if let (Some(name), [one]) = (adv, open.as_slice()) {
+                c.entries[*one].node.name = name;
+            }
+        } else {
+            let life = std::rc::Rc::new(());
+            let seq = c.next;
+            c.next += 1;
+            let entry = Entry {
+                seq,
+                node: Node::new(Role::Label, tr(label).to_string()),
+                life: std::rc::Rc::downgrade(&life),
+                claim: match open.as_slice() {
+                    [one] => Some(c.entries[*one].seq),
+                    _ => None,
+                },
+            };
+            // Avant la première commande déposée depuis la clôture : celles
+            // du contrôle, interrupteurs à libellé compris.
+            let first = c.bound.min(c.entries.len());
+            c.entries.insert(first, entry);
+            noted = Some(Noted { seq, life });
+        }
+        c.bound = c.entries.len();
+        noted
     }
 
     /// Pages de la navigation des Réglages, dans l'ordre de la vue.
@@ -1010,6 +1232,236 @@ mod tests {
         let tab = app.panel.as_ref().map(|p| p.tab);
         let _ = app.a11y_action(&format!("/settings/pages/{}", pages.children[0].key));
         assert_eq!(app.panel.as_ref().map(|p| p.tab), tab);
+    }
+
+    /// Primitives de page : un curseur prend le libellé de sa `field` (lu
+    /// une fois), le libellé d'une rangée d'interrupteurs les précède, un
+    /// élément jeté sort de l'arbre, une section avancée repliée ne montre
+    /// que son triangle.
+    #[test]
+    fn primitives_de_page() {
+        use crate::a11y::model::{Role, State};
+        use crate::ui::Msg;
+        use crate::ui::panel::{SliderLook, SliderSpec};
+        let (app, _) = App::boot_with(PathBuf::from("/tmp/hyprdesk-a11y-tests/config.lua"), true);
+        let spec = || SliderSpec::new("essai", (0.0, 10.0), 1.0, |_| Msg::Noop, Msg::Noop);
+        let look = || SliderLook::fixed(13.0, 200, iced::Alignment::Center);
+        let nodes = app.a11y_collected(|| {
+            let jete = app.toggle(true).label("Jeté");
+            drop(jete);
+            iced::widget::column![
+                app.section("Titre"),
+                app.field(
+                    "Vitesse",
+                    "",
+                    app.slider(&spec(), 3.0, |v| format!("{v}"), look())
+                ),
+                app.field(
+                    "Boutons",
+                    "",
+                    iced::widget::column![
+                        app.toggle(true).label("A").on_toggle(|_| Msg::Noop),
+                        app.toggle(false).label("B"),
+                    ]
+                ),
+                app.field("Seul", "", app.toggle(true).on_toggle(|_| Msg::Noop)),
+                app.field("Texte", "", iced::widget::text("x")),
+            ]
+            .into()
+        });
+        let seen: Vec<(Role, &str)> = nodes.iter().map(|n| (n.role, n.name.as_str())).collect();
+        // Le titre de section clôt sans nœud : une page le construit parfois
+        // après son contenu.
+        assert_eq!(
+            seen,
+            [
+                (Role::Slider, crate::i18n::tr("Vitesse")),
+                (Role::Label, crate::i18n::tr("Boutons")),
+                (Role::CheckBox, "A"),
+                (Role::CheckBox, "B"),
+                (Role::CheckBox, crate::i18n::tr("Seul")),
+                (Role::Label, crate::i18n::tr("Texte")),
+            ]
+        );
+        assert_eq!(nodes[0].description, "3");
+        assert!(
+            nodes[2].states.contains(State::Checked) && nodes[2].states.contains(State::Enabled)
+        );
+        assert!(
+            !nodes[3].states.contains(State::Checked) && !nodes[3].states.contains(State::Enabled)
+        );
+        // Hors d'un dessin pour l'arbre : rien n'est collecté.
+        let _ = app.section("Titre");
+        assert!(app.a11y_collect.borrow().is_none());
+    }
+
+    /// Contenu des pages des Réglages : chaque page et chaque onglet,
+    /// configuration avancée coupée puis mise ; curseurs et interrupteurs
+    /// nommés, libellé absorbé par sa commande, sections avancées repliées
+    /// sans contenu, rien en mode liste de la recherche.
+    #[test]
+    fn reglages_contenu() {
+        use crate::a11y::model::{Node, Role, State};
+        use crate::ui::Msg;
+        use crate::ui::panel::PanelMsg;
+        let (mut app, _) =
+            App::boot_with(PathBuf::from("/tmp/hyprdesk-a11y-tests/config.lua"), true);
+        app.surfaces.insert(Id::unique(), "A".into());
+        let _ = app.open_panel();
+        let content = |app: &App| -> Vec<Node> {
+            app.settings_a11y()
+                .unwrap()
+                .children
+                .into_iter()
+                .find(|n| n.key == "content")
+                .map(|n| n.children)
+                .unwrap_or_default()
+        };
+        let mut unnamed = Vec::new();
+        let mut leaks = Vec::new();
+        let mut sliders = 0;
+        let mut checks = 0;
+        for advanced in [false, true] {
+            std::sync::Arc::make_mut(&mut app.cfg)
+                .general
+                .advanced_settings = advanced;
+            for page in crate::ui::plugins::BUILTIN {
+                let _ = app.update(Msg::Panel(PanelMsg::Tab(page.id)));
+                let mut tabs: Vec<Option<&'static str>> =
+                    crate::ui::plugins::visible_tabs(page.id, advanced)
+                        .into_iter()
+                        .map(|(t, _)| Some(t))
+                        .collect();
+                if tabs.is_empty() {
+                    tabs.push(None);
+                }
+                let mut seen: Vec<(Option<&str>, Vec<String>)> = Vec::new();
+                for t in tabs {
+                    if let Some(t) = t {
+                        let _ = app.update(Msg::Panel(PanelMsg::SubTab(page.id, t)));
+                    }
+                    // Juste après le changement d'onglet : la page affichée.
+                    assert_eq!(app.panel.as_ref().unwrap().tab, page.id);
+                    let nodes = content(&app);
+                    let here = format!("{} / {t:?}", page.id);
+                    // Avant le tri des commandes sans nom : toutes nommées
+                    // sur les pages de la configuration d'essai.
+                    let raw = app.a11y_collected(|| {
+                        crate::ui::plugins::view(&app, app.panel.as_ref().unwrap(), page.id)
+                    });
+                    for n in raw.iter().filter(|n| {
+                        matches!(n.role, Role::Slider | Role::CheckBox) && n.name.is_empty()
+                    }) {
+                        unnamed.push(format!("{here} : {}", n.dump().trim()));
+                    }
+                    for n in &nodes {
+                        assert!(!n.name.is_empty(), "{here} : nœud sans nom montré");
+                        assert!(!n.key.is_empty());
+                        sliders += usize::from(n.role == Role::Slider);
+                        checks += usize::from(n.role == Role::CheckBox);
+                        if n.role == Role::ToggleButton && n.key.starts_with("adv:") {
+                            assert!(
+                                advanced,
+                                "{here} : section avancée hors configuration avancée"
+                            );
+                            assert!(
+                                !n.states.contains(State::Expanded),
+                                "{here} : repliée par défaut"
+                            );
+                        }
+                    }
+                    // Une page qui choisit son onglet par `match` : aucune
+                    // commande d'un autre onglet (construite puis jetée)
+                    // n'entre dans celui-ci (les titres peuvent se répéter).
+                    let keys: Vec<String> = nodes
+                        .iter()
+                        .filter(|n| matches!(n.role, Role::Slider | Role::CheckBox))
+                        .map(|n| n.key.clone())
+                        .collect();
+                    for (other, ks) in &seen {
+                        for k in keys.iter().filter(|k| ks.contains(k)) {
+                            leaks.push(format!("{here} et {other:?} : {k}"));
+                        }
+                    }
+                    seen.push((t, keys));
+                    // Un libellé absorbé par sa commande n'est pas lu deux fois.
+                    for w in nodes.windows(2) {
+                        assert!(
+                            !(w[0].role == Role::Label && w[0].name == w[1].name),
+                            "{here} : {} lu deux fois",
+                            w[0].name
+                        );
+                    }
+                }
+            }
+        }
+        assert!(leaks.is_empty(), "onglets mêlés :\n{}", leaks.join("\n"));
+        assert!(
+            unnamed.is_empty(),
+            "commandes sans nom :\n{}",
+            unnamed.join("\n")
+        );
+        assert!(
+            sliders > 0 && checks > 0,
+            "{sliders} curseurs, {checks} interrupteurs"
+        );
+        // Saisie : la vitesse du pointeur est un curseur nommé, sa valeur en
+        // description, sans libellé à part.
+        std::sync::Arc::make_mut(&mut app.cfg)
+            .general
+            .advanced_settings = false;
+        let _ = app.update(Msg::Panel(PanelMsg::Tab("input")));
+        for (t, _) in crate::ui::plugins::visible_tabs("input", false) {
+            let _ = app.update(Msg::Panel(PanelMsg::SubTab("input", t)));
+            for n in content(&app).iter().filter(|n| n.role == Role::Slider) {
+                assert!(!n.description.is_empty(), "{}", n.dump());
+                assert!(
+                    !content(&app)
+                        .iter()
+                        .any(|l| l.role == Role::Label && l.name == n.name),
+                    "{}",
+                    n.name
+                );
+            }
+        }
+        // Une section avancée dépliée : son contenu suit son triangle.
+        std::sync::Arc::make_mut(&mut app.cfg)
+            .general
+            .advanced_settings = true;
+        let mut unfolded = false;
+        'pages: for page in crate::ui::plugins::BUILTIN {
+            let _ = app.update(Msg::Panel(PanelMsg::Tab(page.id)));
+            let nodes = content(&app);
+            if let Some(k) = nodes.iter().position(|n| n.key.starts_with("adv:")) {
+                let before = nodes.len();
+                let _ = app.update(Msg::Panel(PanelMsg::AdvToggle(format!(
+                    "{}\u{1}{}\u{1}{}",
+                    page.id,
+                    app.subtab(page.id),
+                    &nodes[k].key["adv:".len()..]
+                ))));
+                let after = content(&app);
+                let head = after.iter().position(|n| n.key == nodes[k].key).unwrap();
+                assert!(after[head].states.contains(State::Expanded));
+                if after.len() > before {
+                    unfolded = true;
+                    break 'pages;
+                }
+            }
+        }
+        assert!(unfolded, "une section avancée dépliée montre son contenu");
+        // Résultats de la recherche en liste : pas de page, pas de contenu.
+        app.panel.as_mut().unwrap().search = "fond".into();
+        app.panel.as_mut().unwrap().search_list = true;
+        assert!(content(&app).is_empty());
+        // `hyprdesk a11y dump` : l'arbre des surfaces porte le contenu.
+        app.panel.as_mut().unwrap().search.clear();
+        app.panel.as_mut().unwrap().search_list = false;
+        let dump: String = app.a11y_surfaces().iter().map(Node::dump).collect();
+        assert!(
+            dump.contains("Contenu") || dump.contains("Content"),
+            "{dump}"
+        );
     }
 
     /// Menus : commandes, case cochée, entrée grisée, sous-menu déplié.

@@ -13,7 +13,7 @@
 
 use crate::i18n::text;
 use crate::session_start::Item;
-use iced::widget::{Space, button, column, container, pick_list, row, text_input, toggler};
+use iced::widget::{Space, button, column, container, pick_list, row, text_input};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -209,7 +209,9 @@ impl App {
          -> Element<'_, UiMsg> {
             let mut line = row![].spacing(10).align_y(Alignment::Center);
             line = line.push(match toggle {
-                Some(f) => Element::from(self.focusable(toggler(it.enabled).on_toggle(f))),
+                Some(f) => Element::from(
+                    self.focusable(self.toggle(it.enabled).named(&it.command).on_toggle(f)),
+                ),
                 None => Space::new().width(40).into(),
             });
             line = line.push(if it.locked {

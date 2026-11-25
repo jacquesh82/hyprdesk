@@ -478,7 +478,9 @@ impl Handle {
     /// Remplace l'arbre servi par différence : les nœuds gardés (même clé)
     /// gardent leur objet ; les nouveaux sont servis, puis annoncés
     /// (`ChildrenChanged:add`) ; les disparus annoncés (`:remove`), puis
-    /// retirés ; un nom changé émet `PropertyChange:accessible-name`.
+    /// retirés ; un nom changé émet `PropertyChange:accessible-name`, une
+    /// description ou un rôle changés, `accessible-description` ou
+    /// `accessible-role`.
     pub async fn replace(&mut self, root: &Node) -> zbus::Result<()> {
         let new = Tree::flatten_with(root, &mut self.ids);
         // Objets à servir ou à retirer d'après ce qui est servi, pas d'après
@@ -560,6 +562,31 @@ impl Handle {
                 .unwrap_or_default();
             keep(
                 self.emit(id, "PropertyChange", "accessible-name", 0, name.into())
+                    .await,
+            );
+        }
+        for &id in &d.described {
+            let description = self
+                .shared
+                .tree()
+                .get(id)
+                .map(|n| n.description.clone())
+                .unwrap_or_default();
+            keep(
+                self.emit(
+                    id,
+                    "PropertyChange",
+                    "accessible-description",
+                    0,
+                    description.into(),
+                )
+                .await,
+            );
+        }
+        for &id in &d.reroled {
+            let role = self.shared.tree().get(id).map_or(0, |n| n.role as u32);
+            keep(
+                self.emit(id, "PropertyChange", "accessible-role", 0, role.into())
                     .await,
             );
         }

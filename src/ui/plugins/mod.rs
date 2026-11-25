@@ -426,15 +426,16 @@ impl App {
     }
 
     /// Section avancée : triangle de divulgation intitulé, replié par défaut,
-    /// qui déploie son contenu dans la page (HIG LAY-01). Sans la
+    /// qui déploie son contenu dans la page (HIG LAY-01). Le contenu est une
+    /// fermeture, appelée seulement déplié : ce qui n'est pas dessiné ne se
+    /// construit pas et n'entre pas dans l'arbre d'accessibilité (ACC-01). Sans la
     /// configuration avancée : rien, sans laisser d'espace dans la colonne.
     /// Pendant une recherche, la section est dépliée : ses correspondances
     /// surlignées doivent se voir.
-    pub(in crate::ui) fn adv<'a>(
-        &self,
-        title: &str,
-        e: impl Into<Element<'a, Msg>>,
-    ) -> Element<'a, Msg> {
+    pub(in crate::ui) fn adv<'a, E>(&self, title: &str, e: impl FnOnce() -> E) -> Element<'a, Msg>
+    where
+        E: Into<Element<'a, Msg>>,
+    {
         use iced::widget::{button, column, container, row, text};
         if !self.advanced() {
             return iced::widget::Space::new().width(0).height(0).into();
@@ -469,19 +470,32 @@ impl App {
         .style(button::text)
         .on_press(Msg::Panel(super::panel::PanelMsg::AdvToggle(key)))
         .into();
+        // Arbre d'accessibilité (HIG ACC-01) : le triangle, déposé avant
+        // le contenu ; replié, le contenu n'est pas dessiné, donc absent.
+        let noted = self.a11y_note(|| {
+            use crate::a11y::model::{Node, Role, State};
+            let n = Node::new(Role::ToggleButton, crate::i18n::tr(title))
+                .key(format!("adv:{title}"))
+                .state(State::Expandable)
+                .state(State::Focusable);
+            if open { n.state(State::Expanded) } else { n }
+        });
+        self.a11y_bound();
         if !open {
-            return head;
+            return crate::ui::accessible::keep(noted, head);
         }
-        // Le contenu se déploie sous le libellé, en retrait du triangle.
-        column![
+        // Le contenu se déploie sous le libellé, en retrait du triangle :
+        // construit seulement déplié.
+        let body: Element<'a, Msg> = column![
             head,
-            container(e).padding(iced::Padding {
+            container(e()).padding(iced::Padding {
                 left: 24.0,
                 ..iced::Padding::ZERO
             })
         ]
         .spacing(8)
-        .into()
+        .into();
+        crate::ui::accessible::keep(noted, body)
     }
 
     /// Suppression en deux temps : « × », puis « Supprimer ? » (armé) qui

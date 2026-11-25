@@ -375,6 +375,11 @@ pub struct Diff {
     pub removed: Vec<usize>,
     /// Nœuds gardés dont le nom change (`PropertyChange:accessible-name`).
     pub renamed: Vec<usize>,
+    /// Nœuds gardés dont la description change
+    /// (`PropertyChange:accessible-description`) : la valeur d'un curseur.
+    pub described: Vec<usize>,
+    /// Nœuds gardés dont le rôle change (`PropertyChange:accessible-role`).
+    pub reroled: Vec<usize>,
     /// `ChildrenChanged` : (parent, ajout ?, rang, enfant), pour le plus haut
     /// nœud ajouté ou retiré de chaque branche.
     pub children: Vec<(usize, bool, i32, usize)>,
@@ -424,6 +429,12 @@ pub fn diff(old: &Tree, new: &Tree) -> Diff {
             Some(o) => {
                 if o.name != n.name {
                     d.renamed.push(n.id);
+                }
+                if o.description != n.description {
+                    d.described.push(n.id);
+                }
+                if o.role != n.role {
+                    d.reroled.push(n.id);
                 }
                 if o.states != n.states {
                     d.states.push((n.id, o.states, n.states));
@@ -494,6 +505,26 @@ mod tests {
         assert_eq!(t.nodes[0].index_in_parent, -1);
         assert_eq!(Tree::path(0), ROOT_PATH);
         assert_eq!(Tree::path(3), "/org/a11y/atspi/accessible/3");
+    }
+
+    /// La valeur d'un curseur (sa description) et un rôle changés se
+    /// suivent sur le même objet.
+    #[test]
+    fn difference_de_description_et_de_role() {
+        let mut ids = Ids::default();
+        let page = |role: Role, value: &str| {
+            Node::new(Role::Application, "hyprdesk")
+                .child(Node::new(role, "Vitesse").key("slider:v").describe(value))
+        };
+        let a = Tree::flatten_with(&page(Role::Slider, "+0.10"), &mut ids);
+        let b = Tree::flatten_with(&page(Role::Slider, "+0.20"), &mut ids);
+        let c = Tree::flatten_with(&page(Role::Label, "+0.20"), &mut ids);
+        let d = diff(&a, &b);
+        assert_eq!(d.described, [a.nodes[1].id]);
+        assert!(d.reroled.is_empty() && d.added.is_empty() && d.renamed.is_empty());
+        let d = diff(&b, &c);
+        assert_eq!(d.reroled, [b.nodes[1].id]);
+        assert!(d.described.is_empty());
     }
 
     #[test]

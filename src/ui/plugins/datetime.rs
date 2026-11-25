@@ -5,7 +5,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, row, toggler};
+use iced::widget::{button, column, pick_list, row};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -149,7 +149,7 @@ impl App {
             col = col.push(self.field(
                 "Mise à l'heure automatique (réseau)",
                 "",
-                self.focusable(toggler(s.ntp).on_toggle(|v| wrap(Msg::Ntp(v)))),
+                self.focusable(self.toggle(s.ntp).on_toggle(|v| wrap(Msg::Ntp(v)))),
             ));
             col = col.push(
                 text(if s.synced {

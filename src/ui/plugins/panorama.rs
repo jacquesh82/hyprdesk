@@ -15,7 +15,7 @@ pub mod modules;
 pub(in crate::ui) mod surface;
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, row, toggler};
+use iced::widget::{Space, button, column, row};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::etats::Etat;
@@ -263,7 +263,7 @@ impl App {
             );
             let name = s.name.clone();
             let mut line = row![
-                toggler(on)
+                self.toggle(on)
                     .label(label)
                     .text_size(13)
                     .on_toggle(move |v| wrap(Msg::Role(name.clone(), v))),
@@ -355,7 +355,7 @@ impl App {
             );
         }
         preview = preview.push(formats);
-        col = col.push(self.adv("Aperçu par format", preview));
+        col = col.push(self.adv("Aperçu par format", || preview));
         col.into()
     }
 
@@ -649,8 +649,8 @@ impl App {
         let mut col = column![tabs].spacing(14);
         if view == "video" {
             col = col.push(self.adv("Sortie du plein écran",
-                column![
-                    toggler(self.panorama_cfg().restore_on_fullscreen_exit)
+                || column![
+                    self.toggle(self.panorama_cfg().restore_on_fullscreen_exit)
                         .label(crate::i18n::tr("Remettre la fenêtre à sa place à la sortie du plein écran"))
                         .font(self.font)
                         .text_size(13)
@@ -675,7 +675,7 @@ impl App {
         let v = self.panorama_cfg().video_dim;
         let mut col = column![
             self.section("Pendant la lecture"),
-            toggler(v.on)
+            self.toggle(v.on)
                 .label(crate::i18n::tr("Assombrir autour de la vidéo"))
                 .font(self.font)
                 .text_size(13)
@@ -737,7 +737,7 @@ impl App {
             ),
         );
         col = col.push(
-            toggler(v.paused)
+            self.toggle(v.paused)
                 .label(crate::i18n::tr(
                     "Garder le voile quand la vidéo est en pause",
                 ))
@@ -745,7 +745,7 @@ impl App {
                 .text_size(13)
                 .on_toggle(|b| wrap(Msg::DimPaused(b))),
         );
-        col.push(self.adv("Fondu du voile", column![
+        col.push(self.adv("Fondu du voile", || column![
             self.field(
                 "Durée du fondu",
                 "",
@@ -1365,29 +1365,26 @@ impl App {
         let found = crate::panorama::video::browser(&c.browser).map(|(cmd, _)| cmd);
         // La commande du navigateur : avancé (vide : détection automatique) ;
         // le navigateur trouvé, ou son absence, reste dit à tous.
-        col = col.push(
-            self.adv(
-                "Navigateur",
-                self.field(
-                    "",
-                    "panorama",
-                    iced::widget::text_input(
-                        found
-                            .as_deref()
-                            .unwrap_or("brave, chromium, google-chrome-stable…"),
-                        &self
-                            .panorama
-                            .browser_draft
-                            .clone()
-                            .unwrap_or_else(|| c.browser.clone()),
-                    )
-                    .on_input(|v| wrap(Msg::Browser(v)))
-                    .on_submit(wrap(Msg::BrowserCommit))
-                    .size(crate::ui::tokens::ts(13.0))
-                    .width(320),
-                ),
-            ),
-        );
+        col = col.push(self.adv("Navigateur", || {
+            self.field(
+                "",
+                "panorama",
+                iced::widget::text_input(
+                    found
+                        .as_deref()
+                        .unwrap_or("brave, chromium, google-chrome-stable…"),
+                    &self
+                        .panorama
+                        .browser_draft
+                        .clone()
+                        .unwrap_or_else(|| c.browser.clone()),
+                )
+                .on_input(|v| wrap(Msg::Browser(v)))
+                .on_submit(wrap(Msg::BrowserCommit))
+                .size(crate::ui::tokens::ts(13.0))
+                .width(320),
+            )
+        }));
         col = col.push(
             text(match found {
                 Some(cmd) => crate::tr!(

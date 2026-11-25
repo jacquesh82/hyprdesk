@@ -7,7 +7,7 @@
 
 use crate::i18n::text;
 use iced::futures::{SinkExt, Stream};
-use iced::widget::{button, column, row, text_input, toggler};
+use iced::widget::{button, column, row, text_input};
 use iced::{Alignment, Element, Task};
 
 use super::super::panel::PanelMsg;
@@ -562,30 +562,27 @@ impl App {
                     .on_input(|v| wrap(Msg::MaxText(v))),
             ),
         );
-        col = col.push(self.adv("Exclusions et taille maximale", fine));
+        col = col.push(self.adv("Exclusions et taille maximale", || fine));
 
         // — Démarrage —
         // Quand démarre le démon d'index : avancé.
-        col = col.push(
-            self.adv(
-                "Lancer l'index avec hyprdesk",
-                column![
-                    self.field(
-                        "",
-                        "index_autostart",
-                        self.focusable(
-                            toggler(self.cfg.general.index_autostart)
-                                .on_toggle(|v| wrap(Msg::Autostart(v)))
-                        ),
+        col = col.push(self.adv("Lancer l'index avec hyprdesk", || {
+            column![
+                self.field(
+                    "",
+                    "index_autostart",
+                    self.focusable(
+                        self.toggle(self.cfg.general.index_autostart)
+                            .on_toggle(|v| wrap(Msg::Autostart(v)))
                     ),
-                    text("Désactivé : le démon démarre à la première recherche « :f ».")
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(12.0))
-                        .color(dim),
-                ]
-                .spacing(8),
-            ),
-        );
+                ),
+                text("Désactivé : le démon démarre à la première recherche « :f ».")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+            ]
+            .spacing(8)
+        }));
 
         // — Rescan —
         // Réglages fins : configuration avancée.
@@ -608,7 +605,7 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
-        col = col.push(self.adv("Rescan de sûreté", rescan));
+        col = col.push(self.adv("Rescan de sûreté", || rescan));
 
         // — retour inline + Appliquer —
         if let Some(m) = &s.info {

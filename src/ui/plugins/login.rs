@@ -10,7 +10,7 @@
 
 use crate::greeter_setup::{self, MonitorRule, Profile, Status, dm_label};
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, pick_list, row, toggler};
+use iced::widget::{Space, button, column, container, pick_list, row};
 use iced::{Alignment, Color, Element, Length, Task};
 use std::path::PathBuf;
 
@@ -502,7 +502,7 @@ impl App {
         ));
         col = col.push(
             self.focusable_when(
-                toggler(st.fingerprint)
+                self.toggle(st.fingerprint)
                     .label(crate::i18n::tr(
                         "Empreinte digitale à la connexion (fprintd)",
                     ))

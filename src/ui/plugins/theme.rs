@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, radio, row, text_input, toggler};
+use iced::widget::{Space, button, column, container, radio, row, text_input};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::panel::{PanelMsg, SWATCHES, SliderLook, SliderSpec, beside_slider};
@@ -308,7 +308,7 @@ impl App {
             let field: Element<'_, UiMsg> = match (o.kind, o.value(g)) {
                 (Kind::Bool, OptValue::Bool(b)) => {
                     let n = name.clone();
-                    self.focusable(toggler(b).on_toggle(move |v| {
+                    self.focusable(self.toggle(b).on_toggle(move |v| {
                         wrap(Msg::DesignOpt(
                             n.clone(),
                             if v { "on" } else { "off" }.into(),
@@ -467,6 +467,413 @@ impl App {
         };
 
         // Thème en place.
+        // Couleurs, et effets plus bas : construits pour leur seul onglet,
+        // après le choix de l'onglet. L'arbre d'accessibilité ne lit que ce
+        // qui est dessiné (HIG ACC-01).
+        let colors = || {
+            let mut colors = column![].spacing(12);
+            for slot in Slot::ALL {
+                let value = match slot {
+                    Slot::Fg => th.fg,
+                    Slot::Bg => th.bg,
+                    Slot::Accent => th.accent,
+                    Slot::Background => g.background,
+                };
+                let draft = st
+                    .hex
+                    .get(&slot)
+                    .cloned()
+                    .unwrap_or_else(|| crate::settings::hex(value));
+                let swatches = row(slot.swatches().into_iter().map(|c| {
+                    self.focusable(
+                        button(dot(c, 26.0, c == value))
+                            .padding(0)
+                            .style(|_, _| button::Style::default())
+                            .on_press(wrap(Msg::Color(slot, c))),
+                    )
+                }))
+                .spacing(8);
+                // Puits de couleur (HIG SEL-02) : la pastille de la couleur en
+                // cours ouvre le sélecteur, qui se dessine sous la rangée.
+                let open = st.picker.as_ref();
+                let is_open = open.is_some_and(|(s, _)| *s == slot);
+                let mut line = column![].spacing(8);
+                line = line.push(
+                    row![
+                        swatches,
+                        Space::new().width(Length::Fill),
+                        well(
+                            value,
+                            22.0,
+                            is_open,
+                            accent,
+                            Color { a: 0.3, ..fg },
+                            wrap(Msg::OpenPicker(slot)),
+                        ),
+                        text_input(crate::i18n::tr("#rrggbb"), &draft)
+                            .font(font)
+                            .size(crate::ui::tokens::ts(13.0))
+                            .on_input(move |v| wrap(Msg::Hex(slot, v)))
+                            .on_submit(wrap(Msg::HexSubmit(slot)))
+                            .padding(6)
+                            .width(96),
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                );
+                if let Some((_, pk)) = open.filter(|_| is_open) {
+                    line = line.push(pk.view(
+                        font,
+                        fg,
+                        dim,
+                        |m| wrap(Msg::Picker(m)),
+                        wrap(Msg::PickerApply),
+                        wrap(Msg::PickerCancel),
+                    ));
+                }
+                colors = colors.push(self.field(slot.label(), slot.key(), line));
+            }
+            colors
+        };
+
+        // Effets de chaque endroit.
+        let effects = || {
+            let percent = |v: f64| format!("{} %", v.round() as i32);
+            let mut effects = column![].spacing(12);
+            for place in Place::ALL {
+                let e = th.effect(place);
+                let spec = SliderSpec::new(
+                    place.as_str(),
+                    (0.0, 100.0),
+                    1.0,
+                    move |v| wrap(Msg::Opacity(place, v.round() as u32 as f32 / 100.0)),
+                    wrap(Msg::Commit),
+                );
+                // Les interrupteurs restent sur la ligne du curseur, au-dessus de
+                // son échelle (HIG SEL-09).
+                let mut line = row![self.slider(
+                    &spec,
+                    f64::from((e.opacity * 100.0).round() as u32),
+                    percent,
+                    SliderLook::fill(13.0, 48, Alignment::Center),
+                ),]
+                .spacing(12)
+                .align_y(Alignment::Center);
+                if place.blurrable() {
+                    line = line.push(beside_slider(
+                        &spec,
+                        self.focusable(
+                            self.toggle(e.blur)
+                                .label(crate::i18n::tr("Flou"))
+                                .font(font)
+                                .on_toggle(move |v| wrap(Msg::Blur(place, v))),
+                        ),
+                    ));
+                }
+                // Transparence adaptative : les surfaces posées sur le fond
+                // d'écran (le lanceur l'est toujours ; menus et Réglages
+                // passent devant des fenêtres, invisibles pour hyprdesk).
+                let adaptable = matches!(place, Place::Bar | Place::Widgets);
+                if adaptable {
+                    line = line.push(beside_slider(
+                        &spec,
+                        self.focusable(
+                            self.toggle(e.adaptive.is_some())
+                                .label(crate::i18n::tr("Adaptatif"))
+                                .font(font)
+                                .on_toggle(move |v| wrap(Msg::Adaptive(place, v))),
+                        ),
+                    ));
+                }
+                let mut cell = column![line].spacing(4);
+                let note = match (place, e.adaptive) {
+                    (Place::Launcher, _) => Some(
+                        crate::i18n::tr("Densifié selon le fond d'écran pour rester lisible.")
+                            .to_string(),
+                    ),
+                    (Place::Bar, Some(max)) => {
+                        let now = self.bar_palette().opacity;
+                        Some(crate::tr!(
+                            "Densifié jusqu'à {max} % si le fond gêne la lecture — en ce moment {now} %.",
+                            max = (max * 100.0).round() as i32,
+                            now = (now * 100.0).round() as i32
+                        ))
+                    }
+                    (Place::Widgets, Some(max)) => Some(crate::tr!(
+                        "Densifié jusqu'à {max} % si le fond gêne la lecture.",
+                        max = (max * 100.0).round() as i32
+                    )),
+                    _ => None,
+                };
+                if let Some(n) = note {
+                    cell = cell.push(
+                        text(n)
+                            .font(font)
+                            .size(crate::ui::tokens::ts(11.0))
+                            .color(self.ink().dim),
+                    );
+                }
+                // Verre du pack (MLG-268) : ce que le thème dessine en plus.
+                let glass = crate::ui::tokens::glass(place);
+                if glass.highlight > 0.0 || glass.refraction > 0.0 || glass.tint_strength > 0.0 {
+                    let pct = |v: f32| (v * 100.0).round() as i32;
+                    cell = cell.push(
+                        text(crate::tr!(
+                            "Verre du thème : reflet {h} %, réfraction {r} %, teinte {t} %.",
+                            h = pct(glass.highlight),
+                            r = pct(glass.refraction),
+                            t = pct(glass.tint_strength)
+                        ))
+                        .font(font)
+                        .size(crate::ui::tokens::ts(11.0))
+                        .color(self.ink().dim),
+                    );
+                }
+                if place == Place::Settings && self.hypr_blur_off() {
+                    cell = cell.push(
+                        text("Opaque tant que le flou de Hyprland est coupé (Performance).")
+                            .font(font)
+                            .size(crate::ui::tokens::ts(11.0))
+                            .color(self.ink().dim),
+                    );
+                }
+                effects = effects.push(self.field(
+                    place.label(),
+                    &format!("theme.effects.{}", place.as_str()),
+                    cell,
+                ));
+            }
+            // Accessibilité (MLG-269, MLG-271) : quel que soit le thème.
+            let pack = crate::ui::tokens::design();
+            let text_scale = SliderSpec::new(
+                "text_scale",
+                (75.0, 200.0),
+                1.0,
+                |v| wrap(Msg::TextScale(v.round() as f32 / 100.0)),
+                wrap(Msg::Commit),
+            );
+            let mut access = column![
+                self.focusable(
+                    self.toggle(g.reduced_transparency)
+                        .label(crate::i18n::tr("Transparence réduite"))
+                        .font(font)
+                        .on_toggle(|v| wrap(Msg::ReducedTransparency(v)))
+                ),
+                self.focusable(
+                    self.toggle(g.reduced_motion)
+                        .label(crate::i18n::tr("Mouvement réduit"))
+                        .font(font)
+                        .on_toggle(|v| wrap(Msg::ReducedMotion(v)))
+                ),
+                self.focusable(
+                    self.toggle(g.increase_contrast)
+                        .label(crate::i18n::tr("Contraste renforcé"))
+                        .font(font)
+                        .on_toggle(|v| wrap(Msg::IncreaseContrast(v)))
+                ),
+                row![
+                    // Sur la ligne du curseur, au-dessus de son échelle (HIG SEL-09).
+                    beside_slider(
+                        &text_scale,
+                        text(crate::i18n::tr("Taille du texte"))
+                            .font(font)
+                            .size(crate::ui::tokens::ts(13.0))
+                    ),
+                    self.slider(
+                        &text_scale,
+                        f64::from((g.text_scale * 100.0).round()),
+                        affiche_pourcent,
+                        SliderLook::fill(13.0, 48, Alignment::Center),
+                    ),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            ]
+            .spacing(8);
+            if pack.contrast.reduced_transparency || pack.motion.reduced {
+                access = access.push(
+                    text(crate::i18n::tr(
+                        "Le thème en place réduit déjà l'un ou l'autre.",
+                    ))
+                    .font(font)
+                    .size(crate::ui::tokens::ts(11.0))
+                    .color(self.ink().dim),
+                );
+            }
+            effects = effects.push(self.field("Accessibilité", "reduced_transparency", access));
+            effects = effects.push(
+                self.field(
+                    "Bureau affiché",
+                    "mode",
+                    row![
+                        self.focusable(
+                            radio(
+                                crate::i18n::tr("Fond d'écran"),
+                                Mode::Opaque,
+                                Some(g.mode),
+                                |v| wrap(Msg::Mode(v))
+                            )
+                            .font(font)
+                            .size(crate::ui::tokens::ts(16.0))
+                        ),
+                        self.focusable(
+                            radio(crate::i18n::tr("Verre"), Mode::Glass, Some(g.mode), |v| {
+                                wrap(Msg::Mode(v))
+                            })
+                            .font(font)
+                            .size(crate::ui::tokens::ts(16.0))
+                        ),
+                    ]
+                    .spacing(16),
+                ),
+            );
+            if g.mode == Mode::Glass {
+                effects = effects.push(self.field(
+                    "Voile du verre",
+                    "glass_opacity",
+                    self.slider(
+                        &SliderSpec::new(
+                            "glass_opacity",
+                            (0.0, 100.0),
+                            1.0,
+                            |v| wrap(Msg::GlassOpacity(v.round() as f32 / 100.0)),
+                            wrap(Msg::Commit),
+                        ),
+                        f64::from((g.glass_opacity * 100.0).round()),
+                        affiche_pourcent,
+                        SliderLook::fill(13.0, 48, Alignment::Center),
+                    ),
+                ));
+            }
+            let lock_dim = SliderSpec::new(
+                "lock_dim",
+                (0.0, 100.0),
+                1.0,
+                |v| wrap(Msg::LockDim(v.round() as f32 / 100.0)),
+                wrap(Msg::Commit),
+            );
+            effects = effects.push(
+                self.field(
+                    "Verrouillage",
+                    "lock_dim",
+                    row![
+                        self.slider(
+                            &lock_dim,
+                            f64::from((g.lock.dim * 100.0).round()),
+                            affiche_pourcent,
+                            SliderLook::fill(13.0, 48, Alignment::Center),
+                        ),
+                        // Sur la ligne du curseur, au-dessus de son échelle
+                        // (HIG SEL-09).
+                        beside_slider(
+                            &lock_dim,
+                            self.focusable(
+                                self.toggle(g.lock.blur)
+                                    .label(crate::i18n::tr("Flou"))
+                                    .font(font)
+                                    .on_toggle(|v| wrap(Msg::LockBlur(v)))
+                            )
+                        ),
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center),
+                ),
+            );
+            effects
+        };
+
+        match self.subtab(INFO.id) {
+            "couleurs" => {
+                // Accessibilité : contraste du texte et des repères sur les
+                // surfaces, aux cibles du thème (MLG-269, MLG-274). Les
+                // couleurs choisies ici sont gardées telles quelles : on
+                // signale, on ne corrige pas.
+                let target = crate::ui::tokens::design().contrast.clone();
+                let ratio = crate::theme::contrast(th.fg, th.bg);
+                let accent = crate::theme::contrast(th.accent, th.bg);
+                let mut lines = Vec::new();
+                if ratio + 1e-6 < f64::from(target.text) {
+                    lines.push((
+                        crate::tr!(
+                            "Contraste faible : {r}:1 (au moins {t}:1 conseillé ; thème « Contraste élevé » : 21:1).",
+                            r = format!("{ratio:.1}"),
+                            t = target.text
+                        ),
+                        true,
+                    ));
+                } else {
+                    lines.push((
+                        crate::tr!("Contraste du texte : {r}:1.", r = format!("{ratio:.1}")),
+                        false,
+                    ));
+                }
+                if accent + 1e-6 < f64::from(target.ui) {
+                    lines.push((
+                        crate::tr!(
+                            "Accent peu visible sur le fond : {r}:1 (au moins {t}:1 conseillé pour les repères).",
+                            r = format!("{accent:.1}"),
+                            t = target.ui
+                        ),
+                        true,
+                    ));
+                }
+                if lines.iter().any(|(_, w)| *w) {
+                    lines.push((
+                        crate::i18n::tr(
+                            "Vos couleurs sont gardées telles quelles ; un thème livré serait corrigé.",
+                        )
+                        .to_string(),
+                        false,
+                    ));
+                }
+                let note = column(lines.into_iter().map(|(l, warn)| {
+                    text(l)
+                        .font(font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(if warn {
+                            crate::ui::tone::warning()
+                        } else {
+                            dim
+                        })
+                        .into()
+                }))
+                .spacing(4);
+                return column![
+                    self.section("Couleurs"),
+                    colors(),
+                    note,
+                    self.section("Icônes d'application"),
+                    self.field("Apparence des icônes", "", self.icon_appearance_field()),
+                    text(crate::i18n::tr(
+                        "Automatique : sombres avec un thème sombre. Teintées : de la couleur d'accent. Le dessin de chaque icône reste le même."
+                    ))
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+                ]
+                .spacing(14)
+                .into();
+            }
+            "texte" => return self.typography(),
+            "composants" => return self.design_components(),
+            "transparence" => {
+                return column![
+                    self.section("Transparence"),
+                    text(
+                        "Opacité du fond de chaque endroit et flou de ce qu'il y a derrière \
+                         (fourni par Hyprland)."
+                    )
+                    .font(font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+                    effects(),
+                ]
+                .spacing(14)
+                .into();
+            }
+            _ => {}
+        }
+
         let name = st.name.clone().unwrap_or_else(|| th.name.clone());
         let mut current = column![
             row![
@@ -595,313 +1002,6 @@ impl App {
             .into()
         };
 
-        // Couleurs.
-        let mut colors = column![].spacing(12);
-        for slot in Slot::ALL {
-            let value = match slot {
-                Slot::Fg => th.fg,
-                Slot::Bg => th.bg,
-                Slot::Accent => th.accent,
-                Slot::Background => g.background,
-            };
-            let draft = st
-                .hex
-                .get(&slot)
-                .cloned()
-                .unwrap_or_else(|| crate::settings::hex(value));
-            let swatches = row(slot.swatches().into_iter().map(|c| {
-                self.focusable(
-                    button(dot(c, 26.0, c == value))
-                        .padding(0)
-                        .style(|_, _| button::Style::default())
-                        .on_press(wrap(Msg::Color(slot, c))),
-                )
-            }))
-            .spacing(8);
-            // Puits de couleur (HIG SEL-02) : la pastille de la couleur en
-            // cours ouvre le sélecteur, qui se dessine sous la rangée.
-            let open = st.picker.as_ref();
-            let is_open = open.is_some_and(|(s, _)| *s == slot);
-            let mut line = column![].spacing(8);
-            line = line.push(
-                row![
-                    swatches,
-                    Space::new().width(Length::Fill),
-                    well(
-                        value,
-                        22.0,
-                        is_open,
-                        accent,
-                        Color { a: 0.3, ..fg },
-                        wrap(Msg::OpenPicker(slot)),
-                    ),
-                    text_input(crate::i18n::tr("#rrggbb"), &draft)
-                        .font(font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .on_input(move |v| wrap(Msg::Hex(slot, v)))
-                        .on_submit(wrap(Msg::HexSubmit(slot)))
-                        .padding(6)
-                        .width(96),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center),
-            );
-            if let Some((_, pk)) = open.filter(|_| is_open) {
-                line = line.push(pk.view(
-                    font,
-                    fg,
-                    dim,
-                    |m| wrap(Msg::Picker(m)),
-                    wrap(Msg::PickerApply),
-                    wrap(Msg::PickerCancel),
-                ));
-            }
-            colors = colors.push(self.field(slot.label(), slot.key(), line));
-        }
-
-        // Effets de chaque endroit.
-        let percent = |v: f64| format!("{} %", v.round() as i32);
-        let mut effects = column![].spacing(12);
-        for place in Place::ALL {
-            let e = th.effect(place);
-            let spec = SliderSpec::new(
-                place.as_str(),
-                (0.0, 100.0),
-                1.0,
-                move |v| wrap(Msg::Opacity(place, v.round() as u32 as f32 / 100.0)),
-                wrap(Msg::Commit),
-            );
-            // Les interrupteurs restent sur la ligne du curseur, au-dessus de
-            // son échelle (HIG SEL-09).
-            let mut line = row![self.slider(
-                &spec,
-                f64::from((e.opacity * 100.0).round() as u32),
-                percent,
-                SliderLook::fill(13.0, 48, Alignment::Center),
-            ),]
-            .spacing(12)
-            .align_y(Alignment::Center);
-            if place.blurrable() {
-                line = line.push(beside_slider(
-                    &spec,
-                    self.focusable(
-                        toggler(e.blur)
-                            .label(crate::i18n::tr("Flou"))
-                            .font(font)
-                            .on_toggle(move |v| wrap(Msg::Blur(place, v))),
-                    ),
-                ));
-            }
-            // Transparence adaptative : les surfaces posées sur le fond
-            // d'écran (le lanceur l'est toujours ; menus et Réglages
-            // passent devant des fenêtres, invisibles pour hyprdesk).
-            let adaptable = matches!(place, Place::Bar | Place::Widgets);
-            if adaptable {
-                line = line.push(beside_slider(
-                    &spec,
-                    self.focusable(
-                        toggler(e.adaptive.is_some())
-                            .label(crate::i18n::tr("Adaptatif"))
-                            .font(font)
-                            .on_toggle(move |v| wrap(Msg::Adaptive(place, v))),
-                    ),
-                ));
-            }
-            let mut cell = column![line].spacing(4);
-            let note = match (place, e.adaptive) {
-                (Place::Launcher, _) => Some(
-                    crate::i18n::tr("Densifié selon le fond d'écran pour rester lisible.")
-                        .to_string(),
-                ),
-                (Place::Bar, Some(max)) => {
-                    let now = self.bar_palette().opacity;
-                    Some(crate::tr!(
-                        "Densifié jusqu'à {max} % si le fond gêne la lecture — en ce moment {now} %.",
-                        max = (max * 100.0).round() as i32,
-                        now = (now * 100.0).round() as i32
-                    ))
-                }
-                (Place::Widgets, Some(max)) => Some(crate::tr!(
-                    "Densifié jusqu'à {max} % si le fond gêne la lecture.",
-                    max = (max * 100.0).round() as i32
-                )),
-                _ => None,
-            };
-            if let Some(n) = note {
-                cell = cell.push(
-                    text(n)
-                        .font(font)
-                        .size(crate::ui::tokens::ts(11.0))
-                        .color(self.ink().dim),
-                );
-            }
-            // Verre du pack (MLG-268) : ce que le thème dessine en plus.
-            let glass = crate::ui::tokens::glass(place);
-            if glass.highlight > 0.0 || glass.refraction > 0.0 || glass.tint_strength > 0.0 {
-                let pct = |v: f32| (v * 100.0).round() as i32;
-                cell = cell.push(
-                    text(crate::tr!(
-                        "Verre du thème : reflet {h} %, réfraction {r} %, teinte {t} %.",
-                        h = pct(glass.highlight),
-                        r = pct(glass.refraction),
-                        t = pct(glass.tint_strength)
-                    ))
-                    .font(font)
-                    .size(crate::ui::tokens::ts(11.0))
-                    .color(self.ink().dim),
-                );
-            }
-            if place == Place::Settings && self.hypr_blur_off() {
-                cell = cell.push(
-                    text("Opaque tant que le flou de Hyprland est coupé (Performance).")
-                        .font(font)
-                        .size(crate::ui::tokens::ts(11.0))
-                        .color(self.ink().dim),
-                );
-            }
-            effects = effects.push(self.field(
-                place.label(),
-                &format!("theme.effects.{}", place.as_str()),
-                cell,
-            ));
-        }
-        // Accessibilité (MLG-269, MLG-271) : quel que soit le thème.
-        let pack = crate::ui::tokens::design();
-        let text_scale = SliderSpec::new(
-            "text_scale",
-            (75.0, 200.0),
-            1.0,
-            |v| wrap(Msg::TextScale(v.round() as f32 / 100.0)),
-            wrap(Msg::Commit),
-        );
-        let mut access = column![
-            self.focusable(
-                toggler(g.reduced_transparency)
-                    .label(crate::i18n::tr("Transparence réduite"))
-                    .font(font)
-                    .on_toggle(|v| wrap(Msg::ReducedTransparency(v)))
-            ),
-            self.focusable(
-                toggler(g.reduced_motion)
-                    .label(crate::i18n::tr("Mouvement réduit"))
-                    .font(font)
-                    .on_toggle(|v| wrap(Msg::ReducedMotion(v)))
-            ),
-            self.focusable(
-                toggler(g.increase_contrast)
-                    .label(crate::i18n::tr("Contraste renforcé"))
-                    .font(font)
-                    .on_toggle(|v| wrap(Msg::IncreaseContrast(v)))
-            ),
-            row![
-                // Sur la ligne du curseur, au-dessus de son échelle (HIG SEL-09).
-                beside_slider(
-                    &text_scale,
-                    text(crate::i18n::tr("Taille du texte"))
-                        .font(font)
-                        .size(crate::ui::tokens::ts(13.0))
-                ),
-                self.slider(
-                    &text_scale,
-                    f64::from((g.text_scale * 100.0).round()),
-                    affiche_pourcent,
-                    SliderLook::fill(13.0, 48, Alignment::Center),
-                ),
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center),
-        ]
-        .spacing(8);
-        if pack.contrast.reduced_transparency || pack.motion.reduced {
-            access = access.push(
-                text(crate::i18n::tr(
-                    "Le thème en place réduit déjà l'un ou l'autre.",
-                ))
-                .font(font)
-                .size(crate::ui::tokens::ts(11.0))
-                .color(self.ink().dim),
-            );
-        }
-        effects = effects.push(self.field("Accessibilité", "reduced_transparency", access));
-        effects = effects.push(
-            self.field(
-                "Bureau affiché",
-                "mode",
-                row![
-                    self.focusable(
-                        radio(
-                            crate::i18n::tr("Fond d'écran"),
-                            Mode::Opaque,
-                            Some(g.mode),
-                            |v| wrap(Msg::Mode(v))
-                        )
-                        .font(font)
-                        .size(crate::ui::tokens::ts(16.0))
-                    ),
-                    self.focusable(
-                        radio(crate::i18n::tr("Verre"), Mode::Glass, Some(g.mode), |v| {
-                            wrap(Msg::Mode(v))
-                        })
-                        .font(font)
-                        .size(crate::ui::tokens::ts(16.0))
-                    ),
-                ]
-                .spacing(16),
-            ),
-        );
-        if g.mode == Mode::Glass {
-            effects = effects.push(self.field(
-                "Voile du verre",
-                "glass_opacity",
-                self.slider(
-                    &SliderSpec::new(
-                        "glass_opacity",
-                        (0.0, 100.0),
-                        1.0,
-                        |v| wrap(Msg::GlassOpacity(v.round() as f32 / 100.0)),
-                        wrap(Msg::Commit),
-                    ),
-                    f64::from((g.glass_opacity * 100.0).round()),
-                    affiche_pourcent,
-                    SliderLook::fill(13.0, 48, Alignment::Center),
-                ),
-            ));
-        }
-        let lock_dim = SliderSpec::new(
-            "lock_dim",
-            (0.0, 100.0),
-            1.0,
-            |v| wrap(Msg::LockDim(v.round() as f32 / 100.0)),
-            wrap(Msg::Commit),
-        );
-        effects = effects.push(
-            self.field(
-                "Verrouillage",
-                "lock_dim",
-                row![
-                    self.slider(
-                        &lock_dim,
-                        f64::from((g.lock.dim * 100.0).round()),
-                        affiche_pourcent,
-                        SliderLook::fill(13.0, 48, Alignment::Center),
-                    ),
-                    // Sur la ligne du curseur, au-dessus de son échelle
-                    // (HIG SEL-09).
-                    beside_slider(
-                        &lock_dim,
-                        self.focusable(
-                            toggler(g.lock.blur)
-                                .label(crate::i18n::tr("Flou"))
-                                .font(font)
-                                .on_toggle(|v| wrap(Msg::LockBlur(v)))
-                        )
-                    ),
-                ]
-                .spacing(12)
-                .align_y(Alignment::Center),
-            ),
-        );
-
         // Fonds d'écran : réglés dans leur paquet, ils font partie du thème.
         let walls = self.cfg.wallpapers.len();
         let wallpapers = row![
@@ -928,97 +1028,6 @@ impl App {
         .spacing(12)
         .align_y(Alignment::Center);
 
-        match self.subtab(INFO.id) {
-            "couleurs" => {
-                // Accessibilité : contraste du texte et des repères sur les
-                // surfaces, aux cibles du thème (MLG-269, MLG-274). Les
-                // couleurs choisies ici sont gardées telles quelles : on
-                // signale, on ne corrige pas.
-                let target = crate::ui::tokens::design().contrast.clone();
-                let ratio = crate::theme::contrast(th.fg, th.bg);
-                let accent = crate::theme::contrast(th.accent, th.bg);
-                let mut lines = Vec::new();
-                if ratio + 1e-6 < f64::from(target.text) {
-                    lines.push((
-                        crate::tr!(
-                            "Contraste faible : {r}:1 (au moins {t}:1 conseillé ; thème « Contraste élevé » : 21:1).",
-                            r = format!("{ratio:.1}"),
-                            t = target.text
-                        ),
-                        true,
-                    ));
-                } else {
-                    lines.push((
-                        crate::tr!("Contraste du texte : {r}:1.", r = format!("{ratio:.1}")),
-                        false,
-                    ));
-                }
-                if accent + 1e-6 < f64::from(target.ui) {
-                    lines.push((
-                        crate::tr!(
-                            "Accent peu visible sur le fond : {r}:1 (au moins {t}:1 conseillé pour les repères).",
-                            r = format!("{accent:.1}"),
-                            t = target.ui
-                        ),
-                        true,
-                    ));
-                }
-                if lines.iter().any(|(_, w)| *w) {
-                    lines.push((
-                        crate::i18n::tr(
-                            "Vos couleurs sont gardées telles quelles ; un thème livré serait corrigé.",
-                        )
-                        .to_string(),
-                        false,
-                    ));
-                }
-                let note = column(lines.into_iter().map(|(l, warn)| {
-                    text(l)
-                        .font(font)
-                        .size(crate::ui::tokens::ts(12.0))
-                        .color(if warn {
-                            crate::ui::tone::warning()
-                        } else {
-                            dim
-                        })
-                        .into()
-                }))
-                .spacing(4);
-                return column![
-                    self.section("Couleurs"),
-                    colors,
-                    note,
-                    self.section("Icônes d'application"),
-                    self.field("Apparence des icônes", "", self.icon_appearance_field()),
-                    text(crate::i18n::tr(
-                        "Automatique : sombres avec un thème sombre. Teintées : de la couleur d'accent. Le dessin de chaque icône reste le même."
-                    ))
-                    .font(font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim),
-                ]
-                .spacing(14)
-                .into();
-            }
-            "texte" => return self.typography(),
-            "composants" => return self.design_components(),
-            "transparence" => {
-                return column![
-                    self.section("Transparence"),
-                    text(
-                        "Opacité du fond de chaque endroit et flou de ce qu'il y a derrière \
-                         (fourni par Hyprland)."
-                    )
-                    .font(font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim),
-                    effects,
-                ]
-                .spacing(14)
-                .into();
-            }
-            _ => {}
-        }
         column![
             self.section("Thème en place"),
             current,

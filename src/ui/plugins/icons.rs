@@ -3,7 +3,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, radio, row, text_input, toggler};
+use iced::widget::{button, column, pick_list, radio, row, text_input};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
 use super::super::panel::{Panel, PanelMsg, SliderLook, SliderSpec};
@@ -189,7 +189,7 @@ impl App {
             self.field(
                 "Ouvrir d'un double clic (un clic sélectionne)",
                 "icon_double_click",
-                self.focusable(toggler(g.icon_double_click).on_toggle(|v| wrap(Msg::DoubleClick(v)))),
+                self.focusable(self.toggle(g.icon_double_click).on_toggle(|v| wrap(Msg::DoubleClick(v)))),
             ),
             text(crate::i18n::tr(
                 "Clic droit sur une icône : ouvrir, épingler au dock, renommer, retirer du bureau… Échap retire la sélection, Entrée ouvre l'icône sélectionnée."

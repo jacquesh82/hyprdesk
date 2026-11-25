@@ -3,7 +3,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, pick_list, radio, row, toggler};
+use iced::widget::{Space, button, column, container, pick_list, radio, row};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::etats::Etat;
@@ -195,12 +195,12 @@ impl App {
             self.field(
                 "Fichiers du dossier Bureau et Corbeille",
                 "desktop_files",
-                self.focusable(toggler(g.desktop_files).on_toggle(|v| wrap(Msg::DesktopFiles(v)))),
+                self.focusable(self.toggle(g.desktop_files).on_toggle(|v| wrap(Msg::DesktopFiles(v)))),
             ),
             self.field(
                 "Bureau resté affiché : fenêtres ouvertes flottantes et centrées",
                 "float_launched",
-                self.focusable(toggler(g.float_launched).on_toggle(|v| wrap(Msg::FloatLaunched(v)))),
+                self.focusable(self.toggle(g.float_launched).on_toggle(|v| wrap(Msg::FloatLaunched(v)))),
             ),
             text("Bureau affiché, les fenêtres du workspace flottent, organisées sur l'écran ; une fenêtre que vous déplacez garde sa place (par workspace et par application) et n'est plus réorganisée. Elles reprennent leur disposition quand on masque le bureau.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
             row![
@@ -221,7 +221,7 @@ impl App {
             self.field(
                 "Barres de titre Hyprbars en plein bureau (plugin Hyprland)",
                 "hyprbars",
-                self.focusable(toggler(g.hyprbars).on_toggle(|v| wrap(Msg::Hyprbars(v)))),
+                self.focusable(self.toggle(g.hyprbars).on_toggle(|v| wrap(Msg::Hyprbars(v)))),
             ),
             // Chemin, commande, URL : à sélectionner et à copier (HIG LAY-05).
             crate::ui::selectable::selectable(match hyprbars_found {
@@ -252,7 +252,7 @@ impl App {
                 ]
                 .spacing(16),
             ),
-            self.adv("Opacité du voile (verre)", self.field(
+            self.adv("Opacité du voile (verre)", || self.field(
                 "",
                 "glass_opacity",
                 self.slider(
@@ -422,11 +422,16 @@ impl App {
         let fg = self.ink().fg;
         let dim = self.ink().dim;
         let mut col = column![].spacing(10);
-        col = col.push(self.field(
-            "Démarrage automatique des applications (XDG)",
-            "autostart",
-            self.focusable(toggler(g.autostart).on_toggle(|v| wrap(Msg::Autostart(v)))),
-        ));
+        col = col.push(
+            self.field(
+                "Démarrage automatique des applications (XDG)",
+                "autostart",
+                self.focusable(
+                    self.toggle(g.autostart)
+                        .on_toggle(|v| wrap(Msg::Autostart(v))),
+                ),
+            ),
+        );
         col = col.push(
             text("Lance une fois par session les applications de ~/.config/autostart et /etc/xdg/autostart, sauf celles qui tournent déjà. À laisser coupé si hyprland.lua les lance déjà.")
                 .font(self.font)
@@ -487,13 +492,16 @@ impl App {
                 .size(crate::ui::tokens::ts(12.0))
                 .color(dim),
         );
-        col = col.push(self.field(
-            "Historique du presse-papiers (cliphist)",
-            "clipboard_history",
-            self.focusable(
-                toggler(g.clipboard_history).on_toggle(|v| wrap(Msg::ClipboardHistory(v))),
+        col = col.push(
+            self.field(
+                "Historique du presse-papiers (cliphist)",
+                "clipboard_history",
+                self.focusable(
+                    self.toggle(g.clipboard_history)
+                        .on_toggle(|v| wrap(Msg::ClipboardHistory(v))),
+                ),
             ),
-        ));
+        );
         col = col.push(
             text(if crate::clipboard::available() {
                 "Le texte copié est gardé par cliphist (100 éléments au plus, sans les images ni ce qu'une application marque comme sensible) : pensez-y avant de copier un mot de passe. Dans la recherche, tapez « :clip » puis quelques lettres, et Entrée remet l'élément dans le presse-papiers."

@@ -8,7 +8,7 @@
 use crate::i18n::text;
 use iced::keyboard::key::{Code, Named, Physical};
 use iced::keyboard::{Key, Modifiers};
-use iced::widget::{Space, button, column, container, row, text_input, toggler};
+use iced::widget::{Space, button, column, container, row, text_input};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::etats::Etat;
@@ -1042,7 +1042,8 @@ impl App {
         };
         let toggle_row = s.row.clone();
         let switch = self.focusable_when(
-            toggler(s.on)
+            self.toggle(s.on)
+                .named(&s.what)
                 .on_toggle_maybe(toggle_row.map(|r| move |v| wrap(Msg::Toggle(r.clone(), v)))),
             s.row.is_some(),
         );
@@ -1537,7 +1538,7 @@ impl App {
             self.field(
                 "Poser les raccourcis essentiels",
                 "keys.essentials",
-                self.focusable(toggler(g.keys.essentials).on_toggle(|v| wrap(Msg::Essentials(v)))),
+                self.focusable(self.toggle(g.keys.essentials).on_toggle(|v| wrap(Msg::Essentials(v)))),
             ),
         ]
         .spacing(10);
@@ -1580,11 +1581,13 @@ impl App {
                 }
                 head = head.push(
                     self.focusable_when(
-                        toggler(on).on_toggle_maybe(
-                            g.keys
-                                .essentials
-                                .then_some(move |v| wrap(Msg::Essential(id, v))),
-                        ),
+                        self.toggle(on)
+                            .named(crate::i18n::tr(e.label))
+                            .on_toggle_maybe(
+                                g.keys
+                                    .essentials
+                                    .then_some(move |v| wrap(Msg::Essential(id, v))),
+                            ),
                         (g.keys
                             .essentials
                             .then_some(move |v| wrap(Msg::Essential(id, v))))
@@ -1766,11 +1769,11 @@ impl App {
             self.key_conflicts_view(),
             self.adv(
                 "Bureau affiché : suspendre les raccourcis de Hyprland",
-                column![
+                || column![
                     self.field(
                         "",
                         "suspend_binds",
-                        self.focusable(toggler(g.suspend_binds).on_toggle(|v| wrap(Msg::SuspendBinds(v)))),
+                        self.focusable(self.toggle(g.suspend_binds).on_toggle(|v| wrap(Msg::SuspendBinds(v)))),
                     ),
                     text("Les raccourcis de Hyprland n'agissent plus sur les fenêtres cachées derrière le bureau. Seuls restent actifs ceux de hyprdesk et ceux marqués { submap_universal = true } dans hyprland.lua.")
                         .font(self.font)
@@ -1788,7 +1791,7 @@ impl App {
             key_field(7, crate::i18n::tr("Fenêtres (SUPER + Tab ; avec Maj : en arrière)"), "keys.switch"),
             key_field(8, crate::i18n::tr("Vue d'ensemble des fenêtres"), "keys.overview"),
             key_field(10, crate::i18n::tr("Ouvrir LYRA (assistant IA)"), "keys.assistant"),
-            self.adv("Vue d'ensemble par un plugin de Hyprland", self.field(
+            self.adv("Vue d'ensemble par un plugin de Hyprland", || self.field(
                 "",
                 "overview_command",
                 text_input(
@@ -1824,7 +1827,7 @@ impl App {
             key_field(16, crate::i18n::tr(crate::keymap::ACCESS_LABEL), "keys.keyboard_access"),
             self.adv(
                 "Sortie de secours (bureau affiché)",
-                key_field(2, "", "keys.leave"),
+                || key_field(2, "", "keys.leave"),
             ),
             text("Valider avec Entrée. Vide = aucun raccourci.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
         ]

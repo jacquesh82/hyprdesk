@@ -230,7 +230,8 @@ impl App {
                     step,
                     move |x| wrap(Msg::Param(n.clone(), i, (x / step).round() * step)),
                     wrap(Msg::Commit),
-                );
+                )
+                .named(crate::i18n::tr(label));
                 sliders = sliders.push(
                     row![
                         // Sur la ligne du curseur, au-dessus de son échelle

@@ -141,7 +141,7 @@ impl App {
             // Les raccourcis d'abord : c'est ce qu'on cherche en ouvrant l'onglet.
             "dwindle" | "master" | "scrolling" => column![
                 self.layout_keys(tab),
-                self.adv("Réglages de la disposition", self.layouts_options(tab))
+                self.adv("Réglages de la disposition", || self.layouts_options(tab))
             ]
             .spacing(14)
             .into(),

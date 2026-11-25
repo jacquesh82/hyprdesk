@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, mouse_area, pick_list, radio, row, toggler};
+use iced::widget::{Space, button, column, container, mouse_area, pick_list, radio, row};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::panel::{PanelMsg, SliderLook, SliderSpec, beside_slider};
@@ -620,7 +620,7 @@ impl App {
         col = col.push(
             row![
                 self.focusable(
-                    toggler(s.enabled)
+                    self.toggle(s.enabled)
                         .label(crate::i18n::tr("Activé"))
                         .on_toggle(|v| wrap(Msg::ScreenEnable(v)))
                 ),
@@ -783,14 +783,11 @@ impl App {
                         })
                     )
                     .spacing(8),
-                    self.adv(
-                        "Mise en miroir de l'image",
-                        self.focusable(
-                            toggler(s.flipped())
-                                .label(crate::i18n::tr("Image en miroir"))
-                                .on_toggle(|v| wrap(Msg::ScreenFlip(v)))
-                        )
-                    ),
+                    self.adv("Mise en miroir de l'image", || self.focusable(
+                        self.toggle(s.flipped())
+                            .label(crate::i18n::tr("Image en miroir"))
+                            .on_toggle(|v| wrap(Msg::ScreenFlip(v)))
+                    )),
                 ]
                 .spacing(10),
             ),
@@ -840,7 +837,7 @@ impl App {
         // Zone Panorama : seulement quand le paquet Panorama est actif ;
         // découpe peu courante d'un écran ordinaire : avancé.
         if self.cfg.plugin_on("panorama") {
-            col = col.push(self.adv("Zone Panorama", self.screen_panorama_zone_view(s)));
+            col = col.push(self.adv("Zone Panorama", || self.screen_panorama_zone_view(s)));
         }
         col.into()
     }

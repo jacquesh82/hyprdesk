@@ -3,7 +3,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, row, toggler};
+use iced::widget::{Space, button, column, row};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
 use super::super::etats::Etat;
@@ -301,10 +301,12 @@ impl App {
             let control: Element<'_, UiMsg> = if actionable {
                 let id = t.id.clone();
                 self.focusable(
-                    toggler(active).on_toggle(move |on| wrap(Msg::WidgetToggle(id.clone(), on))),
+                    self.toggle(active)
+                        .named(&t.name)
+                        .on_toggle(move |on| wrap(Msg::WidgetToggle(id.clone(), on))),
                 )
             } else {
-                toggler(active).into()
+                self.toggle(active).named(&t.name).into()
             };
             catalog = catalog.push(
                 row![self.catalog_preview(&t.id), info, control]
@@ -507,7 +509,9 @@ impl App {
                     self.field(
                         "Fond en carte",
                         "",
-                        self.focusable(toggler(pl.card).on_toggle(|v| wrap(Msg::WidgetCard(v))))
+                        self.focusable(
+                            self.toggle(pl.card).on_toggle(|v| wrap(Msg::WidgetCard(v)))
+                        )
                     ),
                     self.widget_screen_field(&pl),
                     self.focusable(

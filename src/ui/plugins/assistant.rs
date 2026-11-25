@@ -10,7 +10,7 @@ pub(in crate::ui) mod providers;
 pub(in crate::ui) mod services;
 
 use crate::i18n::text;
-use iced::widget::{button, column, container, pick_list, radio, row, scrollable, toggler};
+use iced::widget::{button, column, container, pick_list, radio, row, scrollable};
 use iced::{Alignment, Color, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -358,7 +358,7 @@ impl App {
                 ]
                 .spacing(8),
             ),
-            self.adv("Ouvrir l'assistant", self.field(
+            self.adv("Ouvrir l'assistant", || self.field(
                 "",
                 "assistant_mode",
                 column![
@@ -505,7 +505,7 @@ impl App {
             .size(crate::ui::tokens::ts(12.0))
             .color(dim),
             self.focusable(
-                toggler(c.voice)
+                self.toggle(c.voice)
                     .label(crate::i18n::tr("Écouter le mot « Lyra »"))
                     .text_size(13)
                     .on_toggle(|_| UiMsg::Panorama(PMsg::VoiceToggle))

@@ -22,9 +22,7 @@ pub(crate) mod surface;
 pub(in crate::ui) mod window;
 
 use crate::i18n::text;
-use iced::widget::{
-    Space, button, column, container, mouse_area, pick_list, radio, row, toggler, tooltip,
-};
+use iced::widget::{Space, button, column, container, mouse_area, pick_list, radio, row, tooltip};
 use iced::{Alignment, Border, Color, Element, Length, Task, mouse};
 
 use crate::config::{BAR_COLOR_SLOTS, Rgba};
@@ -247,7 +245,7 @@ impl App {
         ));
         let mut toggles = column![
             self.focusable(
-                toggler(shape.visibility == BarVisibility::AutoHide)
+                self.toggle(shape.visibility == BarVisibility::AutoHide)
                     .label(crate::i18n::tr(
                         "Masquer hors survol (un contact du bord la fait revenir)"
                     ))
@@ -264,7 +262,7 @@ impl App {
                     ))
             ),
             self.focusable(
-                toggler(shape.reserve_space)
+                self.toggle(shape.reserve_space)
                     .label(crate::i18n::tr(
                         "Les fenêtres laissent la place de la barre"
                     ))
@@ -279,7 +277,7 @@ impl App {
         if style == crate::config::BarStyle::Continuite {
             toggles = toggles.push(
                 self.focusable(
-                    toggler(shape.groups)
+                    self.toggle(shape.groups)
                         .label(crate::i18n::tr("Groupes détachés (sans lame continue)"))
                         .font(font)
                         .on_toggle(move |v| {
@@ -382,7 +380,7 @@ impl App {
             column![
                 self.section("Barre de hyprdesk"),
                 text("Au-dessus des fenêtres, avec sa zone réservée : les fenêtres et la grille du bureau se rangent à côté. Ses modules sont des widgets.").font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
-                self.field("Afficher la barre", "bar", self.focusable(toggler(b.enabled).on_toggle(|v| wrap(Msg::Enable(v))))),
+                self.field("Afficher la barre", "bar", self.focusable(self.toggle(b.enabled).on_toggle(|v| wrap(Msg::Enable(v))))),
             ]
         } else {
             column![self.section("Modules de la barre")]
@@ -593,19 +591,22 @@ impl App {
                         ),
                     ));
                 }
-                col = col.push(self.field(
-                    "Masquer automatiquement le dock",
-                    "",
-                    self.focusable(
-                        toggler(b.convex.auto_hide).on_toggle(|v| wrap(Msg::ConvexAutoHide(v))),
+                col = col.push(
+                    self.field(
+                        "Masquer automatiquement le dock",
+                        "",
+                        self.focusable(
+                            self.toggle(b.convex.auto_hide)
+                                .on_toggle(|v| wrap(Msg::ConvexAutoHide(v))),
+                        ),
                     ),
-                ));
+                );
                 col = col.push(
                     self.field(
                         "Panneaux rattachés au cadre",
                         "",
                         self.focusable(
-                            toggler(b.convex.attached_panels)
+                            self.toggle(b.convex.attached_panels)
                                 .on_toggle(|v| wrap(Msg::ConvexAttached(v))),
                         ),
                     ),
@@ -676,7 +677,7 @@ impl App {
                 ),
             );
         }
-        col = col.push(self.adv("Modules par type d'écran", self.field("", "", which)));
+        col = col.push(self.adv("Modules par type d'écran", || self.field("", "", which)));
         if portrait && b.portrait.is_none() {
             col = col.push(
                 text(
@@ -1503,7 +1504,7 @@ impl App {
                 .spacing(6),
             );
         }
-        col = col.push(self.adv("Couleur de chaque module", fine));
+        col = col.push(self.adv("Couleur de chaque module", || fine));
         col.into()
     }
 }

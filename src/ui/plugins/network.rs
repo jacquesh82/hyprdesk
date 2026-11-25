@@ -7,7 +7,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, row, toggler};
+use iced::widget::{button, column, row};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -251,12 +251,15 @@ impl App {
             self.field(
                 "Wi-Fi",
                 "",
-                self.focusable(toggler(s.wifi).on_toggle(|v| wrap(Msg::Wifi(v))))
+                self.focusable(self.toggle(s.wifi).on_toggle(|v| wrap(Msg::Wifi(v))))
             ),
             self.field(
                 "Mode avion",
                 "",
-                self.focusable(toggler(s.airplane).on_toggle(|v| wrap(Msg::Airplane(v))))
+                self.focusable(
+                    self.toggle(s.airplane)
+                        .on_toggle(|v| wrap(Msg::Airplane(v)))
+                )
             ),
         ]
         .spacing(10);

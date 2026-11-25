@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use crate::i18n::text;
-use iced::widget::{button, column, container, pick_list, row, toggler};
+use iced::widget::{button, column, container, pick_list, row};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::{PanelMsg, SliderLook, SliderSpec, beside_slider};
@@ -237,7 +237,7 @@ impl App {
             if keys.iter().any(|k| fx::ADVANCED.contains(k)) {
                 col = col.push(self.adv(
                     &crate::tr!("Réglages fins : {t}", t = crate::i18n::tr(title)),
-                    fine,
+                    || fine,
                 ));
             }
         }
@@ -322,7 +322,7 @@ impl App {
                 move |x| wrap(Msg::Speed(name.into(), x)),
                 wrap(Msg::Commit),
             );
-            let interrupteur = self.focusable(toggler(a.enabled).on_toggle({
+            let interrupteur = self.focusable(self.toggle(a.enabled).on_toggle({
                 let base = base.clone();
                 move |v| {
                     wrap(Msg::Anim(

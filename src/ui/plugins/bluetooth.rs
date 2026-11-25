@@ -5,7 +5,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, row, toggler};
+use iced::widget::{button, column, row};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::etats::Etat;
@@ -213,7 +213,7 @@ impl App {
         let mut col = column![self.field(
             "Bluetooth",
             "",
-            self.focusable(toggler(on).on_toggle(|v| wrap(Msg::Power(v))))
+            self.focusable(self.toggle(on).on_toggle(|v| wrap(Msg::Power(v))))
         )]
         .spacing(10);
         if let Some(e) = &s.error {

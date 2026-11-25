@@ -10,7 +10,7 @@
 use std::collections::BTreeSet;
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, container, row, text_input, toggler};
+use iced::widget::{Space, button, column, container, row, text_input};
 use iced::{Alignment, Border, Color, Element, Length, Task};
 
 use super::super::etats::Etat;
@@ -157,7 +157,9 @@ impl App {
                             .spacing(4)
                             .width(Length::Fill),
                             self.focusable(
-                                toggler(checked).on_toggle(move |v| wrap(Msg::Toggle(t.id, v)))
+                                self.toggle(checked)
+                                    .named(crate::i18n::tr(t.label))
+                                    .on_toggle(move |v| wrap(Msg::Toggle(t.id, v)))
                             ),
                         ]
                         .spacing(12)

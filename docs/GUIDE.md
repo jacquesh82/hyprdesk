@@ -369,6 +369,42 @@ often gathers several processes: they are all killed, hence the number. The
 shortcut is set in **Settings → Shortcuts** (`keys.force_quit`), in every
 desktop mode.
 
+### Screen reader (Orca)
+
+hyprdesk describes its surfaces to a screen reader over the accessibility bus
+(AT-SPI), with nothing to set: as soon as Orca starts — even after the
+desktop —, the daemon registers with it; without a screen reader, nothing is
+served. Orca reads:
+
+- the **menu bar**: its modules and their menus, the entry selected with the
+  keyboard, submenus; the **dock** (alone or inside the bar): its
+  applications and workspace titles, the slot selected with the keyboard;
+- the **launcher** (its field and the selected result) and the **window
+  switcher** (the selected window);
+- **Settings**: the search field, the pages, the page title and tabs, then
+  its content — row labels, sliders (named by their label, their value as
+  description), switches (checked or not, dimmed when they cannot be used),
+  advanced sections (expanded or collapsed);
+- the **lock screen**: the password field when focused, its state and the
+  indicators shown below it.
+
+Buttons, menu entries, Settings pages and tabs can also be activated through
+the screen reader's action, like a click. `hyprdesk a11y dump` prints the
+tree as Orca receives it.
+
+What Orca does not read yet: typing in a field (the typed text, the password
+character by character: no `Text` interface); a slider's value is read as its
+description, with no `Value` interface to change it from the screen reader;
+the controls inside Settings pages (sliders, switches, disclosure triangles)
+cannot be activated through the screen reader's action, only with the
+keyboard; drop-down lists, buttons and fields inside those pages are read
+only through the label of their row, and section titles, radio buttons and
+the "Advanced configuration" switch are not read; a page's content follows
+the order in which the page builds it, which sometimes differs from the
+display (Plugins, Widgets); a control without a label of its own (a custom
+animation row: switch and slider) is not shown; separate windows (greeter,
+myMFA) and Panorama cards are not described.
+
 ## Shortcuts and binds.lua
 
 Wherever hyprdesk writes a shortcut, its modifiers come in this order: CTRL,

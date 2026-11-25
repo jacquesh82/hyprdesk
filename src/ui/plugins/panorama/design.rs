@@ -6,7 +6,7 @@ use crate::panorama::design::{Shortcut, Tile};
 use crate::ui::color;
 use crate::ui::color_picker::{Picker, well};
 use crate::ui::panel::{SliderLook, SliderSpec};
-use iced::widget::{button, column, pick_list, row, text_input, toggler};
+use iced::widget::{button, column, pick_list, row, text_input};
 use iced::{Alignment, Color, Element, Length, Task};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,7 +163,8 @@ impl App {
                     f64::from(step),
                     move |v| wrap(Msg::DesignNumber(key.into(), v as f32)),
                     wrap(Msg::DesignCommit),
-                ),
+                )
+                .named(crate::i18n::tr(label)),
                 f64::from(v),
                 |v| format!("{v:.2}"),
                 SliderLook::fill(12.0, 50, Alignment::Center),
@@ -273,7 +274,7 @@ impl App {
             ("date", "Afficher la date"),
         ] {
             col = col.push(
-                toggler(c.design.flag(key).unwrap_or(false))
+                self.toggle(c.design.flag(key).unwrap_or(false))
                     .label(label)
                     .text_size(13)
                     .on_toggle(move |v| wrap(Msg::DesignFlag(key.into(), v))),
@@ -282,7 +283,7 @@ impl App {
         col=col.push(self.section("Mesures système"))
             .push(self.panorama_design_choice("Présentation des mesures","system_style",crate::panorama::design::SYSTEMS))
             // Identifiants tapés à la main et durée en secondes : avancé.
-            .push(self.adv("Capteurs et historique des courbes", column![
+            .push(self.adv("Capteurs et historique des courbes", || column![
                 self.panorama_design_input("Mesures (cpu, ram, gpu, vram, disk, load, uptime, cpu_temp, gpu_temp)","metrics"),
                 self.panorama_design_slider("Historique des courbes (secondes)","history_seconds",15.0,600.0,1.0),
             ].spacing(10)))
@@ -294,7 +295,7 @@ impl App {
             ("controls", "Afficher les commandes du bandeau"),
         ] {
             col = col.push(
-                toggler(c.design.flag(key).unwrap_or(false))
+                self.toggle(c.design.flag(key).unwrap_or(false))
                     .label(label)
                     .text_size(13)
                     .on_toggle(move |v| wrap(Msg::DesignFlag(key.into(), v))),
@@ -389,7 +390,8 @@ impl App {
                     1.0,
                     move |n| wrap(Msg::TileNumber(key.into(), (n as f32) / 100.0)),
                     wrap(Msg::DesignCommit),
-                );
+                )
+                .named(crate::i18n::tr(label));
                 col = col.push(
                     column![
                         text(label)

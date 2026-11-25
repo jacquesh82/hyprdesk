@@ -6,7 +6,7 @@
 
 use crate::i18n::text;
 use crate::panorama::modules::{self, hue, hue::Bridge, hue::Room, notes};
-use iced::widget::{button, column, row, text_input, toggler};
+use iced::widget::{button, column, row, text_input};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::super::{App, Msg as UiMsg, color};
@@ -114,7 +114,9 @@ impl App {
                         .size(crate::ui::tokens::ts(13.0))
                         .color(fg)
                         .width(Length::Fill),
-                    toggler(on).on_toggle(move |_| wrap(Msg::Toggle(id.to_string()))),
+                    self.toggle(on)
+                        .named(crate::i18n::tr(label))
+                        .on_toggle(move |_| wrap(Msg::Toggle(id.to_string()))),
                 ]
                 .align_y(Alignment::Center),
             );
@@ -131,7 +133,11 @@ impl App {
                         .size(crate::ui::tokens::ts(13.0))
                         .color(fg)
                         .width(Length::Fill),
-                    toggler(cast).on_toggle(|v| wrap(Msg::Cast(v))),
+                    self.toggle(cast)
+                        .named(crate::i18n::tr(
+                            "Recevoir depuis le téléphone (Partager, cast YouTube)",
+                        ))
+                        .on_toggle(|v| wrap(Msg::Cast(v))),
                 ]
                 .align_y(Alignment::Center),
             )
@@ -290,7 +296,8 @@ impl App {
                             .font(self.font)
                             .size(crate::ui::tokens::ts(12.0))
                             .color(dim),
-                        toggler(!hidden.contains(&r.id))
+                        self.toggle(!hidden.contains(&r.id))
+                            .named(&r.name)
                             .on_toggle(move |v| wrap(Msg::HueShow(id.clone(), v))),
                     ]
                     .spacing(10)
@@ -312,29 +319,26 @@ impl App {
             .color(dim),
         );
         // La commande lancée : avancé (par défaut, un éditeur détecté).
-        col = col.push(
-            self.adv(
-                "Commande de la tuile Notes",
-                row![
-                    text_input("gnome-text-editor", &shown)
+        col = col.push(self.adv("Commande de la tuile Notes", || {
+            row![
+                text_input("gnome-text-editor", &shown)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .padding(6)
+                    .width(Length::Fill)
+                    .on_input(|v| wrap(Msg::NotesDraft(v)))
+                    .on_submit(wrap(Msg::NotesSubmit)),
+                button(
+                    text("Enregistrer")
                         .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .padding(6)
-                        .width(Length::Fill)
-                        .on_input(|v| wrap(Msg::NotesDraft(v)))
-                        .on_submit(wrap(Msg::NotesSubmit)),
-                    button(
-                        text("Enregistrer")
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0))
-                    )
-                    .padding([4, 10])
-                    .on_press(wrap(Msg::NotesSubmit)),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            ),
-        );
+                        .size(crate::ui::tokens::ts(12.0))
+                )
+                .padding([4, 10])
+                .on_press(wrap(Msg::NotesSubmit)),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center)
+        }));
         let mut screens = row![].spacing(8);
         let mut names: Vec<&str> = vec![""];
         names.extend(self.monitors.iter().map(|m| m.name.as_str()));

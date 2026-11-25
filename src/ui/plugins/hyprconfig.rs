@@ -611,7 +611,7 @@ impl App {
 
     /// Configuration de Hyprland → Plugins Hyprland (hyprpm).
     fn hyprpm_page(&self) -> Element<'_, UiMsg> {
-        use iced::widget::{text_input, toggler};
+        use iced::widget::text_input;
         let ink = self.ink();
         let (dim, accent) = (ink.dim, ink.accent);
         let warn = crate::ui::tone::warning();
@@ -713,7 +713,7 @@ impl App {
                                     .color(dim),
                             );
                         }
-                        let t = toggler(pl.enabled);
+                        let t = self.toggle(pl.enabled).named(&pl.name);
                         line = line.push(if p.hyprpm_busy.is_some() {
                             Element::from(t)
                         } else {

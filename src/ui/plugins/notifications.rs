@@ -8,7 +8,7 @@
 
 use crate::i18n::text;
 use crate::notifications::{Authorization, Authorizations, Delivery, Notification, Passage};
-use iced::widget::{Space, button, column, pick_list, row, toggler};
+use iced::widget::{Space, button, column, pick_list, row};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -242,7 +242,7 @@ impl App {
         }
         line = line.push(
             self.focusable(
-                toggler(a.granted)
+                self.toggle(a.granted)
                     .label(crate::i18n::tr("Autoriser"))
                     .text_size(13)
                     .font(self.font)

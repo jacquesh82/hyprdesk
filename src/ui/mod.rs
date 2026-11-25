@@ -652,6 +652,10 @@ pub struct App {
     /// redevient visible ou ferme, elle sort de là.
     urgent: HashSet<String>,
     active_window: Option<(String, String)>,
+    /// Arbre d'accessibilité de la page des Réglages (HIG ACC-01) : ouvert
+    /// le temps d'un dessin de la page pour l'arbre, ses primitives y
+    /// déposent leurs nœuds ; fermé (`None`) pendant le dessin de l'écran.
+    a11y_collect: std::cell::RefCell<Option<accessible::Collect>>,
     volume: Option<(f32, bool)>,
     /// Écrans éteints à la main (`hyprdesk screens-off`) : volume de départ
     /// (encore inconnu : `None`) ; un volume différent les rallume.
@@ -1205,6 +1209,7 @@ impl App {
             bar_preview: None,
             workspaces: Vec::new(),
             active_window: None,
+            a11y_collect: Default::default(),
             volume: None,
             screens_off: None,
             light: bar::Light::default(),

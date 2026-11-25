@@ -376,6 +376,43 @@ Hyprland, une classe d'application rassemble souvent plusieurs processus :
 ils sont tous tués, d'où le nombre. Le raccourci se règle dans
 **Réglages → Raccourcis** (`keys.force_quit`), dans tous les modes du bureau.
 
+### Lecteur d'écran (Orca)
+
+hyprdesk décrit ses surfaces à un lecteur d'écran par le bus d'accessibilité
+(AT-SPI), sans réglage : dès qu'Orca démarre — même après le bureau —, le
+démon s'y annonce ; sans lecteur d'écran, rien n'est servi. Orca lit :
+
+- la **barre des menus** : ses modules et leurs menus, l'entrée choisie au
+  clavier, les sous-menus ; le **dock** (seul ou logé dans la barre) : ses
+  applications et ses titres d'espace, la case choisie au clavier ;
+- le **lanceur** (son champ et le résultat choisi) et le **commutateur de
+  fenêtres** (la fenêtre choisie) ;
+- les **Réglages** : le champ de recherche, les pages, le titre et les
+  onglets de la page, puis son contenu — libellés des rangées, curseurs
+  (nommés par leur libellé, leur valeur en description), interrupteurs
+  (cochés ou non, grisés quand ils ne s'actionnent pas), sections avancées
+  (dépliées ou repliées) ;
+- l'**écran de verrouillage** : le champ du mot de passe au focus, son état
+  et les indicateurs affichés dessous.
+
+Les boutons, entrées de menu, pages et onglets des Réglages s'activent aussi
+par l'action du lecteur d'écran, comme d'un clic. `hyprdesk a11y dump` imprime
+l'arbre tel qu'Orca le reçoit.
+
+Ce qu'Orca ne lit pas encore : la frappe dans un champ (le texte saisi, le
+mot de passe caractère par caractère : pas d'interface `Text`) ; la valeur
+d'un curseur se lit en description, sans interface `Value` pour la régler
+depuis le lecteur d'écran ; les commandes du contenu des Réglages (curseurs,
+interrupteurs, triangles) ne s'actionnent pas par l'action du lecteur d'écran,
+seulement au clavier ; les listes déroulantes, boutons et champs de ce contenu
+ne sont lus que par le libellé de leur rangée, et les titres de section, les
+boutons radio et l'interrupteur « Configuration avancée » ne sont pas lus ;
+le contenu d'une page suit l'ordre où elle le construit, qui diffère parfois
+de l'affichage (Plugins, Widgets) ; une commande sans libellé à elle (rangée
+d'une animation personnalisée : interrupteur et curseur) n'est pas montrée ;
+les fenêtres à part (greeter, myMFA) et les cartes du Panorama ne sont pas
+décrites.
+
 ## Raccourcis et binds.lua
 
 Partout où hyprdesk écrit un raccourci, les modificateurs viennent dans cet

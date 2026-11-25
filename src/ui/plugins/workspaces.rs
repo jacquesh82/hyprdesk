@@ -3,7 +3,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, radio, row, text_input, toggler};
+use iced::widget::{button, column, pick_list, radio, row, text_input};
 use iced::{Alignment, Background, Border, Color, Element, Length, Task};
 
 use super::super::panel::{Panel, PanelMsg};
@@ -221,13 +221,13 @@ impl App {
             column(extras).spacing(4),
             self.adv(
                 "Écrans dédiés : seulement leurs workspaces, les autres vont sur l'écran principal",
-                self.field(
+                || self.field(
                     "",
                     "workspace_dedicated",
                     column(self.monitors.iter().map(|m| {
                         let name = m.name.clone();
                         self.focusable(
-                            iced::widget::toggler(g.workspace_dedicated.contains(&m.name))
+                            self.toggle(g.workspace_dedicated.contains(&m.name))
                                 .label(m.name.clone())
                                 .on_toggle(move |v| wrap(Msg::Dedicated(name.clone(), v))),
                         )
@@ -319,7 +319,7 @@ impl App {
         let step = |n: u8| wrap(Msg::WsCount(Some(n)));
         let mut stepper = row![
             self.focusable(
-                toggler(count.is_some())
+                self.toggle(count.is_some())
                     .label(crate::i18n::tr("Nombre fixe"))
                     .on_toggle(move |on| wrap(Msg::WsCount(on.then_some(shown))))
             ),
@@ -418,7 +418,7 @@ impl App {
                         .width(70)
                     ),
                     self.focusable(
-                        toggler(a.silent)
+                        self.toggle(a.silent)
                             .label(crate::i18n::tr("Sans y aller"))
                             .on_toggle(move |v| wrap(Msg::AssignRuleSilent(i, v)))
                     ),
@@ -599,7 +599,7 @@ impl App {
                     .spacing(10)
                     .align_y(Alignment::Center),
                     self.focusable(
-                        toggler(p.workspaces.assign_silent)
+                        self.toggle(p.workspaces.assign_silent)
                             .label(crate::i18n::tr("Sans y aller"))
                             .on_toggle(|v| wrap(Msg::AssignSilent(v)))
                     ),

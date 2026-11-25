@@ -6,7 +6,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{button, column, pick_list, progress_bar, row, toggler};
+use iced::widget::{button, column, pick_list, progress_bar, row};
 use iced::{Alignment, Color, Element, Task};
 
 use crate::lock::enroll::{self, Progress, Reader};
@@ -203,7 +203,7 @@ impl App {
             self.field(
                 "Fond flouté",
                 "lock_blur",
-                self.focusable(toggler(l.blur).on_toggle(|v| wrap(Msg::Blur(v)))),
+                self.focusable(self.toggle(l.blur).on_toggle(|v| wrap(Msg::Blur(v)))),
             ),
             self.field(
                 "Assombrissement",
@@ -226,18 +226,18 @@ impl App {
             text(origin).font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
             self.section("Contenus"),
             column![
-                self.focusable(toggler(l.show_user)
+                self.focusable(self.toggle(l.show_user)
                     .label(crate::i18n::tr(
                         "Nom et avatar (AccountsService, sinon ~/.face)"
                     ))
                     .on_toggle(|v| wrap(Msg::ShowUser(v)))),
-                self.focusable(toggler(l.show_battery)
+                self.focusable(self.toggle(l.show_battery)
                     .label(crate::i18n::tr("Batterie"))
                     .on_toggle(|v| wrap(Msg::ShowBattery(v)))),
-                self.focusable(toggler(l.show_media)
+                self.focusable(self.toggle(l.show_media)
                     .label(crate::i18n::tr("Morceau en cours, lecture / pause"))
                     .on_toggle(|v| wrap(Msg::ShowMedia(v)))),
-                self.focusable_when(toggler(l.fingerprint && crate::policy::get().fingerprint_allowed())
+                self.focusable_when(self.toggle(l.fingerprint && crate::policy::get().fingerprint_allowed())
                     .label(crate::i18n::tr(
                         "Empreinte digitale à la place du mot de passe (fprintd)"
                     ))
@@ -479,14 +479,14 @@ impl App {
             self.field(
                 "hyprdesk gère la veille",
                 "idle_manage",
-                self.focusable(toggler(i.manage).on_toggle(|v| wrap(Msg::IdleManage(v)))),
+                self.focusable(self.toggle(i.manage).on_toggle(|v| wrap(Msg::IdleManage(v)))),
             ),
             // Veille des écrans (Panorama → Système, `hyprdesk screens-off`) :
             // indépendante de hypridle.
-            self.adv("Veille des écrans : un changement de volume rallume les écrans", self.field(
+            self.adv("Veille des écrans : un changement de volume rallume les écrans", || self.field(
                 "",
                 "idle_wake_volume",
-                self.focusable(toggler(i.wake_volume).on_toggle(|v| wrap(Msg::WakeVolume(v)))),
+                self.focusable(self.toggle(i.wake_volume).on_toggle(|v| wrap(Msg::WakeVolume(v)))),
             )),
             text("Veille des écrans (Panorama → Système, ou hyprdesk screens-off) : les écrans s'éteignent, la machine reste allumée. La souris et le clavier les rallument selon les réglages de Hyprland (Réveil et verrouillage).")
                 .font(self.font)

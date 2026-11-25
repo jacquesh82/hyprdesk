@@ -288,10 +288,11 @@ impl App {
                 "Un clic hors de la carte la ferme",
                 "",
                 self.focusable(
-                    iced::widget::toggler(shape.close_on_outside_click).on_toggle(move |v| set(
-                        &|s: &mut crate::config::LauncherShape| s.close_on_outside_click = v,
-                        true
-                    ))
+                    self.toggle(shape.close_on_outside_click)
+                        .on_toggle(move |v| set(
+                            &|s: &mut crate::config::LauncherShape| s.close_on_outside_click = v,
+                            true
+                        ))
                 ),
             ),
         ]
@@ -342,7 +343,7 @@ impl App {
             self.field(
                 "Catégories dans la grande feuille",
                 "apps_categories",
-                self.focusable(iced::widget::toggler(a.categories).on_toggle(|v| wrap(Msg::AppsCategories(v)))),
+                self.focusable(self.toggle(a.categories).on_toggle(|v| wrap(Msg::AppsCategories(v)))),
             ),
             self.focusable(button(
                 text(crate::i18n::tr("Ouvrir le lanceur"))
@@ -375,7 +376,8 @@ impl App {
                 "Le même lanceur dans tous les modes",
                 "apps_unified",
                 self.focusable(
-                    iced::widget::toggler(a.unified).on_toggle(|v| wrap(Msg::AppsUnified(v)))
+                    self.toggle(a.unified)
+                        .on_toggle(|v| wrap(Msg::AppsUnified(v)))
                 ),
             ),
             text(outside)

@@ -302,12 +302,12 @@ impl App {
                 "",
                 column![
                     self.focusable(
-                        iced::widget::toggler(l.show_assistant)
+                        self.toggle(l.show_assistant)
                             .label(crate::i18n::tr("Assistant IA (LYRA)"))
                             .on_toggle(|v| wrap(Msg::ShowAssistant(v)))
                     ),
                     self.focusable(
-                        iced::widget::toggler(l.show_settings)
+                        self.toggle(l.show_settings)
                             .label(crate::i18n::tr("Réglages"))
                             .on_toggle(|v| wrap(Msg::ShowSettings(v)))
                     ),
@@ -321,7 +321,7 @@ impl App {
                 "launcher_smartui",
                 row![
                     self.focusable(
-                        iced::widget::toggler(l.smartui)
+                        self.toggle(l.smartui)
                             .label(crate::i18n::tr("SmartUI design (icônes unifiées par l'IA)"))
                             .on_toggle(|v| super::assistant::wrap(
                                 super::assistant::Msg::SmartToggle(v)

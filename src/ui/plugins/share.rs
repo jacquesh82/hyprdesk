@@ -5,7 +5,7 @@
 //! Contrat d'un paquet de réglages : voir `docs/PLUGINS.md`.
 
 use crate::i18n::text;
-use iced::widget::{Space, button, column, radio, row, text_input, toggler};
+use iced::widget::{Space, button, column, radio, row, text_input};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::PanelMsg;
@@ -185,7 +185,7 @@ impl App {
             text(import_help).font(self.font).size(crate::ui::tokens::ts(12.0)).color(dim),
             if s.import_scope == Scope::All {
                 Element::from(
-                    self.focusable(toggler(s.screens)
+                    self.focusable(self.toggle(s.screens)
                         .label(crate::i18n::tr(
                             "Appliquer aussi la disposition des écrans de l'archive (monitors.lua, propre à sa machine)",
                         ))
@@ -228,7 +228,7 @@ impl App {
         }
         if s.checked && s.has_code {
             col = col.push(
-                self.focusable(toggler(s.trust_code)
+                self.focusable(self.toggle(s.trust_code)
                     .label(crate::i18n::tr(
                         "J'accepte le code Lua de cette archive : il s'exécutera avec mes droits",
                     ))

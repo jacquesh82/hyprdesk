@@ -7,7 +7,7 @@
 
 use crate::i18n::text;
 use crate::inputs::Inputs;
-use iced::widget::{column, pick_list, radio, text_input, toggler};
+use iced::widget::{column, pick_list, radio, text_input};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
@@ -247,18 +247,21 @@ impl App {
                     "Défilement naturel (comme sur un téléphone)",
                     "",
                     self.focusable(
-                        toggler(cur.natural_scroll)
+                        self.toggle(cur.natural_scroll)
                             .on_toggle(toggle(&cur, |i, v| i.natural_scroll = v)),
                     ),
                 ),
             );
-            col = col.push(self.field(
-                "Gaucher (boutons inversés)",
-                "",
-                self.focusable(
-                    toggler(cur.left_handed).on_toggle(toggle(&cur, |i, v| i.left_handed = v)),
+            col = col.push(
+                self.field(
+                    "Gaucher (boutons inversés)",
+                    "",
+                    self.focusable(
+                        self.toggle(cur.left_handed)
+                            .on_toggle(toggle(&cur, |i, v| i.left_handed = v)),
+                    ),
                 ),
-            ));
+            );
             let focus = [
                 Choice("0".into(), crate::i18n::tr("Au clic").into()),
                 Choice("1".into(), crate::i18n::tr("Suit la souris").into()),
@@ -305,7 +308,7 @@ impl App {
                     "Toucher pour cliquer",
                     "",
                     self.focusable(
-                        toggler(cur.tp_tap_to_click)
+                        self.toggle(cur.tp_tap_to_click)
                             .on_toggle(toggle(&cur, |i, v| i.tp_tap_to_click = v)),
                     ),
                 ),
@@ -315,7 +318,7 @@ impl App {
                     "Défilement naturel",
                     "",
                     self.focusable(
-                        toggler(cur.tp_natural_scroll)
+                        self.toggle(cur.tp_natural_scroll)
                             .on_toggle(toggle(&cur, |i, v| i.tp_natural_scroll = v)),
                     ),
                 ),
@@ -325,7 +328,7 @@ impl App {
                     "Désactiver pendant la frappe",
                     "",
                     self.focusable(
-                        toggler(cur.tp_disable_while_typing)
+                        self.toggle(cur.tp_disable_while_typing)
                             .on_toggle(toggle(&cur, |i, v| i.tp_disable_while_typing = v)),
                     ),
                 ),
@@ -335,7 +338,7 @@ impl App {
                     "Clic droit à deux doigts",
                     "",
                     self.focusable(
-                        toggler(cur.tp_clickfinger)
+                        self.toggle(cur.tp_clickfinger)
                             .on_toggle(toggle(&cur, |i, v| i.tp_clickfinger = v)),
                     ),
                 ),
@@ -423,8 +426,7 @@ impl App {
                 ),
             );
             col = col.push(
-                self.adv(
-                    "Options xkb (grp:alt_shift_toggle, caps:escape…)",
+                self.adv("Options xkb (grp:alt_shift_toggle, caps:escape…)", || {
                     self.field(
                         "",
                         "",
@@ -434,8 +436,8 @@ impl App {
                             .on_submit(wrap(Msg::OptionsSubmit))
                             .padding(8)
                             .width(320),
-                    ),
-                ),
+                    )
+                }),
             );
             col = col.push(self.section("Répétition des touches"));
             let c1 = cur.clone();
@@ -480,11 +482,16 @@ impl App {
                     SliderLook::fixed(13.0, 260, Alignment::Center),
                 ),
             ));
-            col = col.push(self.field(
-                "Verr. Num. actif au démarrage",
-                "",
-                self.focusable(toggler(cur.numlock).on_toggle(toggle(&cur, |i, v| i.numlock = v))),
-            ));
+            col = col.push(
+                self.field(
+                    "Verr. Num. actif au démarrage",
+                    "",
+                    self.focusable(
+                        self.toggle(cur.numlock)
+                            .on_toggle(toggle(&cur, |i, v| i.numlock = v)),
+                    ),
+                ),
+            );
             col = col.push(
                 text_input(crate::i18n::tr("Essayer ici…"), &s.try_text)
                     .font(self.font)
@@ -533,7 +540,7 @@ impl App {
                 "Accès clavier complet",
                 "keyboard_access",
                 self.focusable(
-                    toggler(self.cfg.general.keyboard_access)
+                    self.toggle(self.cfg.general.keyboard_access)
                         .on_toggle(|v| wrap(Msg::KeyboardAccess(v))),
                 ),
             ),
