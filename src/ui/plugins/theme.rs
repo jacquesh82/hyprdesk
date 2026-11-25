@@ -42,6 +42,94 @@ pub const TABS: &[super::SubTab] = &[
     ("composants", "Composants"),
 ];
 
+/// Section de Thème → Composants : les options d'un composant, toutes
+/// (`keys` vide) ou celles nommées, dans cet ordre.
+pub struct ComponentSection {
+    pub title: &'static str,
+    pub component: &'static str,
+    pub keys: &'static [&'static str],
+}
+
+/// Onglet interne de Thème → Composants.
+pub struct ComponentTab {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub sections: &'static [ComponentSection],
+}
+
+const fn all(title: &'static str, component: &'static str) -> ComponentSection {
+    ComponentSection {
+        title,
+        component,
+        keys: &[],
+    }
+}
+
+const fn some(
+    title: &'static str,
+    component: &'static str,
+    keys: &'static [&'static str],
+) -> ComponentSection {
+    ComponentSection {
+        title,
+        component,
+        keys,
+    }
+}
+
+/// Onglets de Thème → Composants, par endroit du bureau. Le dock a ses
+/// options dans son plugin (Dock → Apparence), l'apparence des icônes dans
+/// Thème → Couleurs, les surcharges par écran dans Écrans.
+pub const COMPONENT_TABS: &[ComponentTab] = &[
+    ComponentTab {
+        id: "bar",
+        label: "Barre et widgets",
+        sections: &[
+            all("Espaces de travail", "workspaces"),
+            all("Horloge", "clock"),
+            all("Monitoring", "monitoring"),
+            all("Média", "media"),
+        ],
+    },
+    ComponentTab {
+        id: "controls",
+        label: "Réglages rapides",
+        sections: &[all("Réglages rapides", "controls")],
+    },
+    ComponentTab {
+        id: "notifications",
+        label: "Notifications",
+        sections: &[
+            some(
+                "Disposition",
+                "notifications",
+                &["corner", "stack", "width", "max_visible"],
+            ),
+            some("Affichage", "notifications", &["timeout", "hide_previews"]),
+        ],
+    },
+    ComponentTab {
+        id: "wallpaper",
+        label: "Fond d'écran",
+        sections: &[
+            some("Images", "wallpaper", &["light_image", "dark_image"]),
+            some("Cadrage", "wallpaper", &["focal_x", "focal_y", "zoom"]),
+            some(
+                "Retouche",
+                "wallpaper",
+                &["brightness", "saturation", "contrast", "vignette"],
+            ),
+            some("Fonds animés", "wallpaper", &["speed", "fps"]),
+            some("Verre", "wallpaper", &["glass_tint"]),
+        ],
+    },
+    ComponentTab {
+        id: "lock",
+        label: "Verrouillage",
+        sections: &[all("Verrouillage", "lock")],
+    },
+];
+
 pub fn wrap(m: Msg) -> UiMsg {
     UiMsg::Panel(PanelMsg::Plugin(PluginMsg::Theme(m)))
 }
@@ -124,6 +212,8 @@ pub struct State {
     pub report: Option<Result<String, String>>,
     /// Thème dont la suppression attend confirmation.
     pub pending_delete: Option<PathBuf>,
+    /// Onglet interne de Thème → Composants (vide : le premier).
+    pub components_tab: &'static str,
 }
 
 #[derive(Debug, Clone)]
@@ -161,6 +251,8 @@ pub enum Msg {
     /// Option d'apparence d'un composant (MLG-279) : nom, valeur, à
     /// enregistrer.
     DesignOpt(String, String, bool),
+    /// Onglet interne de Thème → Composants.
+    ComponentsTab(&'static str),
     /// Transparence réduite (MLG-269).
     ReducedTransparency(bool),
     /// Mouvement réduit (MLG-271).
@@ -223,22 +315,20 @@ fn shown_catalog(st: &State) -> Vec<crate::theme_engine::bridge::Entry> {
 }
 
 impl App {
-    /// Apparence des composants (MLG-279) : espaces de travail,
-    /// réglages rapides, notifications, monitoring, horloge, média,
-    /// verrouillage — les options du registre, regroupées.
+    /// Apparence des composants (MLG-279), en onglets internes : un
+    /// composant par section, les sections regroupées par endroit du bureau
+    /// (`COMPONENT_TABS`). Pendant une recherche, toutes les sections
+    /// s'affichent, pour que le libellé trouvé soit à l'écran.
     fn design_components(&self) -> Element<'_, UiMsg> {
         let font = self.font;
-        // Le dock a ses options dans son plugin (Réglages → Dock → Apparence).
-        let groups: [(&str, &str); 8] = [
-            ("workspaces", "Espaces de travail"),
-            ("controls", "Réglages rapides"),
-            ("notifications", "Notifications"),
-            ("monitoring", "Monitoring"),
-            ("clock", "Horloge"),
-            ("media", "Média"),
-            ("lock", "Verrouillage"),
-            ("wallpaper", "Fond d'écran"),
-        ];
+        let dim = self.ink().dim;
+        let searching = !self.search_query().is_empty();
+        let on = self
+            .panel
+            .as_ref()
+            .map(|p| p.theme.components_tab)
+            .filter(|t| COMPONENT_TABS.iter().any(|c| c.id == *t))
+            .unwrap_or(COMPONENT_TABS[0].id);
         let mut col = column![
             self.section("Composants"),
             text(crate::i18n::tr(
@@ -246,18 +336,39 @@ impl App {
             ))
             .font(font)
             .size(crate::ui::tokens::ts(12.0))
-            .color(self.ink().dim),
+            .color(dim),
         ]
         .spacing(14);
-        for (component, title) in groups {
-            col = col.push(self.design_fields(component, title));
+        if !searching {
+            col = col.push(
+                row(COMPONENT_TABS.iter().map(|c| {
+                    self.pill_tab(c.label, c.id == on, false, wrap(Msg::ComponentsTab(c.id)))
+                }))
+                .spacing(8)
+                .wrap(),
+            );
         }
-        col = col.push(
-            text(crate::i18n::tr("Le dock : Réglages → Dock → Apparence."))
-                .font(font)
-                .size(crate::ui::tokens::ts(12.0))
-                .color(self.ink().dim),
-        );
+        for tab in COMPONENT_TABS.iter().filter(|c| searching || c.id == on) {
+            // Un onglet d'une seule section n'en répète pas le titre ; en
+            // recherche, le nom de l'onglet le remplace.
+            let single = tab.sections.len() == 1;
+            for sec in tab.sections {
+                let title = match (single, searching) {
+                    (true, false) => None,
+                    (true, true) => Some(tab.label),
+                    _ => Some(sec.title),
+                };
+                col = col.push(self.design_section(title, sec.component, sec.keys));
+            }
+            if tab.id == "bar" {
+                col = col.push(
+                    text(crate::i18n::tr("Le dock : Réglages → Dock → Apparence."))
+                        .font(font)
+                        .size(crate::ui::tokens::ts(12.0))
+                        .color(dim),
+                );
+            }
+        }
         col.into()
     }
 
@@ -292,18 +403,46 @@ impl App {
     }
 
     /// Options du registre `design_options` d'un composant, sous un titre :
-    /// Thème → Composants, et la page de son plugin (Dock → Apparence).
+    /// la page de son plugin (Dock → Apparence).
     pub(in crate::ui) fn design_fields(
         &self,
         component: &str,
         title: &'static str,
     ) -> iced::widget::Column<'_, UiMsg> {
+        self.design_section(Some(title), component, &[])
+    }
+
+    /// Options d'un composant, sous un titre s'il y en a un : toutes, ou
+    /// celles de `keys` dans leur ordre (Thème → Composants).
+    fn design_section(
+        &self,
+        title: Option<&'static str>,
+        component: &str,
+        keys: &[&str],
+    ) -> iced::widget::Column<'_, UiMsg> {
         use crate::design_options::{Kind, OPTIONS};
         use crate::tiling::OptValue;
         let font = self.font;
         let g = &self.cfg.general;
-        let mut col = column![self.section(title)].spacing(14);
-        for o in OPTIONS.iter().filter(|o| o.component == component) {
+        let mut col = column![].spacing(14);
+        if let Some(title) = title {
+            col = col.push(self.section(title));
+        }
+        let options: Vec<&crate::design_options::Opt> = if keys.is_empty() {
+            OPTIONS
+                .iter()
+                .filter(|o| o.component == component)
+                .collect()
+        } else {
+            keys.iter()
+                .filter_map(|k| {
+                    OPTIONS
+                        .iter()
+                        .find(|o| o.component == component && o.key == *k)
+                })
+                .collect()
+        };
+        for o in options {
             let name = o.name();
             let field: Element<'_, UiMsg> = match (o.kind, o.value(g)) {
                 (Kind::Bool, OptValue::Bool(b)) => {
@@ -1400,6 +1539,12 @@ impl App {
                 self.settings.effects.insert(place, e);
                 self.commit()
             }
+            Msg::ComponentsTab(tab) => {
+                if let Some(panel) = self.panel.as_mut() {
+                    panel.theme.components_tab = tab;
+                }
+                Task::none()
+            }
             Msg::DesignOpt(name, value, commit) => {
                 if let Err(e) =
                     crate::design_options::set(&mut self.settings, &self.cfg, &name, &value)
@@ -1469,5 +1614,40 @@ impl App {
             Slot::Background => s.background = Some(c),
         }
         self.commit()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::COMPONENT_TABS;
+    use crate::design_options::OPTIONS;
+
+    /// Chaque option du registre a sa place dans Thème → Composants, une
+    /// seule fois, sauf celles réglées ailleurs (dock, icônes, écrans) : une
+    /// option ajoutée au registre sans onglet ne disparaît pas des Réglages.
+    #[test]
+    fn options_des_composants_rangees_une_fois() {
+        let elsewhere = ["dock", "icons", "screen"];
+        for o in OPTIONS.iter().filter(|o| !elsewhere.contains(&o.component)) {
+            let places = COMPONENT_TABS
+                .iter()
+                .flat_map(|t| t.sections)
+                .filter(|s| {
+                    s.component == o.component && (s.keys.is_empty() || s.keys.contains(&o.key))
+                })
+                .count();
+            assert_eq!(places, 1, "{}.{}", o.component, o.key);
+        }
+        for s in COMPONENT_TABS.iter().flat_map(|t| t.sections) {
+            for k in s.keys {
+                assert!(
+                    OPTIONS
+                        .iter()
+                        .any(|o| o.component == s.component && o.key == *k),
+                    "{}.{k} absente du registre",
+                    s.component
+                );
+            }
+        }
     }
 }

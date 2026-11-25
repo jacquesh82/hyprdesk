@@ -1291,54 +1291,67 @@ impl App {
         if tabs.is_empty() {
             return Space::new().into();
         }
-        let th = &self.cfg.general.theme;
-        let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
         let on = self.subtab(pkg);
         row(tabs.into_iter().map(|(id, label)| {
-            let active = id == on;
-            let mut content = row![
-                text(label)
-                    .font(if active { self.title_font() } else { self.font })
-                    .size(crate::ui::tokens::ts(13.0))
-                    .color(if active { fg } else { self.ink().dim })
-            ]
-            .spacing(6)
-            .align_y(Alignment::Center);
-            // Onglet de la configuration avancée : point cyan.
-            if plugins::is_advanced(pkg, Some(id)) {
-                content = content.push(plugins::adv_icon(13.0));
-            }
-            self.focusable(
-                button(content)
-                    .padding([6, 14])
-                    .on_press(Msg::Panel(PanelMsg::SubTab(pkg, id)))
-                    .style(move |_, status| {
-                        let hover = matches!(status, button::Status::Hovered);
-                        button::Style {
-                            background: Some(
-                                if active {
-                                    Color { a: 0.28, ..accent }
-                                } else if hover {
-                                    Color { a: 0.08, ..fg }
-                                } else {
-                                    Color::TRANSPARENT
-                                }
-                                .into(),
-                            ),
-                            text_color: fg,
-                            border: Border::default().rounded(999).width(1).color(if active {
-                                Color { a: 0.7, ..accent }
-                            } else {
-                                Color { a: 0.14, ..fg }
-                            }),
-                            ..Default::default()
-                        }
-                    }),
+            self.pill_tab(
+                label,
+                id == on,
+                plugins::is_advanced(pkg, Some(id)),
+                Msg::Panel(PanelMsg::SubTab(pkg, id)),
             )
         }))
         .spacing(8)
         .wrap()
         .into()
+    }
+
+    /// Onglet en pastille : ceux d'un paquet dans un tiroir étroit, et les
+    /// onglets internes d'une page (Thème → Composants). `advanced` ajoute le
+    /// point cyan de la configuration avancée.
+    pub(in crate::ui) fn pill_tab(
+        &self,
+        label: &'static str,
+        active: bool,
+        advanced: bool,
+        on_press: Msg,
+    ) -> Element<'_, Msg> {
+        let th = &self.cfg.general.theme;
+        let (fg, accent) = (color(th.fg, 1.0), color(th.accent, 1.0));
+        let mut content = row![
+            text(label)
+                .font(if active { self.title_font() } else { self.font })
+                .size(crate::ui::tokens::ts(13.0))
+                .color(if active { fg } else { self.ink().dim })
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center);
+        if advanced {
+            content = content.push(plugins::adv_icon(13.0));
+        }
+        self.focusable(button(content).padding([6, 14]).on_press(on_press).style(
+            move |_, status| {
+                let hover = matches!(status, button::Status::Hovered);
+                button::Style {
+                    background: Some(
+                        if active {
+                            Color { a: 0.28, ..accent }
+                        } else if hover {
+                            Color { a: 0.08, ..fg }
+                        } else {
+                            Color::TRANSPARENT
+                        }
+                        .into(),
+                    ),
+                    text_color: fg,
+                    border: Border::default().rounded(999).width(1).color(if active {
+                        Color { a: 0.7, ..accent }
+                    } else {
+                        Color { a: 0.14, ..fg }
+                    }),
+                    ..Default::default()
+                }
+            },
+        ))
     }
 
     pub(super) fn view_panel(&self) -> Element<'_, Msg> {
@@ -2051,7 +2064,7 @@ impl App {
     }
 
     /// Recherche en cours dans les Réglages (vide sinon).
-    fn search_query(&self) -> &str {
+    pub(in crate::ui) fn search_query(&self) -> &str {
         self.panel.as_ref().map(|p| p.search.trim()).unwrap_or("")
     }
 

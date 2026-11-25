@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 186] = [
+const SCENES: [&str; 187] = [
     "desktop",
     "typography",
     "icons",
@@ -228,6 +228,9 @@ const SCENES: [&str; 186] = [
     "icones-teintees",
     // Réglages → Thème → Couleurs : l'apparence des icônes (HIG ICO-10).
     "reglages-icones",
+    // Réglages → Thème → Composants, onglet Fond d'écran : onglets internes
+    // et sections (images, cadrage, retouche, fonds animés, verre).
+    "reglages-composants",
 ];
 
 pub fn run(output: Option<PathBuf>) -> iced::Result {
@@ -1069,7 +1072,7 @@ impl Preview {
             "a-propos" => Some("about"),
             "raccourcis" | "raccourcis-essentiels" => Some("keys"),
             "reglages-valeur-saisie" => Some("dock"),
-            "reglages-echelle" | "reglages-icones" => Some("theme"),
+            "reglages-echelle" | "reglages-icones" | "reglages-composants" => Some("theme"),
             "reglages-notifications" => Some("notifications"),
             "bar-graphite-edit" => Some("bar"),
             _ => None,
@@ -1730,9 +1733,18 @@ impl Preview {
                     launch::icon_themes(),
                 ))));
             // Échelle des curseurs (HIG SEL-09) : les options des composants
-            // du thème, dont des curseurs gradués (colonnes, nombre visible).
+            // du thème, onglet Réglages rapides : curseurs gradués (colonnes).
             if SCENES[self.scene] == "reglages-echelle" {
                 self.app.subtabs.insert("theme", "composants");
+                if let Some(p) = self.app.panel.as_mut() {
+                    p.theme.components_tab = "controls";
+                }
+            }
+            if SCENES[self.scene] == "reglages-composants" {
+                self.app.subtabs.insert("theme", "composants");
+                if let Some(p) = self.app.panel.as_mut() {
+                    p.theme.components_tab = "wallpaper";
+                }
             }
             if SCENES[self.scene] == "reglages-icones" {
                 self.app.subtabs.insert("theme", "couleurs");
