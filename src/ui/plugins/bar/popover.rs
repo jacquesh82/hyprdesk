@@ -1092,9 +1092,11 @@ pub enum MenuSource {
     Window {
         address: String,
     },
-    /// Menu « Fenêtres » : l'action d'une entrée est le rang de l'adresse de
-    /// sa fenêtre (lues à l'ouverture du menu).
+    /// Menu « Fenêtres » : les commandes de la fenêtre active (`active`,
+    /// actions de `window::act`), puis les fenêtres ouvertes, d'action
+    /// `window::LIST` plus le rang de leur adresse (lues à l'ouverture).
     Windows {
+        active: Option<String>,
         addresses: Vec<String>,
     },
     /// Menu « hyprdesk » : les commandes du shell (`bar::menus`).
@@ -2514,10 +2516,27 @@ impl App {
                 },
                 |_| Msg::Noop,
             ),
-            // Menu « Fenêtres » : le focus va à la fenêtre, son espace suit ;
-            // réduite, elle revient d'abord sur l'espace affiché.
-            MenuSource::Windows { addresses } => {
-                let Some(address) = usize::try_from(action)
+            // Menu « Fenêtres », une commande de la fenêtre active : comme son
+            // menu (`window::act`).
+            MenuSource::Windows {
+                active: Some(address),
+                ..
+            } if action < super::window::LIST => Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        if let Err(e) = super::window::act(&address, action) {
+                            tracing::warn!("{}", crate::tr!("fenêtre : {e}", e = e));
+                        }
+                    })
+                    .await
+                },
+                |_| Msg::Noop,
+            ),
+            // Menu « Fenêtres », une fenêtre de la liste : le focus va à la
+            // fenêtre, son espace suit ; réduite, elle revient d'abord sur
+            // l'espace affiché.
+            MenuSource::Windows { addresses, .. } => {
+                let Some(address) = usize::try_from(action - super::window::LIST)
                     .ok()
                     .and_then(|i| addresses.get(i).cloned())
                 else {

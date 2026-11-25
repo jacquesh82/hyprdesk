@@ -194,8 +194,10 @@ and this project adheres to
 - The « Window » bar menu becomes **« Windows »** (MLG-315): every open window,
   grouped by workspace (minimised ones last, the active one ticked), with
   its application icon; a click focuses it and goes to its workspace
-  (a minimised window comes back to the shown one). The active window's
-  commands stay on its title.
+  (a minimised window comes back to the shown one). Like the macOS Window
+  menu, it starts with the active window's commands (minimise, maximise,
+  fullscreen, floating, on all workspaces, move to workspace, close); the
+  active window's title in the middle of the bar is a plain label.
 - The Continuity control center no longer overflows (MLG-321): labels are
   cut to their tile, the card takes its height again once the screen's
   brightness is known (DDC/CI answers after it opens), and a scroll bar, if

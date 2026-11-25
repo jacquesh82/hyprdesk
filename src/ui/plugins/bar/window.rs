@@ -22,25 +22,35 @@ const CLOSE: i64 = 6;
 const CLOSE_ALL: i64 = 7;
 /// Déplacer vers l'espace `n` : `MOVE + n`.
 const MOVE: i64 = 1000;
+/// Menu « Fenêtres » : aller à la fenêtre de rang `i` de la liste, `LIST + i`
+/// (au-delà de toute commande, `MOVE` compris).
+pub(in crate::ui) const LIST: i64 = 1_000_000;
 
 /// Longueur d'un titre de fenêtre dans le menu « Fenêtres ».
 const TITLE_MAX: usize = 60;
 
-/// Menu « Fenêtres » de la barre, lu sur le compositeur : les adresses
-/// (l'action d'une entrée est le rang de la sienne) et les entrées. `apps`
-/// donne l'icône de chaque application.
+/// Menu « Fenêtres » de la barre (HIG MENU-01), lu sur le compositeur,
+/// comme le menu Fenêtre de macOS : les commandes de la fenêtre active en
+/// tête (`entries`), puis toutes les fenêtres ouvertes (`list`, actions
+/// `LIST + rang`). Rend l'adresse de la fenêtre active, celles de la liste
+/// et les entrées ; `apps` donne l'icône de chaque application.
 pub(in crate::ui) fn read_all(
     workspaces: &[Workspace],
     apps: &[crate::launch::AppInfo],
-) -> (Vec<String>, Vec<MenuEntry>) {
-    let clients = ipc::query_json("clients")
-        .map(|v| crate::hypr::parse_clients(&v))
+) -> (Option<String>, Vec<String>, Vec<MenuEntry>) {
+    let raw = ipc::query_json("clients").ok();
+    let clients = raw
+        .as_ref()
+        .map(crate::hypr::parse_clients)
         .unwrap_or_default();
-    let active = ipc::query_json("activewindow")
-        .ok()
-        .and_then(|v| v["address"].as_str().map(str::to_string));
+    let active = ipc::query_json("activewindow").ok();
+    let commands = active.as_ref().and_then(|v| {
+        let same_app = raw.as_ref().map_or(1, |c| same_application(v, c));
+        entries(v, workspaces, same_app)
+    });
+    let current = commands.as_ref().map(|(a, _)| a.as_str());
     let mut icons = std::collections::HashMap::new();
-    list(&clients, workspaces, active.as_deref(), &mut |class| {
+    let (addresses, windows) = list(&clients, workspaces, current, LIST, &mut |class| {
         icons
             .entry(class.to_string())
             .or_insert_with(|| {
@@ -48,18 +58,28 @@ pub(in crate::ui) fn read_all(
                     .map(|n| crate::ui::App::app_icon_key(&n))
             })
             .clone()
-    })
+    });
+    match commands {
+        Some((address, mut out)) => {
+            out.push(MenuEntry::Separator);
+            out.extend(windows);
+            (Some(address), addresses, out)
+        }
+        None => (None, addresses, windows),
+    }
 }
 
 /// Toutes les fenêtres ouvertes, groupées par espace dans l'ordre des
 /// espaces, les espaces spéciaux ensuite, les réduites en dernier ; la
 /// fenêtre active cochée. Les fenêtres que hyprdesk a mises de côté
 /// (`STASH`) n'y sont pas : le mode du bureau qui les a rangées les rendra.
-/// `icon` : nom d'icône de l'application d'une classe.
+/// `icon` : nom d'icône de l'application d'une classe ; l'action d'une
+/// fenêtre est `base` plus son rang dans les adresses rendues.
 fn list(
     clients: &[crate::hypr::Client],
     workspaces: &[Workspace],
     active: Option<&str>,
+    base: i64,
     icon: &mut dyn FnMut(&str) -> Option<String>,
 ) -> (Vec<String>, Vec<MenuEntry>) {
     let tr = |s: &str| crate::i18n::tr(s).to_string();
@@ -128,7 +148,7 @@ fn list(
             icon: icon(&c.class),
             checked: (active == Some(c.address.as_str())).then_some(true),
             enabled: true,
-            action: Some(addresses.len() as i64),
+            action: Some(base + addresses.len() as i64),
             confirm: None,
         });
         addresses.push(c.address.clone());
@@ -508,7 +528,7 @@ mod tests {
             client("0x5", "foot", "second", "2"),
         ];
         let mut icon = |class: &str| Some(format!("app:{class}"));
-        let (addresses, entries) = list(&clients, &[ws(1), ws(2)], Some("0x5"), &mut icon);
+        let (addresses, entries) = list(&clients, &[ws(1), ws(2)], Some("0x5"), 0, &mut icon);
         // Espace 1, espace 2 (ordre du compositeur gardé), réduites ; la
         // fenêtre mise de côté par hyprdesk n'y est pas.
         assert_eq!(addresses, ["0x2", "0x1", "0x5", "0x3"]);
@@ -550,7 +570,7 @@ mod tests {
 
     #[test]
     fn aucune_fenetre_une_ligne_inactive() {
-        let (addresses, entries) = list(&[], &[], None, &mut |_| None);
+        let (addresses, entries) = list(&[], &[], None, LIST, &mut |_| None);
         assert!(addresses.is_empty());
         assert!(matches!(
             entries.as_slice(),

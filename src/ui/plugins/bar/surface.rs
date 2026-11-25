@@ -2173,21 +2173,8 @@ impl App {
         let open = |key: &str, request| Some(Msg::OpenPopover(bar_id, key.into(), request));
         let monitor = self.bar_surfaces.get(&bar_id).map(|b| b.monitor.as_str());
         match item {
-            // Comme la vue : rien à cliquer sur un écran étroit ni sans
-            // fenêtre active.
-            BarItem::Window => {
-                let narrow = self
-                    .monitors
-                    .iter()
-                    .find(|m| Some(m.name.as_str()) == monitor)
-                    .is_some_and(|m| m.width < 1000);
-                let shown = self
-                    .active_window
-                    .as_ref()
-                    .is_some_and(|(c, t)| !c.is_empty() || !t.is_empty());
-                (shown && !narrow).then_some(())?;
-                open("window", Request::Window)
-            }
+            // Le titre de la fenêtre active n'est qu'un libellé : ses
+            // commandes sont au menu « Fenêtres », comme sur macOS.
             BarItem::Volume => open("volume", Request::Volume),
             // Sans niveau sur cet écran, le module n'est pas affiché.
             BarItem::Brightness => {
@@ -2280,46 +2267,20 @@ impl App {
                     .as_ref()
                     .map(|(c, t)| if t.is_empty() { c.clone() } else { t.clone() })
                     .unwrap_or_default();
-                // Titre d'un menu, comme « hyprdesk », « Fenêtre » et « Espaces » :
-                // semibold (HIG MENU-07), suivi d'un chevron — seul titre de la
-                // barre dont le libellé n'est pas un nom de menu.
-                let ink = if open { fg } else { dim };
+                // Un libellé, pas un titre de menu : les commandes de la
+                // fenêtre sont au menu « Fenêtres », comme sur macOS. Texte
+                // normal, à l'encre secondaire de la barre.
                 let label = text(truncate(&t, if compact { 18 } else { 36 }))
                     .wrapping(iced::widget::text::Wrapping::None)
                     .font(self.font)
                     .size(crate::ui::tokens::ts(size))
-                    .color(ink)
-                    .font(self.ui_font(iced::font::Weight::Semibold));
-                if t.is_empty() {
-                    return container(label).padding([0, 8]).into();
-                }
-                let content: Element<'a, Msg> =
-                    // Le chevron suit la graisse du titre (HIG ICO-12).
-                    match self.icon_named_weighted(
-                        MENU_CHEVRON,
-                        (size * 0.75).round(),
-                        ink,
-                        iced::font::Weight::Semibold,
-                    ) {
-                        Some(chevron) => row![label, chevron]
-                            .spacing(4)
-                            .align_y(Alignment::Center)
-                            .into(),
-                        None => label.into(),
-                    };
-                // Clic : le menu de la fenêtre (MLG-311).
-                self.module(
-                    bar,
-                    alpha,
-                    content,
-                    self.bar_item_press(bar_id, item),
-                    // Clic droit : le menu du clic gauche, même carte (HIG ENT-07).
-                    Some(Msg::OpenPopover(bar_id, "window".into(), Request::Window)),
-                    None,
-                    None,
-                    None,
-                    open,
-                )
+                    .color(dim)
+                    .font(self.ui_font(iced::font::Weight::Normal));
+                container(label)
+                    .padding([0, 8])
+                    .height(Length::Fill)
+                    .center_y(Length::Fill)
+                    .into()
             }
             // Interrupteur à trois états : no-desktop, launcher-only,
             // full-desktop ; le mode en cours en couleur d'accent, un clic

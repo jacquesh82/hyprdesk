@@ -973,13 +973,13 @@ mod tests {
         assert_eq!(app.a11y_action("/bar:A/menus:window").units(), 0);
         assert_eq!(app.a11y_action("/bar:A/workspaces").units(), 0);
         assert_eq!(app.a11y_action("/bar:B/volume").units(), 0);
-        // Comme la vue : la fenêtre sans fenêtre active, la luminosité sans
-        // niveau n'ont rien à cliquer.
+        // Comme la vue : le titre de la fenêtre active n'est qu'un libellé
+        // (ses commandes sont au menu « Fenêtres »), la luminosité sans
+        // niveau n'a rien à cliquer.
         use crate::config::BarItem;
         let bar_id = *app.bar_surfaces.keys().next().unwrap();
-        assert!(app.bar_item_press(bar_id, &BarItem::Window).is_none());
         app.active_window = Some(("foot".into(), String::new()));
-        assert!(app.bar_item_press(bar_id, &BarItem::Window).is_some());
+        assert!(app.bar_item_press(bar_id, &BarItem::Window).is_none());
         app.active_window = None;
         if app.light.level_for("A").is_none() {
             assert!(app.bar_item_press(bar_id, &BarItem::Brightness).is_none());

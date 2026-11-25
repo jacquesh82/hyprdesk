@@ -5649,14 +5649,14 @@ impl App {
                                 .await
                                 .unwrap_or_default()
                             },
-                            move |(addresses, entries)| {
+                            move |(active, addresses, entries)| {
                                 Msg::PopoverReady(
                                     request,
                                     bar_id,
                                     key.clone(),
                                     popover::Kind::Menu {
                                         entries,
-                                        source: popover::MenuSource::Windows { addresses },
+                                        source: popover::MenuSource::Windows { active, addresses },
                                     },
                                 )
                             },
