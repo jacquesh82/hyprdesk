@@ -41,6 +41,13 @@ suit le workspace qu'il affiche. Les fonds (images, diaporamas, **vidéos en
 boucle**) se règlent par écran ou par workspace, et un thème se tire de
 n'importe quelle image.
 
+La barre reprend celle de macOS : les menus à gauche, la fenêtre active et
+les espaces de travail au centre, les icônes d'état, le centre de contrôle
+et l'horloge à droite. Les widgets ne se recouvrent jamais : quand l'écran
+change de taille ou que le tiroir des Réglages s'ouvre, chacun prend la
+place libre la plus proche de son ancrage. Le nom d'une icône du bureau
+tient sur deux lignes, et la sélection le couvre en entier.
+
 ### Hyprland réglé depuis les Réglages
 
 Disposez les écrans, réglez clavier et pavé tactile, changez un raccourci en
@@ -115,6 +122,8 @@ fautive est signalée avec son fichier et son numéro. Widgets et modules de
 barre sont de simples fichiers Lua. Une douzaine de plugins sont livrés :
 réseau, Bluetooth, batterie, mises à jour avec progression, captures,
 éclairage nocturne, bascule de carte graphique en passthrough, et d'autres.
+Ceux qui ne sont pas dans la barre par défaut s'y ajoutent depuis
+Réglages → Barre.
 
 ### Sans risque à essayer
 

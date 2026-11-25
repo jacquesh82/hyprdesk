@@ -39,6 +39,12 @@ remembers its mode across sessions, and each screen follows the workspace it
 shows. Wallpapers (images, slideshows, **looping videos**) are set per screen
 or workspace, and a theme can be built from any image.
 
+The bar follows macOS: menus on the left, the active window and workspaces
+in the center, status icons, the control center and the clock on the right.
+Widgets never overlap: when the screen changes size or the Settings drawer
+opens, each one moves to the free spot nearest its anchor. A desktop icon's
+name wraps onto two lines, and the selection covers all of it.
+
 ### Hyprland, configured from Settings
 
 Arrange monitors, set the keyboard and touchpad, edit shortcuts by pressing
@@ -107,6 +113,7 @@ precedence and reloads on save, and a broken line is reported with its file
 and line number. Widgets and bar modules are plain Lua files. About a dozen
 plugins ship with hyprdesk: network, Bluetooth, battery, updates with
 progress, captures, night light, GPU passthrough switch, and more.
+Those not in the default bar can be added from Settings → Bar.
 
 ### Safe to try
 
