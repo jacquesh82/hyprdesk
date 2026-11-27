@@ -406,6 +406,12 @@ impl Shell {
     }
 }
 
+/// hyprdesk: a frame callback that has not come back after this long is
+/// treated as lost. Compositors may never answer a callback requested while
+/// the output was off or the session locked; without this, the surface would
+/// wait for it forever and never be drawn again.
+const FRAME_STALL: Duration = Duration::from_secs(1);
+
 /// The state of if we can call a `present` for the window.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 enum PresentAvailableState {
@@ -453,6 +459,7 @@ impl<T> WindowStateUnitBuilder<T> {
                 scale: 120,
                 request_flag: Default::default(),
                 present_available_state: Default::default(),
+                present_requested_at: None,
             },
         }
     }
@@ -545,6 +552,8 @@ pub struct WindowStateUnit<T> {
     scale: u32,
     request_flag: WindowStateUnitRequestFlag,
     present_available_state: PresentAvailableState,
+    /// When the pending `wl_surface.frame` request was sent (hyprdesk: see `FRAME_STALL`).
+    present_requested_at: Option<Instant>,
 }
 
 impl<T> WindowStateUnit<T> {
@@ -788,18 +797,16 @@ impl<T> WindowStateUnit<T> {
 
         match self.request_flag.refresh {
             RefreshRequest::NextFrame => {
-                if self.present_available_state == PresentAvailableState::Available {
+                if self.present_available() {
                     Some(Duration::ZERO)
                 } else {
-                    None
+                    self.stall_timeout()
                 }
             }
             RefreshRequest::At(instant) => {
                 let timeout = instant.saturating_duration_since(Instant::now());
-                if timeout.is_zero()
-                    && self.present_available_state != PresentAvailableState::Available
-                {
-                    None
+                if timeout.is_zero() && !self.present_available() {
+                    self.stall_timeout()
                 } else {
                     Some(timeout)
                 }
@@ -808,11 +815,33 @@ impl<T> WindowStateUnit<T> {
         }
     }
 
+    /// hyprdesk: the present slot is free, or its frame callback is overdue
+    /// (see `FRAME_STALL`).
+    fn present_available(&self) -> bool {
+        match self.present_available_state {
+            PresentAvailableState::Available => true,
+            PresentAvailableState::Requested => self
+                .present_requested_at
+                .is_some_and(|t| t.elapsed() >= FRAME_STALL),
+            PresentAvailableState::Taken => false,
+        }
+    }
+
+    /// hyprdesk: time left before a pending frame callback counts as lost.
+    fn stall_timeout(&self) -> Option<Duration> {
+        match self.present_available_state {
+            PresentAvailableState::Requested => self
+                .present_requested_at
+                .map(|t| FRAME_STALL.saturating_sub(t.elapsed())),
+            _ => None,
+        }
+    }
+
     pub fn take_present_slot(&mut self) -> bool {
         if !self.configured || !self.should_refresh() {
             return false;
         }
-        if self.present_available_state != PresentAvailableState::Available {
+        if !self.present_available() {
             return false;
         }
         self.request_flag.refresh = RefreshRequest::Wait;
@@ -835,6 +864,7 @@ impl<T: 'static> WindowStateUnit<T> {
         match self.present_available_state {
             PresentAvailableState::Taken => {
                 self.present_available_state = PresentAvailableState::Requested;
+                self.present_requested_at = Some(Instant::now());
                 self.wl_surface
                     .frame(&self.qh, (self.id, PresentAvailableState::Available));
             }

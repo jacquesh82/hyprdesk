@@ -14,6 +14,14 @@ appliqués dans `src/lib.rs`). L'original laissait l'`app_id` vide : les règles
 Hyprland ne pouvaient pas reconnaître la fenêtre d'aperçu du Panorama
 (app_id `hyprdesk-panorama-preview`, flottante et centrée, MLG-164).
 
+Ajout : rappel de trame perdu (`FRAME_STALL` dans `src/lib.rs`). Une surface
+attend le rappel `wl_surface.frame` avant de redessiner ; Hyprland ne répond pas
+toujours à un rappel demandé pendant que l'écran est éteint (DPMS) ou la session
+verrouillée, et la surface restait alors figée pour de bon (barre arrêtée sur
+l'heure du déverrouillage, Panorama qui ne montre plus rien de ce qu'on touche).
+Un rappel sans réponse depuis une seconde est tenu pour perdu : la surface
+redessine, et en redemande un.
+
 ## Origine
 
 - Archive de départ : `layershellev-0.19.1.crate`, https://static.crates.io/crates/layershellev/layershellev-0.19.1.crate

@@ -392,7 +392,103 @@
  mod events;
  mod seat;
  mod strtoshape;
-@@ -938,6 +939,8 @@
+@@ -405,6 +406,12 @@
+     }
+ }
+ 
++/// hyprdesk: a frame callback that has not come back after this long is
++/// treated as lost. Compositors may never answer a callback requested while
++/// the output was off or the session locked; without this, the surface would
++/// wait for it forever and never be drawn again.
++const FRAME_STALL: Duration = Duration::from_secs(1);
++
+ /// The state of if we can call a `present` for the window.
+ #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+ enum PresentAvailableState {
+@@ -452,6 +459,7 @@
+                 scale: 120,
+                 request_flag: Default::default(),
+                 present_available_state: Default::default(),
++                present_requested_at: None,
+             },
+         }
+     }
+@@ -544,6 +552,8 @@
+     scale: u32,
+     request_flag: WindowStateUnitRequestFlag,
+     present_available_state: PresentAvailableState,
++    /// When the pending `wl_surface.frame` request was sent (hyprdesk: see `FRAME_STALL`).
++    present_requested_at: Option<Instant>,
+ }
+ 
+ impl<T> WindowStateUnit<T> {
+@@ -787,18 +797,16 @@
+ 
+         match self.request_flag.refresh {
+             RefreshRequest::NextFrame => {
+-                if self.present_available_state == PresentAvailableState::Available {
++                if self.present_available() {
+                     Some(Duration::ZERO)
+                 } else {
+-                    None
++                    self.stall_timeout()
+                 }
+             }
+             RefreshRequest::At(instant) => {
+                 let timeout = instant.saturating_duration_since(Instant::now());
+-                if timeout.is_zero()
+-                    && self.present_available_state != PresentAvailableState::Available
+-                {
+-                    None
++                if timeout.is_zero() && !self.present_available() {
++                    self.stall_timeout()
+                 } else {
+                     Some(timeout)
+                 }
+@@ -807,11 +815,33 @@
+         }
+     }
+ 
++    /// hyprdesk: the present slot is free, or its frame callback is overdue
++    /// (see `FRAME_STALL`).
++    fn present_available(&self) -> bool {
++        match self.present_available_state {
++            PresentAvailableState::Available => true,
++            PresentAvailableState::Requested => self
++                .present_requested_at
++                .is_some_and(|t| t.elapsed() >= FRAME_STALL),
++            PresentAvailableState::Taken => false,
++        }
++    }
++
++    /// hyprdesk: time left before a pending frame callback counts as lost.
++    fn stall_timeout(&self) -> Option<Duration> {
++        match self.present_available_state {
++            PresentAvailableState::Requested => self
++                .present_requested_at
++                .map(|t| FRAME_STALL.saturating_sub(t.elapsed())),
++            _ => None,
++        }
++    }
++
+     pub fn take_present_slot(&mut self) -> bool {
+         if !self.configured || !self.should_refresh() {
+             return false;
+         }
+-        if self.present_available_state != PresentAvailableState::Available {
++        if !self.present_available() {
+             return false;
+         }
+         self.request_flag.refresh = RefreshRequest::Wait;
+@@ -834,6 +864,7 @@
+         match self.present_available_state {
+             PresentAvailableState::Taken => {
+                 self.present_available_state = PresentAvailableState::Requested;
++                self.present_requested_at = Some(Instant::now());
+                 self.wl_surface
+                     .frame(&self.qh, (self.id, PresentAvailableState::Available));
+             }
+@@ -938,6 +969,8 @@
      seat_state: Option<SeatState>,
      seats: HashMap<ObjectId, SeatStorage>,
      seat_back: Option<WlSeat>,
@@ -401,7 +497,7 @@
  
      virtual_keyboard: Option<ZwpVirtualKeyboardV1>,
  
-@@ -1487,6 +1490,7 @@
+@@ -1487,6 +1520,7 @@
              seat_state: None,
              seats: HashMap::new(),
              seat_back: None,
@@ -409,7 +505,7 @@
  
              namespace: "".to_owned(),
              keyboard_interactivity: zwlr_layer_surface_v1::KeyboardInteractivity::OnDemand,
-@@ -2167,6 +2171,17 @@
+@@ -2167,6 +2201,17 @@
          let shm = globals.bind::<WlShm, _, _>(&qh, 1..=1, ())?;
          self.shm = Some(shm);
          self.seat_back = Some(globals.bind::<WlSeat, _, _>(&qh, 1..=1, ())?);
@@ -427,7 +523,7 @@
  
          let wmbase = globals.bind::<XdgWmBase, _, _>(&qh, 2..=6, ())?;
          self.wmbase = Some(wmbase);
-@@ -2808,6 +2823,7 @@
+@@ -2808,6 +2853,7 @@
                          ReturnData::NewXdgBase((
                              NewXdgWindowSettings {
                                  title,
@@ -435,7 +531,7 @@
                                  size,
                                  client_side_decorations,
                              },
-@@ -2819,6 +2835,9 @@
+@@ -2819,6 +2865,9 @@
                              let toplevel = wl_xdg_surface.get_toplevel(&qh, ());
  
                              toplevel.set_title(title.unwrap_or("".to_owned()));
