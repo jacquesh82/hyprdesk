@@ -118,6 +118,9 @@ struct Lock {
     real_name: String,
     password: Zeroizing<String>,
     checking: bool,
+    /// Entrée pressée pendant une vérification ou le délai après des
+    /// échecs : le mot de passe tapé entre-temps part dès que possible.
+    submit_pending: bool,
     failures: u32,
     /// Saisie bloquée jusqu'à cet instant (délai croissant après des échecs).
     retry_at: Option<Instant>,
@@ -366,6 +369,7 @@ impl Lock {
             title_font,
             password: Zeroizing::new(String::new()),
             checking: false,
+            submit_pending: false,
             failures: 0,
             retry_at: None,
             faillock: faillock::current(&user),
@@ -480,6 +484,9 @@ impl Lock {
                 // le décompte du blocage.
                 self.faillock = faillock::current(&self.user);
                 let mut t = Vec::new();
+                if self.submit_pending && !self.checking && !self.blocked() {
+                    t.push(Task::done(Msg::Submit));
+                }
                 if self.st.show_battery && secs.is_multiple_of(30) {
                     self.battery = battery();
                 }
@@ -497,15 +504,17 @@ impl Lock {
                 }
                 Task::batch(t)
             }
-            Msg::Input(mut s) => {
+            Msg::Input(s) => {
                 self.last_input = Instant::now();
-                if !self.checking && !self.blocked() {
-                    // L'ancienne valeur est effacée, pas seulement libérée.
-                    self.password.zeroize();
-                    *self.password = s;
+                // Gardé même pendant la vérification ou le délai : le mot de
+                // passe vérifié a déjà quitté le champ. Jeter la frappe
+                // amputait le suivant de ses premiers caractères, et chaque
+                // essai raté comptait pour pam_faillock (MLG-359).
+                // L'ancienne valeur est effacée, pas seulement libérée.
+                self.password.zeroize();
+                *self.password = s;
+                if !self.checking {
                     self.error = None;
-                } else {
-                    s.zeroize();
                 }
                 Task::none()
             }
@@ -515,9 +524,14 @@ impl Lock {
             }
             Msg::Submit => {
                 self.last_input = Instant::now();
-                if self.checking || self.password.is_empty() || self.blocked() {
+                if self.password.is_empty() {
                     return Task::none();
                 }
+                if self.checking || self.blocked() {
+                    self.submit_pending = true;
+                    return Task::none();
+                }
+                self.submit_pending = false;
                 self.checking = true;
                 self.messages.clear();
                 // Effacé à la fin de la vérification (Zeroizing).
@@ -582,7 +596,12 @@ impl Lock {
                 self.faillock = faillock::current(&self.user);
                 self.error = o.error;
                 self.messages = o.messages;
-                iced::widget::operation::focus(INPUT_ID)
+                let focus = iced::widget::operation::focus(INPUT_ID);
+                if self.submit_pending {
+                    // Envoyé aussitôt, ou à la fin du délai (Tick).
+                    return Task::batch([focus, Task::done(Msg::Submit)]);
+                }
+                focus
             }
             Msg::Background(h) => {
                 self.background = h;
@@ -703,20 +722,21 @@ impl Lock {
             ));
         }
         // Prévenir avant l'essai qui bloquerait le compte.
-        if locked.is_none() && self.error.is_some() {
-            if let Some(faillock::State::Open { left: Some(n) }) = self.faillock {
-                out.push((
-                    Tone::Plain,
-                    if n == 1 {
-                        crate::i18n::tr(
-                            "Dernier essai avant que le système bloque le compte quelques minutes.",
-                        )
-                        .to_string()
-                    } else {
-                        crate::tr!("Encore {n} essais avant le blocage du compte.", n = n)
-                    },
-                ));
-            }
+        if locked.is_none()
+            && self.error.is_some()
+            && let Some(faillock::State::Open { left: Some(n) }) = self.faillock
+        {
+            out.push((
+                Tone::Plain,
+                if n == 1 {
+                    crate::i18n::tr(
+                        "Dernier essai avant que le système bloque le compte quelques minutes.",
+                    )
+                    .to_string()
+                } else {
+                    crate::tr!("Encore {n} essais avant le blocage du compte.", n = n)
+                },
+            ));
         }
         for m in &self.messages {
             out.push((Tone::Plain, m.clone()));
@@ -1395,6 +1415,33 @@ mod tests {
         assert!(!is_strip(1440.0, 2560.0));
         assert!(!is_strip(450.0, 1600.0));
         assert!(!is_strip(0.0, 0.0));
+    }
+
+    /// MLG-359 : la frappe pendant la vérification n'est plus jetée, et
+    /// Entrée pressée trop tôt attend la fin de la vérification ou du délai.
+    #[test]
+    fn frappe_gardee_pendant_la_verification() {
+        let mut lock = Lock::new().0;
+        lock.checking = true;
+        let _ = lock.update(Msg::Input("mot".into()));
+        let _ = lock.update(Msg::Input("mot-de-passe".into()));
+        assert_eq!(lock.password.as_str(), "mot-de-passe");
+        let _ = lock.update(Msg::Submit);
+        assert!(lock.submit_pending, "Entrée gardée pour la suite");
+        assert_eq!(lock.password.as_str(), "mot-de-passe", "rien d'envoyé");
+        // Pendant le délai après des échecs : pareil.
+        lock.checking = false;
+        lock.submit_pending = false;
+        lock.retry_at = Some(Instant::now() + Duration::from_secs(30));
+        let _ = lock.update(Msg::Input("autre".into()));
+        let _ = lock.update(Msg::Submit);
+        assert_eq!(lock.password.as_str(), "autre");
+        assert!(lock.submit_pending && !lock.checking);
+        // Champ vide : Entrée ne garde rien.
+        lock.submit_pending = false;
+        lock.password.zeroize();
+        let _ = lock.update(Msg::Submit);
+        assert!(!lock.submit_pending);
     }
 
     /// MLG-358 : compte bloqué par pam_faillock, le temps restant remplace

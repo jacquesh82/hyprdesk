@@ -74,7 +74,9 @@ const TALLY_STATUS_VALID: u16 = 0x1;
 /// Heures (secondes depuis l'époque) des échecs valides du fichier.
 pub fn parse_tally(bytes: &[u8]) -> Vec<u64> {
     bytes
-        .chunks_exact(RECORD)
+        .as_chunks::<RECORD>()
+        .0
+        .iter()
         .filter_map(|r| {
             let status = u16::from_ne_bytes([r[54], r[55]]);
             let time = u64::from_ne_bytes(r[56..64].try_into().ok()?);
