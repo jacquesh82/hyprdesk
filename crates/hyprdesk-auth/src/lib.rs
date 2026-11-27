@@ -5,6 +5,7 @@
 //! - `pam` : liaison PAM écrite à la main (mot de passe, empreinte, phase
 //!   account), journal, effacement des secrets ;
 //! - `fprint` : vérification d'empreinte par fprintd ;
+//! - `faillock` : état du blocage du compte après des échecs (lecture seule) ;
 //! - `enroll` : liste, enregistrement et suppression des empreintes.
 //!
 //! Utilisé par l'écran de verrouillage (`hyprdesk-lock`), l'écran de
@@ -16,5 +17,6 @@ pub(crate) use hyprdesk_i18n as i18n;
 pub(crate) use hyprdesk_i18n::tr;
 
 pub mod enroll;
+pub mod faillock;
 pub mod fprint;
 pub mod pam;

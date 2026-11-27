@@ -18,7 +18,7 @@
 //! garde son contraste ; l'extinction de l'écran reste l'affaire de hypridle).
 
 // Authentification : crate `hyprdesk-auth` (crates/), chemins inchangés.
-pub use hyprdesk_auth::{enroll, fprint, pam};
+pub use hyprdesk_auth::{enroll, faillock, fprint, pam};
 mod scope;
 pub mod state;
 
@@ -46,6 +46,25 @@ const TEXT_CONTRAST: f64 = 4.5;
 const SECONDARY: f32 = 0.65;
 /// Message d'erreur : la couleur du thème.
 const ERROR: Rgba = Rgba(0xff, 0x95, 0x80, 0xff);
+
+/// Note du blocage par pam_faillock : temps restant, ou levée manuelle.
+fn faillock_note(secs: Option<u64>, user: &str) -> String {
+    match secs {
+        Some(s) if s >= 60 => crate::tr!(
+            "Compte bloqué par le système après trop d'échecs : nouvel essai dans {m} min {s} s.",
+            m = s / 60,
+            s = s % 60
+        ),
+        Some(s) => crate::tr!(
+            "Compte bloqué par le système après trop d'échecs : nouvel essai dans {s} s.",
+            s = s
+        ),
+        None => crate::tr!(
+            "Compte bloqué par le système après trop d'échecs, sans délai de levée : « faillock --user {u} --reset » depuis une autre session.",
+            u = user
+        ),
+    }
+}
 
 /// Attente imposée après `failures` échecs : rien jusqu'à deux, puis 2 s,
 /// 4 s, 8 s, 16 s, et 30 s au plus.
@@ -102,6 +121,10 @@ struct Lock {
     failures: u32,
     /// Saisie bloquée jusqu'à cet instant (délai croissant après des échecs).
     retry_at: Option<Instant>,
+    /// Blocage du compte par pam_faillock, relu chaque seconde : refusé
+    /// partout, même avec le bon mot de passe, et PAM ne dit que
+    /// « Authentication failure ».
+    faillock: Option<faillock::State>,
     error: Option<String>,
     messages: Vec<String>,
     started: Instant,
@@ -345,6 +368,7 @@ impl Lock {
             checking: false,
             failures: 0,
             retry_at: None,
+            faillock: faillock::current(&user),
             error: None,
             messages: Vec::new(),
             started: now,
@@ -452,6 +476,9 @@ impl Lock {
         match msg {
             Msg::Tick => {
                 let secs = self.started.elapsed().as_secs();
+                // Fichier de quelques octets : relu à chaque seconde pour
+                // le décompte du blocage.
+                self.faillock = faillock::current(&self.user);
                 let mut t = Vec::new();
                 if self.st.show_battery && secs.is_multiple_of(30) {
                     self.battery = battery();
@@ -552,6 +579,7 @@ impl Lock {
                 }
                 self.failures += 1;
                 self.retry_at = backoff(self.failures).map(|d| Instant::now() + d);
+                self.faillock = faillock::current(&self.user);
                 self.error = o.error;
                 self.messages = o.messages;
                 iced::widget::operation::focus(INPUT_ID)
@@ -650,7 +678,15 @@ impl Lock {
                 out.push((Tone::Dim, l));
             }
         }
-        if let Some(e) = &self.error {
+        let locked = match self.faillock {
+            Some(faillock::State::Locked { secs }) => Some(secs),
+            _ => None,
+        };
+        if let Some(secs) = locked {
+            // À la place de « Authentication failure », qui laisse croire
+            // à une faute de frappe.
+            out.push((Tone::Error, faillock_note(secs, &self.user)));
+        } else if let Some(e) = &self.error {
             out.push((
                 Tone::Error,
                 if self.failures > 1 {
@@ -665,6 +701,22 @@ impl Lock {
                 Tone::Plain,
                 crate::tr!("Nouvel essai possible dans {n} s", n = n),
             ));
+        }
+        // Prévenir avant l'essai qui bloquerait le compte.
+        if locked.is_none() && self.error.is_some() {
+            if let Some(faillock::State::Open { left: Some(n) }) = self.faillock {
+                out.push((
+                    Tone::Plain,
+                    if n == 1 {
+                        crate::i18n::tr(
+                            "Dernier essai avant que le système bloque le compte quelques minutes.",
+                        )
+                        .to_string()
+                    } else {
+                        crate::tr!("Encore {n} essais avant le blocage du compte.", n = n)
+                    },
+                ));
+            }
         }
         for m in &self.messages {
             out.push((Tone::Plain, m.clone()));
@@ -1343,6 +1395,34 @@ mod tests {
         assert!(!is_strip(1440.0, 2560.0));
         assert!(!is_strip(450.0, 1600.0));
         assert!(!is_strip(0.0, 0.0));
+    }
+
+    /// MLG-358 : compte bloqué par pam_faillock, le temps restant remplace
+    /// « Authentication failure » ; avant, le dernier essai est annoncé.
+    #[test]
+    fn blocage_du_compte_annonce() {
+        let mut lock = Lock::new().0;
+        lock.error = Some("Authentication failure".into());
+        lock.failures = 3;
+        lock.faillock = Some(faillock::State::Locked { secs: Some(125) });
+        let notes: Vec<String> = lock.notes().into_iter().map(|(_, n)| n).collect();
+        assert!(notes.iter().any(|n| n.contains("2 min 5 s")), "{notes:?}");
+        assert!(!notes.iter().any(|n| n.contains("Authentication failure")));
+        lock.faillock = Some(faillock::State::Locked { secs: None });
+        let notes: Vec<String> = lock.notes().into_iter().map(|(_, n)| n).collect();
+        assert!(notes.iter().any(|n| n.contains("--reset")), "{notes:?}");
+        lock.failures = 2;
+        lock.faillock = Some(faillock::State::Open { left: Some(1) });
+        let notes: Vec<String> = lock.notes().into_iter().map(|(_, n)| n).collect();
+        assert!(notes.iter().any(|n| n.contains("Authentication failure")));
+        assert!(
+            notes.iter().any(|n| n.starts_with("Dernier essai")),
+            "{notes:?}"
+        );
+        // Sans échec dans cet écran : rien à annoncer.
+        lock.error = None;
+        let notes: Vec<String> = lock.notes().into_iter().map(|(_, n)| n).collect();
+        assert!(!notes.iter().any(|n| n.starts_with("Dernier essai")));
     }
 
     /// HIG ACC-01 : le lecteur d'écran lit le champ du mot de passe au focus
