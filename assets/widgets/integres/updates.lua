@@ -7,6 +7,9 @@
 -- Pendant la mise à jour (MLG-161), l'avancement : « 42 % » en mode compact,
 -- une barre de progression et le pourcentage en mode détaillé (option
 -- `detaille`) ; l'info-bulle dit la source, la phase et le paquet en cours.
+--
+-- Le nombre de paquets en attente se lit dans un ovale posé sur le module,
+-- comme les non-lues des notifications (HIG SYS-02).
 
 -- Écrit par hyprdesk dans son dossier d'exécution privé (jamais /tmp).
 local STATE = (hd.runtime_dir or os.getenv("XDG_RUNTIME_DIR") or "/nonexistent") .. "/hyprdesk-updates.txt"
@@ -92,7 +95,8 @@ return {
     -- Lecture d'un petit fichier : assez souvent pour suivre une mise à jour.
     interval    = 2,
     anchor      = "top-right",
-    -- detaille : barre de progression et % pendant la mise à jour (sinon %).
+    -- texte : % pendant la mise à jour et « ! » après un échec (le nombre de
+    -- paquets est dans l'ovale) ; detaille : barre de progression et %.
     options     = { texte = true, masquer_a_jour = false, detaille = false },
     render = function(o)
         local s = read()
@@ -122,7 +126,7 @@ return {
             return { icon = "software-update-none-symbolic", text = "",
                      tooltip = hd.t("Le système est à jour") }
         end
-        return { icon = "software-update-available-symbolic", text = o.texte and tostring(s.total) or "",
+        return { icon = "software-update-available-symbolic", badge = s.total,
                  tooltip = string.format(hd.t("%d paquet(s) à mettre à jour"), s.total),
                  state = s.total >= 50 and "warning" or "normal" }
     end,

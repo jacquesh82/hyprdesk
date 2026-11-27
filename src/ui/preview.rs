@@ -25,7 +25,7 @@ struct Preview {
     size: Size,
 }
 
-const SCENES: [&str; 188] = [
+const SCENES: [&str; 193] = [
     "desktop",
     "typography",
     "icons",
@@ -191,9 +191,14 @@ const SCENES: [&str; 188] = [
     "panorama-studio",
     "panorama-applications",
     "panorama-webradio",
+    "panorama-meteo",
+    "panorama-meteo-accueil",
+    "panorama-meteo-reglages",
+    "panorama-notes-reglages",
     "panorama-config-style",
     "panorama-config-composition",
     "panorama-config-shortcuts",
+    "panorama-config-modules",
     "panorama-config-lecteur",
     "panorama-config-video",
     "bar-notifications",
@@ -3381,6 +3386,64 @@ impl Preview {
                     .collect(),
                 ));
             }
+            // Météo : la bande du profil Raccourcis, le module Météo seul (la
+            // bande défile : sinon, il vient après les modules par défaut), un
+            // bulletin d'exemple (aucune requête au service).
+            if SCENES[self.scene] == "panorama-meteo" {
+                let c = &mut Arc::make_mut(&mut self.app.cfg).general.panorama;
+                c.layout = Layout::Dashboard;
+                c.design.tiles = vec![crate::panorama::design::Tile::new(
+                    "meteo", 0.0, 0.0, 1.0, 1.0,
+                )];
+                let p = &mut self.app.panorama;
+                p.meteo = Some(crate::panorama::modules::meteo::sample());
+                p.meteo_read = true;
+            }
+            // Météo dans la zone d'accueil du côte à côte (profil Musique) :
+            // quatre modules, des tuiles plus petites.
+            if SCENES[self.scene] == "panorama-meteo-accueil" {
+                let c = &mut Arc::make_mut(&mut self.app.cfg).general.panorama;
+                c.layout = Layout::Dashboard;
+                c.design.shortcut_profile = "audio".into();
+                let p = &mut self.app.panorama;
+                p.meteo = Some(crate::panorama::modules::meteo::sample());
+                p.meteo_read = true;
+                let sp = p.split.insert(Default::default());
+                sp.modules = vec!["notes".into(), "meteo".into(), "hue".into(), "voice".into()];
+            }
+            // Réglages d'un module sur le Panorama (appui long sur sa tuile) :
+            // le panneau de la météo — une ville enregistrée, le clavier
+            // rendu, la réponse du service —, puis celui de Notes (commande,
+            // écran).
+            if let Some(module) = match SCENES[self.scene] {
+                "panorama-meteo-reglages" => Some("meteo"),
+                "panorama-notes-reglages" => Some("notes"),
+                _ => None,
+            } {
+                let g = &mut Arc::make_mut(&mut self.app.cfg).general;
+                g.panorama.layout = Layout::Dashboard;
+                g.panorama.design.tiles = vec![crate::panorama::design::Tile::new(
+                    module, 0.0, 0.0, 1.0, 1.0,
+                )];
+                let p = &mut self.app.panorama;
+                p.module_sheet = Some((panorama::PREVIEW.into(), module.into()));
+                p.module_sheet_at = Some(Instant::now());
+                if module == "meteo" {
+                    // La ville enregistrée : celle du bulletin d'exemple.
+                    g.plugin_options
+                        .entry("panorama".to_string())
+                        .or_default()
+                        .insert(
+                            "meteo.city".to_string(),
+                            crate::tiling::OptValue::Str("Lyon".into()),
+                        );
+                    let bulletin = crate::panorama::modules::meteo::sample();
+                    p.meteo = Some(bulletin.clone());
+                    p.meteo_read = true;
+                    p.module_sheet_status =
+                        Some(Ok(crate::panorama::modules::meteo::summary(&bulletin)));
+                }
+            }
             if let Some(tab) = SCENES[self.scene].strip_prefix("panorama-config-") {
                 self.app.subtabs.insert(
                     "panorama",
@@ -3727,6 +3790,19 @@ impl Preview {
                             .panorama_update(m)
                             .map(|m| PreviewMsg::Ui(Box::new(m)));
                     }
+                    // Réglages d'un module (appui long sur sa tuile) : le
+                    // panneau se pilote dans l'aperçu comme sur la bande.
+                    m @ (PMsg::ModuleSettings(..)
+                    | PMsg::ModuleSheetTouched
+                    | PMsg::ModuleSheetFocus
+                    | PMsg::ModuleSheetDraft(..)
+                    | PMsg::ModuleSetting(..)
+                    | PMsg::ModuleSettingChecked(_)) => {
+                        return self
+                            .app
+                            .panorama_update(m)
+                            .map(|m| PreviewMsg::Ui(Box::new(m)));
+                    }
                     PMsg::Layout(layout) => {
                         Arc::make_mut(&mut self.app.cfg).general.panorama.layout = layout
                     }
@@ -4024,10 +4100,12 @@ impl Preview {
         if SCENES[self.scene].starts_with("panorama-")
             && !SCENES[self.scene].starts_with("panorama-config-")
         {
-            return self
-                .app
-                .view_panorama(self.desktop)
-                .map(|m| PreviewMsg::Ui(Box::new(m)));
+            // Comme sur la bande (`App::view_surface`) : la surface se nomme,
+            // le focus du champ des réglages d'un module y est borné.
+            let pane: Element<'_, Msg> = container(self.app.view_panorama(self.desktop))
+                .id(panorama::scope(self.desktop))
+                .into();
+            return pane.map(|m| PreviewMsg::Ui(Box::new(m)));
         }
         // La barre prend sa hauteur et sa marge réelles : une lame flottante
         // (Graphite) montre son jour au-dessus du bord.

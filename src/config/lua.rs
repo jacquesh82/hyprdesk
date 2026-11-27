@@ -2981,7 +2981,7 @@ impl Loaded {
     }
 
     /// Appelle la fonction `render` d'un widget Lua.
-    /// Appelle `render` : une chaîne, ou une table { text, icon, tooltip, state, progress }.
+    /// Appelle `render` : une chaîne, ou une table { text, icon, tooltip, state, progress, badge }.
     pub fn render(&self, idx: usize) -> Result<Rendered, String> {
         reset_budget(&self.lua).map_err(|e| e.to_string())?;
         let f = self.func(idx).map_err(|e| e.to_string())?;
@@ -3011,6 +3011,20 @@ impl Loaded {
                         v => {
                             return Err(crate::tr!(
                                 "render : progress doit être un nombre de 0 à 1, pas {t}",
+                                t = v.type_name()
+                            ));
+                        }
+                    },
+                    badge: match t.get::<Value>("badge").map_err(|e| short_lua_error(&e))? {
+                        Value::Nil => None,
+                        Value::Integer(n) if n > 0 => Some(n.min(u32::MAX as i64) as u32),
+                        Value::Number(n) if n.is_finite() && n >= 1.0 => {
+                            Some(n.min(u32::MAX as f64) as u32)
+                        }
+                        Value::Integer(_) | Value::Number(_) => None,
+                        v => {
+                            return Err(crate::tr!(
+                                "render : badge doit être un nombre, pas {t}",
                                 t = v.type_name()
                             ));
                         }
@@ -3872,6 +3886,28 @@ mod tests {
         assert_eq!(current.render(func).unwrap().toggled, Some(true));
         current.call(toggle, None).unwrap();
         assert_eq!(current.render(func).unwrap().toggled, Some(false));
+    }
+
+    /// `badge` : un compte en ovale sur le module ; 0 ou négatif, aucun ;
+    /// autre chose qu'un nombre, une erreur lisible.
+    #[test]
+    fn render_badge() {
+        let badge = |v: &str| {
+            let l = load(&format!(
+                "hd.widget('lua',{{render=function() return {{icon='x',badge={v}}} end}})"
+            ))
+            .unwrap();
+            let WidgetKind::Lua { func, .. } = l.config.widgets[0].kind else {
+                panic!()
+            };
+            l.render(func).map(|r| r.badge)
+        };
+        assert_eq!(badge("12"), Ok(Some(12)));
+        assert_eq!(badge("3.0"), Ok(Some(3)));
+        assert_eq!(badge("0"), Ok(None));
+        assert_eq!(badge("-4"), Ok(None));
+        assert_eq!(badge("nil"), Ok(None));
+        assert!(badge("'12'").unwrap_err().contains("badge"));
     }
 
     fn load(src: &str) -> Result<Loaded, String> {

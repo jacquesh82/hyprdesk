@@ -16,8 +16,10 @@ retrait jusqu'à ce que vous l'appeliez.**
 
 hyprdesk fait de Hyprland un bureau complet sans renoncer aux tuiles. Il
 réunit barre, dock, lanceur, icônes et widgets du bureau, notifications,
-écrans de connexion et de verrouillage, et un tiroir de réglages. Tout vient
-d'un seul programme natif en Rust, réglé depuis le tiroir ou en Lua.
+écrans de connexion et de verrouillage, et un tiroir de réglages. Tout est
+natif, en Rust : un démon dessine le bureau, et de petits binaires dédiés
+tiennent le verrouillage, l'écran de connexion, l'agent polkit et le moteur
+de thème. Le tout se règle depuis le tiroir ou en Lua.
 
 Vos fenêtres restent en mosaïque. `SUPER + D` fait monter le bureau
 par-dessus ; quittez-le, elles reprennent leur place. hyprdesk écrit aussi
@@ -282,7 +284,7 @@ Réglages, et inversement.
 | Hyprland | Un fragment généré : bordures, espacements, arrondis, flou, animations | Aussitôt (`hyprctl reload`) ; `--mode hot` montre un aperçu sans rien écrire |
 | hyprdesk, verrouillage et connexion | Rien : ils lisent la palette publiée | Aussitôt |
 | GTK 3 et 4 | Votre thème GTK de base recoloré au pack, installé sous `hyprdesk-<pack>` | Aussitôt dans les applications GTK 3 ouvertes, Brave et Firefox compris |
-| Qt | `qt6ct/colors/hyprdesk.conf` (et sa copie qt5ct) ; à choisir une fois dans qt6ct | Au relancement de l'application |
+| Qt | `qt6ct/colors/hyprdesk.conf` ; à choisir une fois dans qt6ct | Au relancement de l'application |
 | kitty, hyprlock | Un fichier inclus, un fragment sourcé | Aussitôt, au prochain verrouillage |
 | Polices, icônes, curseurs, sons | Les réglages GNOME et les clés de hyprdesk | Aussitôt ; les curseurs à la session suivante |
 | Toute autre application | Un fichier déclaré par le pack (`[targets.<nom>]`) | Par un rechargement borné : signal, socket, gsettings |
@@ -400,7 +402,9 @@ cargo run --locked -- preview
 ```
 
 Le dépôt est un espace de travail Cargo : le paquet `hyprdesk`
-(bibliothèque, binaire principal et binaires dédiés de `src/bin/`), plus
+(bibliothèque, démon et commandes `hyprdesk`, et quatre binaires dédiés dans
+`src/bin/` : `hyprdesk-lock`, `hyprdesk-greeter`, `hyprdesk-polkit` et
+`hyprdesk-theme-engine`), plus
 `crates/hyprdesk-auth` (PAM, fprintd), `crates/hyprdesk-i18n`
 (traductions) et `crates/hyprdesk-theme-client` (la palette du thème pour
 les autres applications). Le [guide de développement](docs/ADVANCED.md#development) et

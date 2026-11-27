@@ -30,7 +30,7 @@ pub(in crate::ui) use surface::{
 };
 
 use crate::i18n::text;
-use iced::widget::{button, column, radio, row};
+use iced::widget::{button, column, pick_list, radio, row};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::panel::{PanelMsg, SliderLook, SliderSpec};
@@ -62,7 +62,7 @@ pub(in crate::ui) fn size_spec() -> SliderSpec {
 pub const TABS: &[super::SubTab] = &[
     ("contenu", "Contenu"),
     ("apparence", "Apparence"),
-    ("epinglees", "Épinglées"),
+    ("modules", "Modules"),
 ];
 
 pub fn wrap(m: Msg) -> UiMsg {
@@ -79,19 +79,32 @@ pub enum Msg {
     /// Taille des icônes (pendant le glissé), puis enregistrement.
     Size(u16),
     SizeCommit,
-    PinFilter(String),
     Pin(String),
     Unpin(usize),
     /// Déplace une application épinglée (-1 avant, +1 après).
     MovePin(usize, i32),
     ShowSettings(bool),
     ShowAssistant(bool),
+    /// Ajoute au dock un élément qui n'y est pas encore.
+    Add(DockChoice),
 }
 
-/// État d'écran : recherche d'une application à épingler.
-#[derive(Default)]
-pub struct State {
-    pub pin_filter: String,
+/// Choix « Ajouter au dock… » : un bouton masqué ou une application non épinglée.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DockChoice {
+    Assistant,
+    Settings,
+    App { id: String, name: String },
+}
+
+impl std::fmt::Display for DockChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DockChoice::Assistant => f.write_str(crate::i18n::tr("Bouton Assistant IA (LYRA)")),
+            DockChoice::Settings => f.write_str(crate::i18n::tr("Bouton Réglages")),
+            DockChoice::App { name, .. } => f.write_str(name),
+        }
+    }
 }
 
 impl App {
@@ -161,118 +174,13 @@ impl App {
     fn dock_look(&self) -> Element<'_, UiMsg> {
         let g = &self.cfg.general;
         let l = &g.launcher;
-        let dim = self.ink().dim;
-        let filter = self
-            .panel
-            .as_ref()
-            .map(|p| p.dock.pin_filter.clone())
-            .unwrap_or_default();
         let position = |label: &'static str, v: LauncherPosition| {
             self.focusable(
                 radio(label, v, Some(l.position), |v| wrap(Msg::Position(v))).font(self.font),
             )
         };
-        let name = |id: &str| {
-            self.apps
-                .iter()
-                .find(|a| a.id == id)
-                .map_or(id.to_string(), |a| a.name.clone())
-        };
-        let mut pins = column![].spacing(6);
-        if l.pinned.is_empty() {
-            pins = pins.push(
-                text("Aucune application épinglée.")
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(13.0))
-                    .color(dim),
-            );
-        }
-        for (i, id) in l.pinned.iter().enumerate() {
-            let small = |label: &'static str, msg: Option<UiMsg>| {
-                let on = msg.is_some();
-                self.focusable_when(
-                    button(
-                        text(label)
-                            .font(self.font)
-                            .size(crate::ui::tokens::ts(12.0)),
-                    )
-                    .padding([3, 8])
-                    .style(button::secondary)
-                    .on_press_maybe(msg),
-                    on,
-                )
-            };
-            pins = pins.push(
-                row![
-                    text(name(id))
-                        .font(self.font)
-                        .size(crate::ui::tokens::ts(13.0))
-                        .width(Length::Fill),
-                    small("↑", (i > 0).then(|| wrap(Msg::MovePin(i, -1)))),
-                    small(
-                        "↓",
-                        (i + 1 < l.pinned.len()).then(|| wrap(Msg::MovePin(i, 1)))
-                    ),
-                    small("Retirer", Some(wrap(Msg::Unpin(i)))),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            );
-        }
-        let f = filter.to_lowercase();
-        let mut found = column![].spacing(2);
-        if !f.is_empty() {
-            for a in self
-                .apps
-                .iter()
-                .filter(|a| {
-                    !l.pinned.contains(&a.id)
-                        && (a.name.to_lowercase().contains(&f) || a.id.to_lowercase().contains(&f))
-                })
-                .take(8)
-            {
-                found = found.push(
-                    self.focusable(
-                        button(
-                            row![
-                                text(a.name.clone())
-                                    .font(self.font)
-                                    .size(crate::ui::tokens::ts(13.0))
-                                    .width(Length::Fill),
-                                text(a.id.clone())
-                                    .font(self.font)
-                                    .size(crate::ui::tokens::ts(12.0))
-                                    .color(dim),
-                            ]
-                            .spacing(8),
-                        )
-                        .width(Length::Fill)
-                        .padding([6, 10])
-                        .style(button::text)
-                        .on_press(wrap(Msg::Pin(a.id.clone()))),
-                    ),
-                );
-            }
-        }
-        if self.on_subtab(INFO.id, "epinglees") {
-            return column![
-                self.section("Applications épinglées"),
-                text("Toujours dans le dock ; un clic les lance si elles ne sont pas ouvertes.")
-                    .font(self.font)
-                    .size(crate::ui::tokens::ts(12.0))
-                    .color(dim),
-                pins,
-                iced::widget::text_input(
-                    crate::i18n::tr("Épingler une application (firefox, terminal…)"),
-                    &filter
-                )
-                .font(self.font)
-                .on_input(|v| wrap(Msg::PinFilter(v)))
-                .padding(8),
-                found,
-            ]
-            .spacing(14)
-            .into();
+        if self.on_subtab(INFO.id, "modules") {
+            return self.dock_modules();
         }
         column![
             self.section("Apparence"),
@@ -297,23 +205,7 @@ impl App {
                     SliderLook::fixed(13.0, 260, Alignment::Start),
                 ),
             ),
-            self.field(
-                "Boutons",
-                "",
-                column![
-                    self.focusable(
-                        self.toggle(l.show_assistant)
-                            .label(crate::i18n::tr("Assistant IA (LYRA)"))
-                            .on_toggle(|v| wrap(Msg::ShowAssistant(v)))
-                    ),
-                    self.focusable(
-                        self.toggle(l.show_settings)
-                            .label(crate::i18n::tr("Réglages"))
-                            .on_toggle(|v| wrap(Msg::ShowSettings(v)))
-                    ),
-                ]
-                .spacing(8),
-            ),
+            // Boutons du dock (LYRA, Réglages) : onglet Modules.
             // SmartUI design : les icônes se créent et se valident dans
             // Réglages → IA → Autres services IA.
             self.field(
@@ -347,6 +239,129 @@ impl App {
         .into()
     }
 
+    /// Onglet Modules : ce que montre le dock (applications épinglées,
+    /// boutons), et « Ajouter au dock… » avec seulement ce qui n'y est pas.
+    fn dock_modules(&self) -> Element<'_, UiMsg> {
+        let l = &self.cfg.general.launcher;
+        let dim = self.ink().dim;
+        let name = |id: &str| {
+            self.apps
+                .iter()
+                .find(|a| a.id == id)
+                .map_or(id.to_string(), |a| a.name.clone())
+        };
+        let small = |label: &'static str, msg: Option<UiMsg>| {
+            let on = msg.is_some();
+            self.focusable_when(
+                button(
+                    text(label)
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([3, 8])
+                .style(button::secondary)
+                .on_press_maybe(msg),
+                on,
+            )
+        };
+        let line = |label: String, tail: Element<'static, UiMsg>| {
+            row![
+                text(label)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .width(Length::Fill),
+                tail,
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center)
+        };
+        let mut pins = column![].spacing(6);
+        if l.pinned.is_empty() {
+            pins = pins.push(
+                text("Aucune application épinglée.")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(dim),
+            );
+        }
+        for (i, id) in l.pinned.iter().enumerate() {
+            pins = pins.push(line(
+                name(id),
+                row![
+                    small("↑", (i > 0).then(|| wrap(Msg::MovePin(i, -1)))),
+                    small(
+                        "↓",
+                        (i + 1 < l.pinned.len()).then(|| wrap(Msg::MovePin(i, 1)))
+                    ),
+                    small("Retirer", Some(wrap(Msg::Unpin(i)))),
+                ]
+                .spacing(8)
+                .into(),
+            ));
+        }
+        let mut buttons = column![].spacing(6);
+        if l.show_assistant {
+            buttons = buttons.push(line(
+                crate::i18n::tr("Assistant IA (LYRA)").to_string(),
+                small("Retirer", Some(wrap(Msg::ShowAssistant(false)))),
+            ));
+        }
+        if l.show_settings {
+            buttons = buttons.push(line(
+                crate::i18n::tr("Réglages").to_string(),
+                small("Retirer", Some(wrap(Msg::ShowSettings(false)))),
+            ));
+        }
+        if !l.show_assistant && !l.show_settings {
+            buttons = buttons.push(
+                text("Aucun bouton.")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(dim),
+            );
+        }
+        // Ce qui n'est pas encore dans le dock : boutons masqués, puis
+        // applications non épinglées par ordre alphabétique.
+        let mut apps: Vec<DockChoice> = self
+            .apps
+            .iter()
+            .filter(|a| !l.pinned.contains(&a.id))
+            .map(|a| DockChoice::App {
+                id: a.id.clone(),
+                name: a.name.clone(),
+            })
+            .collect();
+        apps.sort_by_key(|c| c.to_string().to_lowercase());
+        apps.dedup();
+        let free: Vec<DockChoice> = (!l.show_assistant)
+            .then_some(DockChoice::Assistant)
+            .into_iter()
+            .chain((!l.show_settings).then_some(DockChoice::Settings))
+            .chain(apps)
+            .collect();
+        let mut col = column![
+            self.section("Modules du dock"),
+            text("Toujours dans le dock ; un clic lance une application épinglée si elle n'est pas ouverte.")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim),
+            self.section("Applications épinglées"),
+            pins,
+            self.section("Boutons"),
+            buttons,
+        ]
+        .spacing(14);
+        if !free.is_empty() {
+            col = col.push(
+                pick_list(free, None::<DockChoice>, |c| wrap(Msg::Add(c)))
+                    .font(self.font)
+                    .placeholder(crate::i18n::tr("Ajouter au dock…"))
+                    .width(320),
+            );
+        }
+        col.into()
+    }
+
     pub(in crate::ui) fn dock_update(&mut self, msg: Msg) -> Task<UiMsg> {
         match msg {
             Msg::Running(v) => {
@@ -374,19 +389,13 @@ impl App {
                 self.settings.launcher_show_assistant = Some(v);
                 self.commit()
             }
-            Msg::PinFilter(f) => {
-                if let Some(p) = self.panel.as_mut() {
-                    p.dock.pin_filter = f;
-                }
-                Task::none()
-            }
+            Msg::Add(DockChoice::Assistant) => self.dock_update(Msg::ShowAssistant(true)),
+            Msg::Add(DockChoice::Settings) => self.dock_update(Msg::ShowSettings(true)),
+            Msg::Add(DockChoice::App { id, .. }) => self.dock_update(Msg::Pin(id)),
             Msg::Pin(id) => {
                 let mut l = self.cfg.general.launcher.pinned.clone();
                 if !l.contains(&id) {
                     l.push(id);
-                }
-                if let Some(p) = self.panel.as_mut() {
-                    p.dock.pin_filter.clear();
                 }
                 self.settings.launcher_pinned = Some(l);
                 self.commit()

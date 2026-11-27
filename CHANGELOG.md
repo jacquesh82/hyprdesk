@@ -8,6 +8,34 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Weather module in the Panorama** (`meteo`): the Shortcuts profile strip
+  shows the current conditions (icon for day or night, temperature, place,
+  feels-like, wind, humidity), then the hours to come and the next days —
+  whichever fit. The forecast comes from wttr.in (JSON, no account or key)
+  through `curl`; the tile reads it again every fifteen minutes while it is
+  on screen, or on a tap. The city is set on the Panorama (long press on the
+  tile) or in Settings → Plugins → Modules (`plugin_options.panorama`, key
+  `meteo.city`; empty: the location worked out from the IP address). Thirteen
+  weather glyphs join the icon set (sun, moon, clouds, rain, snow, storm…).
+  Preview scenes: `panorama-meteo`, `panorama-meteo-accueil`.
+- **Module settings on the Panorama**: a long press on a module's tile — zone
+  of a composition, card of the Shortcuts profile strip, catalogue tile —
+  opens its settings in a panel on the strip; the welcome zone's edit bar
+  gains a « Configurer » key. One panel for every module, one row per setting,
+  each module declaring its settings once (`src/panorama/modules/settings.rs`):
+  the Weather city, the Notes command and screen. A module without settings
+  says so and sends to « Full settings… », which opens Settings → Panorama →
+  Modules on the main screen. A setting to type is the one case where the
+  Panorama takes the keyboard: it borrows it for the typing, Enter saves and
+  gives it back at once, Escape closes, touching the field takes it again. A
+  module may answer what was just saved — the Weather says the place the
+  service found (« Rezé » for « nantes »); once read, the panel closes by
+  itself. On an error (unknown city) it stays, to correct; left alone, it
+  closes after three minutes. Preview scenes: `panorama-meteo-reglages`,
+  `panorama-notes-reglages`.
+
 ## [0.2.1] - 2026-11-25
 
 Menus after Apple's guidelines, a bar laid out like the macOS menu bar,

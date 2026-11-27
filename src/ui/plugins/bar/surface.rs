@@ -218,6 +218,11 @@ pub(in crate::ui) fn clock_press(
 /// la barre (HIG ACC-09).
 const MODULE_TARGET: f32 = 20.0;
 
+/// Marge horizontale du cadre d'un module, de part et d'autre du contenu.
+const MODULE_PAD_X: f32 = 9.0;
+/// Écart entre l'ovale d'un compte et le contenu du module (HIG SYS-02).
+const BADGE_GAP: f32 = 1.0;
+
 fn module_target(bar_height: u16) -> f32 {
     (bar_height as f32 - 8.0)
         .max(MODULE_TARGET)
@@ -1900,42 +1905,45 @@ impl App {
             .into()
     }
 
-    /// Ovale des non-lues (HIG SYS-02) posé sur le cadre `frame` d'un module.
-    /// La pile mesure son premier enfant : le cadre, posé au centre de
-    /// l'épaisseur de la barre. L'ovale y déborde dans la marge du cadre, à
-    /// ras du bord de l'écran, sans déplacer ni couvrir le module. Sans non
-    /// lue, le cadre seul.
-    fn with_unread_badge<'a>(
+    /// Ovale au compte `count` (HIG SYS-02) accolé au cadre `frame` d'un
+    /// module : non-lues des notifications, paquets à mettre à jour… Il se
+    /// pose après le contenu (sous lui dans une barre verticale), sur la marge
+    /// du cadre et au-delà, à ras du bord de l'écran : l'icône reste entière,
+    /// le module s'élargit de ce qui dépasse. `icon` : taille de l'icône du
+    /// module, pour la marge d'une barre verticale. À zéro, le cadre seul.
+    fn with_badge<'a>(
         &self,
         frame: Element<'a, Msg>,
         bar: &BarSurface,
         alpha: f32,
+        count: usize,
+        icon: f32,
     ) -> Element<'a, Msg> {
-        let Some(badge) = self.unread_badge(self.toasts.unread(), alpha) else {
+        let Some(badge) = self.count_badge(count, alpha) else {
             return frame;
         };
         let (x, y) = Self::badge_corner(bar.position);
-        let vertical = bar.position.vertical();
-        let base = container(frame)
-            .width(if vertical {
-                Length::Fixed(bar.height as f32)
-            } else {
-                Length::Shrink
-            })
-            .height(if vertical {
-                Length::Shrink
-            } else {
-                Length::Fixed(bar.height as f32)
-            })
-            .align_x(Alignment::Center)
-            .align_y(Alignment::Center);
-        let over: Element<'a, Msg> = container(badge)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(x)
-            .align_y(y)
-            .into();
-        iced::widget::stack![base, over].into()
+        let thickness = bar.height as f32;
+        // L'ovale empiète sur la marge du cadre, jamais sur son contenu.
+        let margin = if bar.position.vertical() {
+            ((module_target(bar.height) - icon) / 2.0).max(0.0)
+        } else {
+            MODULE_PAD_X
+        };
+        let spacing = -(margin - BADGE_GAP).max(0.0);
+        if bar.position.vertical() {
+            let base = container(frame)
+                .width(Length::Fixed(thickness))
+                .align_x(Alignment::Center);
+            let over = container(badge).width(Length::Fill).align_x(x);
+            iced::widget::column![base, over].spacing(spacing).into()
+        } else {
+            let base = container(frame)
+                .height(Length::Fixed(thickness))
+                .align_y(Alignment::Center);
+            let over = container(badge).height(Length::Fill).align_y(y);
+            iced::widget::row![base, over].spacing(spacing).into()
+        }
     }
 
     /// Coin de l'ovale des non-lues sur le cadre d'un module (HIG SYS-02) :
@@ -1959,11 +1967,11 @@ impl App {
         }
     }
 
-    /// Ovale des non-lues, posé sur le cadre de l'horloge (HIG SYS-02) : petit
+    /// Ovale d'un compte, posé sur le cadre d'un module (HIG SYS-02) : petit
     /// ovale plein au chiffre, au ton « attention » de la barre comme la bulle
     /// critique (HIG FON-02) — l'accent reste à la sélection et aux actions.
-    /// `None` sans non lue.
-    fn unread_badge<'a>(&self, unread: usize, alpha: f32) -> Option<Element<'a, Msg>> {
+    /// `None` à zéro.
+    fn count_badge<'a>(&self, unread: usize, alpha: f32) -> Option<Element<'a, Msg>> {
         if unread == 0 {
             return None;
         }
@@ -2031,7 +2039,7 @@ impl App {
                 .align_y(Alignment::Center),
         )
         .height(h)
-        .padding([0, 9])
+        .padding([0.0, MODULE_PAD_X])
         .on_press_maybe(left.or(interactive.then_some(Msg::Noop)))
         .style(move |_, st| {
             crate::ui::plugins::bar::style::module_button(style, &pal, alpha, active, st)
@@ -2840,13 +2848,14 @@ impl App {
                             r.tooltip.clone(),
                             open,
                         );
-                        // Ovale des non-lues sur le module des notifications
-                        // (HIG SYS-02).
-                        if w.type_id == "notifications" {
-                            self.with_unread_badge(frame, bar, alpha)
+                        // Ovale des non-lues sur le module des notifications,
+                        // ou du compte que rend le widget (HIG SYS-02).
+                        let count = if w.type_id == "notifications" {
+                            self.toasts.unread()
                         } else {
-                            frame
-                        }
+                            r.badge.unwrap_or(0) as usize
+                        };
+                        self.with_badge(frame, bar, alpha, count, isz)
                     }
                 }
             }

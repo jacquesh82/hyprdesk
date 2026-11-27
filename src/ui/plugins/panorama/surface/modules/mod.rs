@@ -1,8 +1,11 @@
 //! Modules du plugin Panorama, côté écran : la bande du profil Raccourcis
-//! (modules côte à côte, défilement de côté, tuile « + » et catalogue) et
-//! une tuile par module. La logique est dans `crate::panorama::modules`.
+//! (modules côte à côte, défilement de côté, tuile « + » et catalogue),
+//! une tuile par module, et leurs réglages (appui long sur une tuile).
+//! La logique est dans `crate::panorama::modules`.
 mod hue;
+mod meteo;
 mod notes;
+mod settings;
 mod voice;
 
 use std::time::Instant;
@@ -24,6 +27,7 @@ impl App {
             | PMsg::HueFocus(_)
             | PMsg::HueRelease => self.panorama_hue_update(m),
             PMsg::NotesOpen | PMsg::NotesOpened(_) => self.panorama_notes_update(m),
+            PMsg::MeteoRead(_) | PMsg::MeteoRefresh => self.panorama_meteo_update(m),
             PMsg::ModulesEdit(on) => {
                 self.panorama.last_press = Some(Instant::now());
                 self.panorama.modules_edit = on;
@@ -32,13 +36,13 @@ impl App {
             PMsg::ModuleToggle(id) => {
                 self.panorama.last_press = Some(Instant::now());
                 let save = self.panorama_save_cfg(|c| c.design.toggle_module(&id));
-                // Tuile Hue ajoutée : relevé aussitôt.
-                let hue = if id == "hue" {
-                    self.panorama_hue_refresh()
-                } else {
-                    Task::none()
+                // Tuile Hue, tuile Météo ajoutées : relevé aussitôt.
+                let read = match id.as_str() {
+                    "hue" => self.panorama_hue_refresh(),
+                    "meteo" if self.panorama_meteo_shown() => self.panorama_meteo_refresh(),
+                    _ => Task::none(),
                 };
-                Task::batch([save, hue])
+                Task::batch([save, read])
             }
             _ => Task::none(),
         }
@@ -53,6 +57,7 @@ impl App {
             "notes" => self.panorama_notes(inner),
             "hue" => self.panorama_hue(inner),
             "voice" => self.panorama_voice_module(inner),
+            "meteo" => self.panorama_meteo(inner),
             "playlist" => self.panorama_playlist(inner),
             "calendar" => self.panorama_calendar(inner),
             "media" => self.panorama_compact_media(inner),
@@ -77,7 +82,7 @@ impl App {
     /// Bande du profil Raccourcis : les modules côte à côte (largeur selon
     /// le module), qui défilent de côté, puis une tuile « + » pour en
     /// ajouter ou retirer (catalogue à cocher).
-    pub(super) fn panorama_modules<'a>(&'a self, size: Size) -> Element<'a, Msg> {
+    pub(super) fn panorama_modules<'a>(&'a self, screen: &str, size: Size) -> Element<'a, Msg> {
         let (bg, fg, accent) = self.panorama_palette();
         let d = &self.cfg.general.panorama.design;
         let gap = d.gap.min(16.0);
@@ -164,19 +169,28 @@ impl App {
         let mut strip = row![].spacing(gap).align_y(Alignment::Center);
         if self.panorama.modules_edit {
             // Catalogue : grille de petites tuiles sur trois lignes ; un appui
-            // ajoute ou retire, « Terminé » referme.
+            // ajoute ou retire, « Terminé » referme. L'appui long sur un
+            // module ouvre ses réglages.
             let current = d.modules();
             let side = ((h - 2.0 * gap) / 3.0).clamp(60.0, 150.0);
             let mut items: Vec<Element<'a, Msg>> = crate::panorama::modules::CATALOGUE
                 .iter()
                 .map(|(id, label, icon)| {
-                    square(
+                    let tile = square(
                         crate::i18n::tr(label).to_string(),
                         icon,
                         current.iter().any(|m| m == id),
                         side,
                         wrap(PMsg::ModuleToggle(id.to_string())),
+                    );
+                    super::hold::hold(
+                        tile,
+                        wrap(PMsg::ModuleSettings(Some((
+                            screen.to_string(),
+                            id.to_string(),
+                        )))),
                     )
+                    .into()
                 })
                 .collect();
             items.push(square(
@@ -202,22 +216,32 @@ impl App {
                 .center_y(Length::Fill)
                 .into();
         } else {
+            let plus = (h * 0.42).min(150.0);
             for m in d.modules() {
-                // Largeur selon le module : Hue et Système plus larges.
+                // Largeur selon le module : Hue et Système plus larges ;
+                // Météo, au plus la bande moins la tuile « + » (bande en
+                // portrait : carrée, elle serait plus large que l'écran).
                 let w = match m.as_str() {
                     "hue" => h * 1.8,
                     "system" | "playlist" => h * 1.4,
                     "media" | "calendar" => h * 1.15,
+                    "meteo" => h.min((size.width - gap - plus).max(120.0)),
                     _ => h,
                 };
                 let body = self.panorama_module_body(&m, Size::new(w, h));
-                strip = strip.push(card(body, w));
+                // L'appui long sur la tuile ouvre les réglages du module.
+                let tile: Element<'a, Msg> = super::hold::hold(
+                    card(body, w),
+                    wrap(PMsg::ModuleSettings(Some((screen.to_string(), m.clone())))),
+                )
+                .into();
+                strip = strip.push(tile);
             }
             strip = strip.push(square(
                 crate::i18n::tr("Modules").to_string(),
                 "list-add",
                 false,
-                (h * 0.42).min(150.0),
+                plus,
                 wrap(PMsg::ModulesEdit(true)),
             ));
         }

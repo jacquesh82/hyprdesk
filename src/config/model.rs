@@ -1044,6 +1044,10 @@ pub struct Rendered {
     /// Avancement d'une tâche (0 à 1) : une barre de progression dans le
     /// module (MLG-161).
     pub progress: Option<f32>,
+    /// Compte posé en ovale sur le module, comme les non-lues des
+    /// notifications (HIG SYS-02) : paquets à mettre à jour… `None` ou 0 :
+    /// pas d'ovale.
+    pub badge: Option<u32>,
 }
 
 /// Entrée d'un menu déroulant (plugin, zone de notification).

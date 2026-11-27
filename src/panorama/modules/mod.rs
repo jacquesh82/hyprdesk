@@ -4,10 +4,13 @@
 //! dans Réglages → Plugins → Modules (`ui::plugins::panorama::modules`).
 //!
 //! Options des modules : `plugin_options.panorama`, clés `<module>.<option>`
-//! (`hue.hidden`, `notes.command`, `notes.monitor`).
+//! (`hue.hidden`, `notes.command`, `notes.monitor`, `meteo.city`). Celles que
+//! la zone de configuration du Panorama montre sont déclarées dans `settings`.
 
 pub mod hue;
+pub mod meteo;
 pub mod notes;
+pub mod settings;
 
 use crate::config::Config;
 use crate::tiling::OptValue;
@@ -19,6 +22,7 @@ pub const CATALOGUE: &[(&str, &str, &str)] = &[
     ("notes", "Notes", "accessories-text-editor"),
     ("hue", "Lumières", "lightbulb"),
     ("voice", "LYRA vocale", "audio-input-microphone"),
+    ("meteo", "Météo", "weather-clear"),
     ("media", "Musique", "audio-volume-high"),
     ("playlist", "Plateformes vidéo", "video-display"),
     ("clock", "Horloge", "preferences-system-time"),

@@ -156,6 +156,7 @@
 ---@field tooltip? string
 ---@field toggled? boolean
 ---@field progress? number # 0 to 1: a progress bar in the module
+---@field badge? integer # count shown as an oval on the module, like unread notifications (0: none)
 ---@field state? "normal"|"active"|"warning"|"critical"|"hidden"
 
 ---@class HD.MenuItem
@@ -247,6 +248,7 @@ function hd.component(name, spec) end
 ---@field tooltip? string
 ---@field toggled? boolean
 ---@field progress? number # 0 to 1: a progress bar in the module
+---@field badge? integer # count shown as an oval on the module, like unread notifications (0: none)
 ---@field state? "normal"|"active"|"warning"|"critical"|"hidden"
 
 ---@class HD.MenuEntry

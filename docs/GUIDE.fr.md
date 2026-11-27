@@ -46,7 +46,9 @@ commandes), trois binaires dédiés s'occupent de l'authentification :
 `hyprdesk-lock` (verrouillage), `hyprdesk-greeter` (écran de connexion) et
 `hyprdesk-polkit` (agent polkit). Chacun ne contient que son propre code (ni
 démon, ni Lua, ni index de fichiers), et `hyprdesk lock`, `hyprdesk greeter`
-et `hyprdesk polkit-ui` leur passent la main.
+et `hyprdesk polkit-ui` leur passent la main. Un quatrième,
+`hyprdesk-theme-engine`, tient le thème : Réglages → Thème et
+`hyprdesk config set theme.*` passent par le même moteur.
 
 Le script met aussi en place le service systemd utilisateur. Il crée
 `~/.config/hypr/hyprdesk.lua` s'il manque et sauvegarde `hyprland.lua`

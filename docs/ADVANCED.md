@@ -23,9 +23,9 @@ every feature, as seen from Settings, is in the [user guide](GUIDE.md).
 
 ## Architecture
 
-hyprdesk is **one main Rust binary**, `hyprdesk`, plus **three dedicated
-binaries** installed next to it. The dedicated ones only link their own code:
-no daemon, no Lua, no SQLite, no file index.
+hyprdesk is **one main Rust binary**, `hyprdesk`, plus **four dedicated
+binaries** installed next to it. The dedicated ones only link the code they
+reach: no daemon, no Lua, no SQLite, no file index.
 
 | Process | Binary | Started by | Role |
 |---|---|---|---|
@@ -34,14 +34,16 @@ no daemon, no Lua, no SQLite, no file index.
 | lock screen | `hyprdesk-lock` | the daemon, logind, hypridle, the laptop lid | a **separate** process that runs no Lua |
 | login screen | `hyprdesk-greeter` | greetd | before any user session exists |
 | polkit agent | `hyprdesk-polkit` | the daemon (supervised component) | authentication dialogs, no Lua |
+| theme engine | `hyprdesk-theme-engine` | you, a script, LYRA; `watch` stays resident | resolves packs, writes each app's files, publishes `palette.json`; no iced, no Lua. The daemon calls the same library in process |
 
 `hyprdesk lock`, `hyprdesk greeter` and `hyprdesk polkit-ui` are still valid
 commands, so bindings and configs written earlier keep working: they hand
 over to the dedicated binary when it sits next to `hyprdesk`, and otherwise
-run the same code themselves. The code is a library (`src/lib.rs`) with four
+run the same code themselves. The code is a library (`src/lib.rs`) with five
 programs (`src/main.rs`, `src/bin/`). PAM and fprintd live in the
-`hyprdesk-auth` crate, and the translation catalog in `hyprdesk-i18n`
-(`crates/`), neither of which depends on iced or Lua.
+`hyprdesk-auth` crate, the translation catalog in `hyprdesk-i18n`, and the
+palette reader for other apps in `hyprdesk-theme-client` (`crates/`); none
+of them depends on iced or Lua.
 
 ```
                      hyprland.lua bindings / scripts
@@ -675,8 +677,8 @@ bash scripts/package.sh             # .deb, .rpm and Arch packages (nfpm), built
 ```
 
 - The repository is a Cargo workspace: the `hyprdesk` package (library and
-  four binaries) and the `crates/hyprdesk-auth` and `crates/hyprdesk-i18n`
-  crates. `release` strips symbols; `dist` adds full LTO and a single
+  five binaries) and the `crates/hyprdesk-auth`, `crates/hyprdesk-i18n` and
+  `crates/hyprdesk-theme-client` crates. `release` strips symbols; `dist` adds full LTO and a single
   codegen unit for packages.
 
 - `Cargo.lock` pins `winit-core` to `0.31.0-beta.2`, because beta.4 breaks

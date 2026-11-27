@@ -2,7 +2,8 @@
 //!
 //! - une surface layer-shell par écran au rôle Panorama (calque Top, jamais
 //!   de focus clavier : toucher le Panorama ne prend pas le clavier à la
-//!   fenêtre de l'écran principal) ;
+//!   fenêtre de l'écran principal — sauf le temps de saisir un réglage de
+//!   module, appui long sur une tuile : Entrée le rend) ;
 //! - des pages qu'on fait glisser (`swipe`), au doigt ou à la souris ;
 //! - escamotable : une poignée sur le bord du bas la fait revenir ;
 //! - proposée d'elle-même à la détection d'un écran candidat
@@ -19,6 +20,7 @@ mod modules;
 mod panes;
 mod side;
 mod swipe;
+mod tap;
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -102,6 +104,12 @@ pub(in crate::ui) fn video_playing(
 ) -> bool {
     video.is_some_and(|v| v.address.is_some() || v.borrowed.is_some())
         && media.is_some_and(|m| m.playing)
+}
+
+/// La surface Panorama `id` aux opérations de focus : elles y restent
+/// bornées, sans aller aux autres surfaces ni aux autres écrans.
+pub(in crate::ui) fn scope(id: Id) -> iced::widget::Id {
+    iced::widget::Id::from(format!("hyprdesk-panorama-{id}"))
 }
 
 /// Vidéo posée dans sa zone sans navigateur : aperçu isolé (`hyprdesk
@@ -280,6 +288,31 @@ pub struct State {
     pub modules_edit: bool,
     /// Tuile Notes : échec du dernier lancement.
     pub notes_error: Option<String>,
+    /// Tuile Météo : dernier bulletin, dernière erreur de lecture, dernier
+    /// relevé demandé ; premier relevé reçu (avant : « Lecture… »).
+    pub meteo: Option<crate::panorama::modules::meteo::Weather>,
+    pub meteo_error: Option<String>,
+    pub meteo_at: Option<Instant>,
+    pub meteo_read: bool,
+    /// Réglages d'un module ouverts sur un écran (appui long sur une tuile) :
+    /// (écran, module).
+    pub module_sheet: Option<(String, String)>,
+    /// Surface du panneau qui tient le clavier, le temps d'une saisie.
+    pub module_sheet_keyboard: Option<Id>,
+    /// Texte en cours de saisie dans le panneau, par `<module>.<clé>`.
+    pub module_sheet_drafts: HashMap<String, String>,
+    /// Réponse du module à son dernier réglage enregistré ; lecture en cours.
+    pub module_sheet_status: Option<Result<String, String>>,
+    pub module_sheet_busy: bool,
+    /// Dernier appui sur le panneau : oublié, il se referme.
+    pub module_sheet_at: Option<Instant>,
+    /// Touches du panneau (ouverture, appuis, saisie) : la fermeture qui
+    /// suit une réponse du module ne vaut que si rien n'a été touché depuis
+    /// (numéro de touches au moment de la fermeture prévue).
+    pub module_sheet_serial: u64,
+    /// Fermeture prévue : le module a répondu, le panneau se refermera à
+    /// cette heure.
+    pub module_sheet_close_at: Option<(Instant, u64)>,
     /// Réglages : `hyprdesk panorama icons` en cours.
     pub icons_job: Option<String>,
     /// Compte rendu de la dernière génération d'icônes.
@@ -390,6 +423,26 @@ pub enum PMsg {
     /// Tuile Notes : ouvre l'éditeur.
     NotesOpen,
     NotesOpened(Result<(), String>),
+    /// Météo relue : le bulletin, ou pourquoi elle ne l'a pas été.
+    MeteoRead(Result<crate::panorama::modules::meteo::Weather, String>),
+    /// Tuile Météo touchée : relevé aussitôt.
+    MeteoRefresh,
+    /// Réglages d'un module sur un écran : (écran, module) ; `None` referme.
+    ModuleSettings(Option<(String, String)>),
+    /// Le panneau des réglages est touché : il reprend le clavier s'il l'a
+    /// rendu.
+    ModuleSheetTouched,
+    /// La surface est redessinée : le premier champ du panneau prend le focus.
+    ModuleSheetFocus,
+    /// Texte en cours de saisie dans le panneau : (`<module>.<clé>`, texte).
+    ModuleSheetDraft(String, String),
+    /// Un réglage s'enregistre : (module, clé, valeur).
+    ModuleSetting(String, String, String),
+    /// Le module répond à son réglage enregistré.
+    ModuleSettingChecked(Result<String, String>),
+    /// « Réglages complets… » : le panneau se ferme, les Réglages s'ouvrent
+    /// sur l'écran principal.
+    ModuleSheetSettings,
     /// Bloc des raccourcis : page des touches (0) ou des fenêtres (1).
     ShortcutsPage(usize),
     /// Fenêtre (adresse) envoyée sur le workspace actif de cet écran.
@@ -1795,6 +1848,8 @@ impl App {
                     self.panorama.notifs = None;
                     self.panorama.picker = Some(mon);
                     Task::none()
+                } else if self.panorama_module_sheet_on(&mon) {
+                    self.panorama_module_sheet_close()
                 } else if self.panorama.picker.take().is_some()
                     || self.panorama.notifs.take().is_some()
                 {
@@ -1813,7 +1868,16 @@ impl App {
             | PMsg::ModulesEdit(_)
             | PMsg::ModuleToggle(_)
             | PMsg::NotesOpen
-            | PMsg::NotesOpened(_)) => self.panorama_modules_update(m),
+            | PMsg::NotesOpened(_)
+            | PMsg::MeteoRead(_)
+            | PMsg::MeteoRefresh) => self.panorama_modules_update(m),
+            m @ (PMsg::ModuleSettings(_)
+            | PMsg::ModuleSheetTouched
+            | PMsg::ModuleSheetFocus
+            | PMsg::ModuleSheetDraft(..)
+            | PMsg::ModuleSetting(..)
+            | PMsg::ModuleSettingChecked(_)
+            | PMsg::ModuleSheetSettings) => self.panorama_module_sheet_update(m),
             PMsg::PickerClose => {
                 self.panorama.picker = None;
                 Task::none()
@@ -1848,8 +1912,11 @@ impl App {
             }
             PMsg::Hide(mon) if mon == PREVIEW => self.panorama_update(PMsg::ClosePreview),
             PMsg::Hide(mon) => {
+                // Les réglages d'un module ouverts sur cet écran se referment
+                // avec lui : le panneau rend le clavier.
+                let sheet = self.panorama_module_sheet_close_on(&mon);
                 self.panorama.hidden.insert(mon);
-                self.sync_panorama()
+                Task::batch([sheet, self.sync_panorama()])
             }
             PMsg::Show(mon) => {
                 self.panorama.hidden.remove(&mon);
@@ -1938,6 +2005,8 @@ impl App {
                     self.panorama_side_anchor(),
                     self.panorama_updates_read(),
                     self.panorama_hue_tick(),
+                    self.panorama_meteo_tick(),
+                    self.panorama_module_sheet_tick(),
                 ]);
                 if !self.panorama.orphans_checked {
                     self.panorama.orphans_checked = true;
@@ -2470,6 +2539,9 @@ impl App {
     /// Surface fermée par le compositeur (écran débranché…) ou fenêtre
     /// d'aperçu fermée par l'utilisateur.
     pub(in crate::ui) fn panorama_closed(&mut self, id: Id) -> bool {
+        // Les réglages d'un module ouverts sur cette surface partent avec
+        // elle, et le clavier que leur panneau tenait.
+        self.panorama_module_sheet_gone(id);
         if self.panorama.preview.is_some_and(|p| p.win == id) {
             self.panorama.preview = None;
             return true;
@@ -2579,9 +2651,14 @@ impl App {
     }
 
     /// Veille : rien ne joue et personne n'a touché depuis `sleep_minutes`.
+    /// Les réglages d'un module ouverts, jamais : leur panneau peut tenir le
+    /// clavier, et il attend une réponse.
     fn panorama_asleep(&self) -> bool {
         let mins = self.cfg.general.panorama.sleep_minutes;
-        if mins == 0 || self.panorama.media.as_ref().is_some_and(|m| m.playing) {
+        if mins == 0
+            || self.panorama.module_sheet.is_some()
+            || self.panorama.media.as_ref().is_some_and(|m| m.playing)
+        {
             return false;
         }
         self.panorama

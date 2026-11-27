@@ -16,8 +16,10 @@ your way until you call it.**
 
 hyprdesk turns Hyprland into a full desktop without giving up tiling. It
 includes a bar, dock, launcher, desktop icons and widgets, notifications,
-login and lock screens, and a settings drawer. They all come from one native
-Rust program, configured from the drawer or in Lua.
+login and lock screens, and a settings drawer. It is all native Rust: a
+daemon draws the desktop, and small dedicated binaries handle the lock
+screen, the login screen, the polkit agent and the theme engine. You
+configure it from the drawer or in Lua.
 
 Your windows stay tiled. Press `SUPER + D` and the desktop comes up over
 them; leave it and they go back where they were. hyprdesk also writes
@@ -265,7 +267,7 @@ set from the command line shows up in Settings, and the other way round.
 | Hyprland | A generated fragment: borders, gaps, rounding, blur, animations | At once (`hyprctl reload`); `--mode hot` previews without writing |
 | hyprdesk, lock and login screens | Nothing: they read the published palette | At once |
 | GTK 3 and 4 | Your base GTK theme recoloured to the pack, installed as `hyprdesk-<pack>` | At once in open GTK 3 apps, Brave and Firefox included |
-| Qt | `qt6ct/colors/hyprdesk.conf` (and the qt5ct copy); pick it once in qt6ct | When the app restarts |
+| Qt | `qt6ct/colors/hyprdesk.conf`; pick it once in qt6ct | When the app restarts |
 | kitty, hyprlock | An included file, a sourced fragment | At once, at the next lock |
 | Fonts, icons, cursors, sounds | The GNOME settings and the hyprdesk keys | At once; cursors at the next session |
 | Any other app | A file declared by the pack (`[targets.<name>]`) | Through a bounded reload: signal, socket, gsettings |
@@ -378,8 +380,10 @@ bash scripts/verify.sh
 cargo run --locked -- preview
 ```
 
-The repository is a Cargo workspace: the `hyprdesk` package (library, main
-binary, and the dedicated binaries in `src/bin/`), plus `crates/hyprdesk-auth`
+The repository is a Cargo workspace: the `hyprdesk` package (library, the
+`hyprdesk` daemon and CLI, and four dedicated binaries in `src/bin/`:
+`hyprdesk-lock`, `hyprdesk-greeter`, `hyprdesk-polkit` and
+`hyprdesk-theme-engine`), plus `crates/hyprdesk-auth`
 (PAM, fprintd), `crates/hyprdesk-i18n` (translations), and
 `crates/hyprdesk-theme-client` (the theme palette for other apps). The
 [development guide](docs/ADVANCED.md#development) and the

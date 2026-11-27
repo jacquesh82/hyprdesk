@@ -2135,6 +2135,7 @@ impl App {
             || !self.launcher_surfaces.is_empty()
             || self.launcher_runtime.focus.is_some()
             || self.bar_keyboard.is_some()
+            || self.panorama.module_sheet_keyboard.is_some()
     }
 
     /// Mode du bureau, tel que l'utilisateur le nomme.
@@ -6141,6 +6142,16 @@ impl App {
                 if self.bar_keyboard == Some(id) && !menu_of_bar {
                     return self.bar_release(id);
                 }
+                // Le panneau des réglages du Panorama a laissé le clavier : il
+                // lâche sa prise et reste affiché (le toucher la reprend).
+                if self.panorama.module_sheet_keyboard == Some(id) {
+                    self.panorama.module_sheet_keyboard = None;
+                    return Task::done(Msg::KeyboardInteractivityChange {
+                        id,
+                        keyboard_interactivity:
+                            iced_layershell::reexport::KeyboardInteractivity::None,
+                    });
+                }
                 self.launcher_keyboard_left(id)
             }
             Msg::Released if self.bar_drag.is_some() => self.update_inner(Msg::BarDragEnd),
@@ -6189,6 +6200,17 @@ impl App {
                         keyboard::Key::Named(Named::ArrowUp) => {
                             self.force_quit_update(force_quit::FqMsg::Move(false))
                         }
+                        _ => Task::none(),
+                    };
+                }
+                // Réglages d'un module sur le Panorama : sa surface tient le
+                // clavier pour son champ, qui a déjà reçu la touche ; Échap
+                // referme le panneau.
+                if self.panorama.module_sheet_keyboard == Some(id) {
+                    return match key {
+                        keyboard::Key::Named(keyboard::key::Named::Escape) => self.panorama_update(
+                            plugins::panorama::surface::PMsg::ModuleSettings(None),
+                        ),
                         _ => Task::none(),
                     };
                 }
@@ -6771,7 +6793,11 @@ impl App {
                 .into();
         }
         if self.panorama_owns(id) {
-            return self.view_panorama(id);
+            // Aux opérations, la surface se nomme : le focus du champ des
+            // réglages d'un module y reste borné.
+            return container(self.view_panorama(id))
+                .id(plugins::panorama::surface::scope(id))
+                .into();
         }
         if self.panel.as_ref().is_some_and(|p| p.surface == id) {
             return self.view_panel();

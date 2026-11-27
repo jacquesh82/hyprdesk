@@ -34,6 +34,7 @@ pub const INFO: PluginInfo = PluginInfo {
 /// Onglets du paquet (police et taille : Thème → Texte).
 pub const TABS: &[super::SubTab] = &[
     ("affichage", "Affichage"),
+    ("modules", "Modules"),
     ("modes", "Modes imposés"),
     ("session", "Session"),
     ("dependances", "Dépendances"),
@@ -137,6 +138,19 @@ const FORCED_CHOICES: [ForcedChoice; 4] = [
     ForcedChoice(Some("full-desktop")),
 ];
 
+/// Choix « Ajouter un widget… » du bureau : un type pas encore posé.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WidgetChoice {
+    pub type_id: String,
+    pub label: String,
+}
+
+impl std::fmt::Display for WidgetChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
 /// Mode d'un workspace : par défaut, ou imposé.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WsMode {
@@ -162,6 +176,9 @@ impl App {
         }
         if self.on_subtab(INFO.id, "modes") {
             return self.forced_section();
+        }
+        if self.on_subtab(INFO.id, "modules") {
+            return self.desktop_modules();
         }
         if self.on_subtab(INFO.id, "dependances") {
             return self.deps_section();
@@ -848,6 +865,90 @@ impl App {
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
+            );
+        }
+        col.into()
+    }
+
+    /// Onglet Modules : les widgets posés sur ce bureau, et « Ajouter un
+    /// widget… » avec seulement les types qui n'y sont pas encore (le
+    /// placement fin reste dans Réglages → Widgets).
+    fn desktop_modules(&self) -> Element<'_, UiMsg> {
+        use super::widgets::{Msg as WMsg, wrap as wwrap};
+        let dim = self.ink().dim;
+        let (mon, ws) = self.panel_ctx().unwrap_or_default();
+        let pending = self
+            .panel
+            .as_ref()
+            .and_then(|p| p.widgets.pending_delete.clone());
+        let name_of = |type_id: &str| {
+            self.cfg
+                .catalog
+                .iter()
+                .find(|t| t.id == type_id)
+                .map_or_else(|| type_id.to_string(), |t| t.name.clone())
+        };
+        let mut desk = crate::config::resolve::resolve(&self.cfg, &mon, &ws);
+        self.keep_widgets_of(&mon, &mut desk);
+        let mut list = column![].spacing(6);
+        if desk.widgets.is_empty() {
+            list = list.push(
+                text("Aucun widget sur ce bureau.")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(dim),
+            );
+        }
+        for w in &desk.widgets {
+            let armed = pending.as_deref() == Some(w.id.as_str());
+            list = list.push(
+                row![
+                    text(name_of(&w.type_id))
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(13.0))
+                        .width(Length::Fill),
+                    self.delete_button(armed, wwrap(WMsg::DeleteWidget(w.id.clone()))),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            );
+        }
+        // Types qui s'allument d'un clic et ne sont pas encore sur le bureau.
+        let free: Vec<WidgetChoice> = self
+            .cfg
+            .catalog
+            .iter()
+            .filter(|t| t.toggleable && t.error.is_none())
+            .filter(|t| {
+                !desk.widgets.iter().any(|w| w.type_id == t.id)
+                    && !self
+                        .cfg
+                        .widgets
+                        .iter()
+                        .any(|w| w.type_id == t.id && !w.in_bar)
+            })
+            .map(|t| WidgetChoice {
+                type_id: t.id.clone(),
+                label: t.name.clone(),
+            })
+            .collect();
+        let mut col = column![
+            self.section("Modules du bureau"),
+            text("Les widgets posés sur ce bureau ; leur place et leur taille se règlent dans Réglages → Widgets.")
+                .font(self.font)
+                .size(crate::ui::tokens::ts(12.0))
+                .color(dim),
+            list,
+        ]
+        .spacing(14);
+        if !free.is_empty() {
+            col = col.push(
+                pick_list(free, None::<WidgetChoice>, |c| {
+                    wwrap(WMsg::WidgetToggle(c.type_id, true))
+                })
+                .font(self.font)
+                .placeholder(crate::i18n::tr("Ajouter un widget…"))
+                .width(260),
             );
         }
         col.into()

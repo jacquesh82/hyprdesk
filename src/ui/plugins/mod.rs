@@ -392,6 +392,7 @@ pub fn find_tab(pkg: &str, name: &str) -> Option<&'static str> {
     // Onglets renommés : l'ancien nom mène au nouveau.
     let want = match (pkg, want.as_str()) {
         ("theme", "effets" | "effects") => "transparence".to_string(),
+        ("dock", "epinglees" | "pinned") => "modules".to_string(),
         _ => want,
     };
     tabs(pkg)
@@ -596,9 +597,8 @@ pub fn find(id: &str) -> Option<&'static PluginInfo> {
         "reseau" | "réseau" | "wifi" | "wi-fi" | "vpn" => "network",
         "bluetooth" => "bt",
         "energie" | "énergie" | "power" | "batterie" => "energy",
-        "hue" | "lumieres" | "lumières" | "lights" | "philips-hue" | "notes" | "module" => {
-            "modules"
-        }
+        "hue" | "lumieres" | "lumières" | "lights" | "philips-hue" | "notes" | "meteo"
+        | "météo" | "weather" | "module" => "modules",
         "installes" | "installés" | "installed" => "plugins",
         "date" | "heure" | "date-heure" | "time" | "fuseau" => "datetime",
         "notification" => "notifications",
@@ -1084,8 +1084,8 @@ mod tests {
         );
         assert!(g.ids.iter().all(|id| visible(id, false)));
         assert_eq!(find("hue").map(|p| p.id), Some("modules"));
-        assert_eq!(visible_tabs("desktop", false).len(), 1);
-        assert_eq!(visible_tabs("desktop", true).len(), 4);
+        assert_eq!(visible_tabs("desktop", false).len(), 2);
+        assert_eq!(visible_tabs("desktop", true).len(), 5);
     }
 
     /// Onglets : identifiants uniques, désignables sans casse ni accents.
@@ -1107,7 +1107,7 @@ mod tests {
             find_tab("keys", "Fenetres et workspaces"),
             Some("essentiels")
         );
-        assert_eq!(find_tab("dock", "épinglées"), Some("epinglees"));
+        assert_eq!(find_tab("dock", "épinglées"), Some("modules"));
         assert_eq!(find_tab("launcher", "forme"), Some("forme"));
         assert_eq!(find_tab("screens", "ÉCRAN"), Some("ecran"));
         assert_eq!(find_tab("theme", "texte"), Some("texte"));

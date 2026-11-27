@@ -10,8 +10,8 @@ Les réglages sont dans **Réglages → Panorama** :
   chaque touche. Les commandes ne sont exécutées qu'au clic ou au toucher.
 - **Pages** : pages classiques et dispositions partagées ; sources vidéo et veille.
 - **Écrans** : attribution du rôle, tactile et fenêtre Panorama interactive.
-- **Modules** : modules de la bande du profil Raccourcis, réglages de Hue et de
-  Notes.
+- **Modules** : modules de la bande du profil Raccourcis, réglages de Météo,
+  de Hue et de Notes.
 
 ## Modules
 
@@ -24,6 +24,7 @@ ajoute ou retire un module) :
 | Notes | `notes` | Lance l'éditeur réglé sur le workspace actif de l'écran choisi |
 | Lumières | `hue` | Pont Philips Hue local : pièces, lampes, curseurs, « Tout éteindre » |
 | LYRA vocale | `voice` | Micro de LYRA : ouvrir, couper, dernière phrase entendue |
+| Météo | `meteo` | Le temps qu'il fait, les heures à venir et les jours suivants (wttr.in) |
 | Musique | `media` | Lecture en cours (MPRIS) |
 | Plateformes vidéo | `playlist` | Services du lecteur |
 | Horloge, Calendrier, Système | `clock`, `calendar`, `system` | Widgets du Panorama |
@@ -33,7 +34,43 @@ profils, à la place des touches. Le pont Hue s'appaire dans Réglages →
 Plugins → Modules (bouton du pont, puis « Appairer ») ; sa clé reste dans
 `$XDG_STATE_HOME/hyprdesk/hue.json` (0600). Options des modules :
 `plugin_options.panorama`, clés `hue.hidden` (pièces masquées),
-`notes.command`, `notes.monitor`.
+`notes.command`, `notes.monitor`, `meteo.city`.
+
+La tuile Météo montre le temps qu'il fait (glyphe du jour ou de la nuit,
+température, lieu), la ligne ressentie · vent · humidité, puis les heures à
+venir et les jours suivants — de ce qui tient : la rangée des heures cède
+avant celle des jours. Le bulletin vient de [wttr.in](https://wttr.in)
+(JSON, sans compte ni clé), pour la ville réglée sur le Panorama (appui long
+sur la tuile) ou dans Réglages → Plugins → Modules — un nom, un code postal,
+des coordonnées (`45.76,4.83`) ; vide : la position déduite de l'adresse IP. Il
+se relit toutes les quinze minutes tant que la tuile est à l'écran, ou d'un
+appui sur elle. Les relevés des heures se placent d'après l'heure de la
+machine : celle du lieu par défaut ; pour un lieu lointain, la rangée part d'un
+autre moment de sa journée (le jour et la nuit des glyphes, eux, suivent le
+lieu).
+
+### Régler un module sur le Panorama
+
+Un **appui long sur la tuile d'un module** — zone d'une composition, carte de
+la bande du profil Raccourcis, tuile du catalogue « + » — ouvre ses réglages
+dans un panneau de la bande. Dans la zone d'accueil du côte à côte, qui a déjà
+sa barre d'édition (appui long : déplacer, retirer), une touche « Configurer »
+s'y ajoute. Même panneau pour tous les modules, un rang par réglage : la ville
+de Météo, la commande et l'écran de Notes. Un module sans réglage le dit, et
+« Réglages complets… » ouvre Réglages → Panorama → Modules sur l'écran
+principal — où le pont Hue s'appaire.
+
+C'est la seule fois où le Panorama prend le clavier : un réglage à saisir
+emprunte le clavier de l'ordinateur le temps de la frappe. **Entrée enregistre
+et le rend aussitôt** ; Échap referme le panneau ; toucher le champ le reprend.
+Le module peut répondre à ce qui vient d'être enregistré — la météo dit le
+lieu que le service a trouvé (« Rezé » pour « nantes ») : sa réponse lue, le
+panneau se referme de lui-même. En erreur (ville inconnue), il reste, pour
+corriger. Oublié, il se referme après trois minutes sans toucher.
+
+Chaque module déclare ses réglages une fois, sans interface
+(`src/panorama/modules/settings.rs`) ; leurs valeurs sont les options des
+modules, ci-dessus.
 
 Code : logique dans `src/panorama/modules/`, tuiles dans
 `src/ui/plugins/panorama/surface/modules/`, réglages dans

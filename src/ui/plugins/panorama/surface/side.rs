@@ -296,11 +296,13 @@ impl App {
                     }
                 }
                 let remember = self.side_changed();
-                // Tuile Hue : relevé aussitôt.
-                if id == "hue" {
-                    return Task::batch([remember, self.panorama_hue_refresh()]);
-                }
-                remember
+                // Tuile Hue, tuile Météo ajoutées : relevé aussitôt.
+                let read = match id.as_str() {
+                    "hue" => self.panorama_hue_refresh(),
+                    "meteo" if self.panorama_meteo_shown() => self.panorama_meteo_refresh(),
+                    _ => Task::none(),
+                };
+                Task::batch([remember, read])
             }
             PMsg::SidePreset(i, true) => {
                 let Some(sp) = self.panorama.split.as_mut() else {
@@ -580,6 +582,9 @@ impl App {
         if c.modules.iter().any(|m| m == "hue") {
             tasks.push(self.panorama_hue_refresh());
         }
+        if c.modules.iter().any(|m| m == "meteo") {
+            tasks.push(self.panorama_meteo_refresh());
+        }
         Task::batch(tasks)
     }
 
@@ -784,7 +789,7 @@ impl App {
 
     /// Contenu de la zone d'accueil : la fenêtre (trou), le choix « + »,
     /// ou les modules ajoutés.
-    pub(super) fn panorama_aside(&self, size: Size) -> Element<'_, Msg> {
+    pub(super) fn panorama_aside<'a>(&'a self, screen: &str, size: Size) -> Element<'a, Msg> {
         let d = &self.cfg.general.panorama.design;
         let sp = self.panorama.split.clone().unwrap_or_default();
         if sp.guest.is_some() {
@@ -815,7 +820,7 @@ impl App {
                 )
             })
             .collect();
-        swipe(self.panorama_aside_body(&sp, size), axis, |d| {
+        swipe(self.panorama_aside_body(screen, &sp, size), axis, |d| {
             wrap(PMsg::SideSwipe(d))
         })
         .yield_to(yields)
@@ -824,7 +829,12 @@ impl App {
     }
 
     /// Zone d'accueil sans fenêtre ni choix ouvert : modules, ou le « + ».
-    fn panorama_aside_body(&self, sp: &SideBySide, size: Size) -> Element<'_, Msg> {
+    fn panorama_aside_body<'a>(
+        &'a self,
+        screen: &str,
+        sp: &SideBySide,
+        size: Size,
+    ) -> Element<'a, Msg> {
         let (bg, fg, accent) = self.panorama_palette();
         let d = &self.cfg.general.panorama.design;
         let dim = fx::alpha(fg, 0.65);
@@ -924,7 +934,7 @@ impl App {
                 let tile: Element<'_, Msg> =
                     super::hold::hold(card, wrap(PMsg::SideEdit((!editing).then_some(i)))).into();
                 line = line.push(if editing {
-                    iced::widget::stack![tile, self.side_edit_bar(i, n, w, h)].into()
+                    iced::widget::stack![tile, self.side_edit_bar(screen, m, i, n, w, h)].into()
                 } else {
                     tile
                 });
@@ -934,10 +944,22 @@ impl App {
         container(grid).padding(8).into()
     }
 
-    /// Commandes d'une tuile en édition : avant, après, retirer, terminé.
-    fn side_edit_bar(&self, i: usize, n: usize, w: f32, h: f32) -> Element<'_, Msg> {
+    /// Commandes d'une tuile en édition : avant, après, configurer, retirer,
+    /// terminé.
+    fn side_edit_bar(
+        &self,
+        screen: &str,
+        module: &str,
+        i: usize,
+        n: usize,
+        w: f32,
+        h: f32,
+    ) -> Element<'_, Msg> {
         let (bg, fg, _) = self.panorama_palette();
-        let b = (w.min(h) * 0.22).clamp(36.0, 56.0);
+        // Cinq touches, espacées, qui restent dans la tuile.
+        let b = (w.min(h) * 0.22)
+            .clamp(36.0, 56.0)
+            .min(((w - 60.0) / 5.0).max(28.0));
         let key = |icon: &str, msg: Option<Msg>| -> Element<'_, Msg> {
             let tint = if msg.is_some() {
                 fg
@@ -982,6 +1004,14 @@ impl App {
         let bar = row![
             key("go-previous", (i > 0).then(|| wrap(PMsg::SideMove(i, -1)))),
             key("go-next", (i + 1 < n).then(|| wrap(PMsg::SideMove(i, 1)))),
+            // Les réglages du module : le panneau se pose sur la bande.
+            key(
+                "preferences-system",
+                Some(wrap(PMsg::ModuleSettings(Some((
+                    screen.to_string(),
+                    module.to_string(),
+                ))))),
+            ),
             key("user-trash", Some(wrap(PMsg::SideRemove(i)))),
             key("object-select", Some(wrap(PMsg::SideEdit(None)))),
         ]

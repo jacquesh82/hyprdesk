@@ -1,15 +1,29 @@
-//! Réglages → Plugins → Modules : les modules de la bande du profil
-//! Raccourcis (ajouter, retirer), puis les réglages de ceux qui en ont :
-//! Hue (pont, appairage, pièces montrées) et Notes (commande, écran).
+//! Réglages → Panorama → Modules (et Plugins → Modules) : les modules de
+//! la bande du profil Raccourcis (ajouter, retirer), puis les réglages de
+//! ceux qui en ont : Météo (ville), Hue (pont, appairage, pièces montrées)
+//! et Notes (commande, écran).
 //!
 //! Logique des modules : `crate::panorama::modules`.
 
 use crate::i18n::text;
-use crate::panorama::modules::{self, hue, hue::Bridge, hue::Room, notes};
-use iced::widget::{button, column, row, text_input};
+use crate::panorama::modules::{self, hue, hue::Bridge, hue::Room, meteo, notes};
+use iced::widget::{button, column, pick_list, row, text_input};
 use iced::{Alignment, Element, Length, Task};
 
 use super::super::super::{App, Msg as UiMsg, color};
+
+/// Choix « Ajouter un module… » : un module pas encore dans la bande.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModuleChoice {
+    pub id: &'static str,
+    pub label: String,
+}
+
+impl std::fmt::Display for ModuleChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label)
+    }
+}
 
 pub fn wrap(m: Msg) -> UiMsg {
     super::wrap(super::Msg::Module(m))
@@ -29,6 +43,11 @@ pub struct State {
     /// Commande Notes en cours de saisie (aucune : celle de la config).
     pub notes_draft: Option<String>,
     pub notes_status: Option<String>,
+    /// Ville Météo en cours de saisie (aucune : celle de la config) ; lieu
+    /// vérifié ou erreur de lecture ; lecture en cours.
+    pub meteo_draft: Option<String>,
+    pub meteo_status: Option<Result<String, String>>,
+    pub meteo_busy: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +68,11 @@ pub enum Msg {
     NotesMonitor(String),
     NotesOpen,
     NotesOpened(Result<(), String>),
+    /// Météo : ville saisie, enregistrée ; bulletin lu pour la ville
+    /// enregistrée : (ville, bulletin ou erreur).
+    MeteoDraft(String),
+    MeteoSubmit,
+    MeteoChecked(String, Result<meteo::Weather, String>),
     /// Cast vers la zone vidéo (page du téléphone, récepteur YouTube).
     Cast(bool),
 }
@@ -77,8 +101,14 @@ impl App {
         self.panel.as_ref().map(|p| &p.panorama_modules)
     }
 
-    /// Enregistre une option de module (`plugin_options.panorama`).
-    fn module_option(&mut self, module: &str, key: &str, value: &str) -> Task<UiMsg> {
+    /// Enregistre une option de module (`plugin_options.panorama`) : les
+    /// Réglages comme le panneau des réglages du Panorama.
+    pub(in crate::ui) fn module_option(
+        &mut self,
+        module: &str,
+        key: &str,
+        value: &str,
+    ) -> Task<UiMsg> {
         let all = self
             .settings
             .plugin_options
@@ -105,20 +135,65 @@ impl App {
             self.section("Modules de la bande"),
         ]
         .spacing(10);
-        for (id, label, _) in modules::CATALOGUE {
-            let on = current.iter().any(|m| m == id);
+        // Les modules posés, dans l'ordre de la bande, puis « Ajouter un
+        // module… » avec seulement ceux qui n'y sont pas.
+        let label_of = |id: &str| {
+            modules::CATALOGUE
+                .iter()
+                .find(|(m, _, _)| *m == id)
+                .map_or_else(
+                    || id.to_string(),
+                    |(_, l, _)| crate::i18n::tr(l).to_string(),
+                )
+        };
+        if current.is_empty() {
+            col = col.push(
+                text("Aucun module dans la bande.")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .color(dim),
+            );
+        }
+        for id in &current {
+            let id = id.clone();
             col = col.push(
                 row![
-                    text(crate::i18n::tr(label))
+                    text(label_of(&id))
                         .font(self.font)
                         .size(crate::ui::tokens::ts(13.0))
                         .color(fg)
                         .width(Length::Fill),
-                    self.toggle(on)
-                        .named(crate::i18n::tr(label))
-                        .on_toggle(move |_| wrap(Msg::Toggle(id.to_string()))),
+                    self.focusable(
+                        button(
+                            text("Retirer")
+                                .font(self.font)
+                                .size(crate::ui::tokens::ts(12.0))
+                        )
+                        .padding([3, 8])
+                        .style(button::secondary)
+                        .on_press(wrap(Msg::Toggle(id))),
+                    ),
                 ]
+                .spacing(8)
                 .align_y(Alignment::Center),
+            );
+        }
+        let free: Vec<ModuleChoice> = modules::CATALOGUE
+            .iter()
+            .filter(|(id, _, _)| !current.iter().any(|m| m == id))
+            .map(|(id, label, _)| ModuleChoice {
+                id,
+                label: crate::i18n::tr(label).to_string(),
+            })
+            .collect();
+        if !free.is_empty() {
+            col = col.push(
+                pick_list(free, None::<ModuleChoice>, |c| {
+                    wrap(Msg::Toggle(c.id.to_string()))
+                })
+                .font(self.font)
+                .placeholder(crate::i18n::tr("Ajouter un module…"))
+                .width(260),
             );
         }
 
@@ -159,6 +234,64 @@ impl App {
                     .font(self.font)
                     .size(crate::ui::tokens::ts(12.0))
                     .color(warn),
+            );
+        }
+
+        // Météo : la ville du bulletin.
+        let city = meteo::city(&self.cfg);
+        col = col.push(self.section("Météo")).push(
+            text(
+                "La ville telle que wttr.in la cherche : un nom, un code postal, des coordonnées \
+                 (« 45.76,4.83 »). Vide : la position déduite de l'adresse IP. Le bulletin vient \
+                 de wttr.in, sans compte ni clé ; la tuile le relit toutes les quinze minutes, \
+                 ou d'un appui.",
+            )
+            .font(self.font)
+            .size(crate::ui::tokens::ts(12.0))
+            .color(dim),
+        );
+        let m = self.modules_state();
+        let shown = m.and_then(|s| s.meteo_draft.clone()).unwrap_or(city);
+        let busy = m.is_some_and(|s| s.meteo_busy);
+        col = col.push(
+            row![
+                text_input("Paris", &shown)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(13.0))
+                    .padding(6)
+                    .width(Length::Fill)
+                    .on_input(|v| wrap(Msg::MeteoDraft(v)))
+                    .on_submit(wrap(Msg::MeteoSubmit)),
+                button(
+                    text("Enregistrer")
+                        .font(self.font)
+                        .size(crate::ui::tokens::ts(12.0)),
+                )
+                .padding([4, 10])
+                .on_press_maybe((!busy).then(|| wrap(Msg::MeteoSubmit))),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        );
+        // Le lieu trouvé (ou la raison de l'échec) dit si la ville convient.
+        if busy {
+            col = col.push(
+                text("Lecture…")
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(dim),
+            );
+        }
+        if let Some(st) = m.and_then(|s| s.meteo_status.as_ref()) {
+            let (msg, c) = match st {
+                Ok(m) => (m.clone(), dim),
+                Err(e) => (e.clone(), warn),
+            };
+            col = col.push(
+                text(msg)
+                    .font(self.font)
+                    .size(crate::ui::tokens::ts(12.0))
+                    .color(c),
             );
         }
 
@@ -415,6 +548,55 @@ impl App {
             }
             Msg::NotesMonitor(name) => self.module_option("notes", "monitor", &name),
             Msg::Cast(on) => self.module_option("video", "cast", if on { "" } else { "off" }),
+            Msg::MeteoDraft(v) => {
+                if let Some(s) = self.panel.as_mut().map(|p| &mut p.panorama_modules) {
+                    s.meteo_draft = Some(v);
+                }
+                Task::none()
+            }
+            // La ville s'enregistre, et son bulletin se lit tout de suite :
+            // pour dire ici le lieu trouvé, et pour la tuile.
+            Msg::MeteoSubmit => {
+                let Some(v) = self
+                    .panel
+                    .as_mut()
+                    .and_then(|p| p.panorama_modules.meteo_draft.take())
+                else {
+                    return Task::none();
+                };
+                let v = v.trim().to_string();
+                if let Some(s) = self.panel.as_mut().map(|p| &mut p.panorama_modules) {
+                    s.meteo_busy = true;
+                    s.meteo_status = None;
+                }
+                let save = self.module_option("meteo", "city", &v);
+                let (checked, city) = (v.clone(), v);
+                let check = Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || meteo::fetch(&checked))
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    move |r| wrap(Msg::MeteoChecked(city, r)),
+                );
+                Task::batch([save, check])
+            }
+            Msg::MeteoChecked(city, r) => {
+                if let Some(s) = self.panel.as_mut().map(|p| &mut p.panorama_modules) {
+                    s.meteo_busy = false;
+                    s.meteo_status = Some(match &r {
+                        Ok(w) => Ok(meteo::summary(w)),
+                        Err(e) => Err(e.clone()),
+                    });
+                }
+                // La tuile montre ce bulletin, s'il est celui de la ville
+                // réglée (la personne a pu en enregistrer une autre depuis).
+                if meteo::city(&self.cfg) != city {
+                    return Task::none();
+                }
+                self.panorama.meteo_at = Some(std::time::Instant::now());
+                self.panorama_update(crate::ui::plugins::panorama::surface::PMsg::MeteoRead(r))
+            }
             Msg::NotesOpen => {
                 let (command, monitor) = notes::options(&self.cfg);
                 Task::perform(

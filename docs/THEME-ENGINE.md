@@ -1,6 +1,6 @@
 # hyprdesk-theme-engine — spécification
 
-Statut : spécification à implémenter (v1). Le binaire `hyprdesk-theme-engine` devient le moteur de thème unique de hyprdesk : découverte, résolution, génération et application des thèmes pour Hyprland, hyprdesk et les applications. Il remplace progressivement la logique dispersée de `src/theme.rs` (préréglages) et `src/apptheme/` (cibles kitty, Thunar) tout en conservant leurs contrats et leurs clés de réglage.
+Statut : implémentée (v1, phases 1 et 2 du §20 pour l'essentiel) dans `src/theme_engine/`, `src/bin/hyprdesk-theme-engine.rs` et `crates/hyprdesk-theme-client` ; les écarts encore ouverts sont signalés sur place. Le binaire `hyprdesk-theme-engine` est le moteur de thème unique de hyprdesk : découverte, résolution, génération et application des thèmes pour Hyprland, hyprdesk et les applications. Il remplace progressivement la logique dispersée de `src/theme.rs` (préréglages) et `src/apptheme/` (cibles kitty, Thunar) tout en conservant leurs contrats et leurs clés de réglage.
 
 Références au code existant : `src/theme.rs`, `src/apptheme/mod.rs` (contrat `Target`), `src/colors.rs`, `src/share.rs`, `src/history.rs`, `src/doctor.rs`, `src/genfiles.rs`, `src/portal.rs`, `src/config/model.rs`.
 
@@ -375,7 +375,7 @@ La cible généralise le contrat `apptheme::Target` (`src/apptheme/mod.rs`) : id
 | `kitty` | `~/.config/kitty/hyprdesk-theme.conf` (fichier actuel) | SIGUSR1, ou socket `kitty @ load_config` si contrôle distant | kitty | 1 |
 | `gtk` | thème GTK installé `~/.local/share/themes/hyprdesk-<pack>/` (gtk-3.0, gtk-4.0, index.theme) + override `~/.config/gtk-3.0/gtk.css` et `gtk-4.0/gtk.css` avec `@define-color` ; `gsettings` pour `gtk-theme` et `color-scheme` | gsettings → rechargement des apps GTK | gsettings | 1 |
 | ~~`thunar`~~ | retirée (MLG-251) : Thunar suit le thème GTK de base de la cible `gtk` ; l'import et `hyprdesk-thunar.css` déjà posés sont retirés au passage suivant | — | — | — |
-| `qt` | `~/.config/qt6ct/colors/hyprdesk.conf` (miroir qt5ct), Kvantum `.kvconfig` si installé, gabarit `.qss` optionnel | relance de l'application (`restart_required`) ; accent via portail | qt6ct, kvantum | 2 |
+| `qt` | `~/.config/qt6ct/colors/hyprdesk.conf` (pas encore de miroir qt5ct, ni de Kvantum `.kvconfig`, ni de gabarit `.qss`) | relance de l'application (`restart_required`) | qt6ct | 2 |
 | `fonts` | clés hyprdesk + `gsettings font-name`, gabarit kitty | selon cibles touchées | — | 2 |
 | `icons` | `gsettings icon-theme` + paquet icônes hyprdesk | événement démon | — | 2 |
 | `cursors` | `HYPRCURSOR_THEME` + `XCURSOR_THEME` (env.lua) + `gsettings cursor-theme` | nouvelle session | hyprcursor | 2 |
@@ -473,9 +473,9 @@ Consommateurs : libadwaita récent, Qt ≥ 6.5 pour `color-scheme` (l'accent pro
 
 ### 9.6 Qt
 
-- **qt5ct / qt6ct** : schéma de couleurs généré (`~/.config/qt6ct/colors/hyprdesk.conf`, sérialisation QPalette des slots ; miroir qt5ct), sélectionné si l'utilisateur a déjà `QT_QPA_PLATFORMTHEME` — le moteur n'impose pas la plateforme.
-- **Kvantum** (si installé) : gabarit `.kvconfig` (palette + rayons) dans `~/.config/Kvantum/hyprdesk-<pack>/`, activable par `[targets.kvantum]` dans le pack.
-- **QSS** : gabarit `.qss` générique pour les applications qui chargent leur propre stylesheet.
+- **qt6ct** : schéma de couleurs généré (`~/.config/qt6ct/colors/hyprdesk.conf`, sérialisation QPalette des slots ; le miroir qt5ct n'est pas encore écrit), sélectionné si l'utilisateur a déjà `QT_QPA_PLATFORMTHEME` — le moteur n'impose pas la plateforme.
+- **Kvantum** (prévu, pas encore implémenté) : gabarit `.kvconfig` (palette + rayons) dans `~/.config/Kvantum/hyprdesk-<pack>/`, activable par `[targets.kvantum]` dans le pack.
+- **QSS** (prévu, pas encore implémenté) : gabarit `.qss` générique pour les applications qui chargent leur propre stylesheet.
 - Le changement Qt prend effet au relancement de l'application (`restart_required`) ; l'accent et le schéma clair/sombre progressent via le portail (9.5).
 
 ### 9.7 Contrat commun des transports
@@ -543,10 +543,9 @@ hyprdesk-theme-engine verify [<id>] [--wcag] [--json]         # contraste, dépe
 hyprdesk-theme-engine preview <id> [--variant …] --out <png>  # mire de palette (style assets/colors/mire.png)
 hyprdesk-theme-engine recolor --from <image> [--scheme vibrant|material|pastel]
                               [--hue-lock <deg>] [--out <dossier pack>]
-hyprdesk-theme-engine install <chemin|.hyprtheme>
+hyprdesk-theme-engine install <chemin|.hyprtheme>            # dossier ou archive (pas de commande import à part)
 hyprdesk-theme-engine remove <id>
-hyprdesk-theme-engine export <id> -o <archive.hyprtheme>
-hyprdesk-theme-engine import <archive.hyprtheme>
+hyprdesk-theme-engine export <id> --out <archive.hyprtheme>
 hyprdesk-theme-engine diff <id|chemin> <id|chemin> [--json]   # slots et gabarits divergents
 hyprdesk-theme-engine tools [--json]                          # manifeste d'outils (schémas JSON), surface LYRA
 hyprdesk-theme-engine build --intent <intent.json> [--out <dir>]
@@ -556,7 +555,7 @@ hyprdesk-theme-engine doctor [--json]                         # deps + packs inv
 
 Codes de sortie : `0` succès ; `1` usage ; `2` pack ou manifeste invalide ; `3` échec d'au moins une cible (le rapport détaille) ; `4` dépendance absente (doctor liste) ; `5` rollback effectué.
 
-`--origin user|lyra|daemon|cli` sur les commandes qui modifient l'état (`use`, `apply`, `install`, `remove`, `import`, `build`) : étiquette d'origine portée par `last-applied.json`, le journal et l'Historique (« modifié par LYRA »). Défaut `cli`.
+`--origin user|lyra|daemon|cli` sur les commandes qui modifient l'état (`use`, `apply`, `install`, `remove`, `build`) : étiquette d'origine portée par `last-applied.json`, le journal et l'Historique (« modifié par LYRA »). Défaut `cli`.
 
 Variable d'environnement `HYPRDESK_THEME=<id>[:<variante>]` : surcharge globale de l'équivalent GTK `GTK_THEME`, respectée par toutes les commandes. Priorité : `HYPRDESK_THEME` > réglages du démon > défaut.
 
@@ -613,7 +612,7 @@ Variable d'environnement `HYPRDESK_THEME=<id>[:<variante>]` : surcharge globale 
 - **Portail** : à faire (MLG-236) — `src/portal.rs` n'est aujourd'hui qu'un client du sélecteur de fichiers ; hyprdesk ne sert pas encore `org.freedesktop.appearance` (§9.5).
 - **`src/apptheme/`** : les modules `kitty` et `thunar` migrent vers des cibles du moteur, clés d'options conservées ; le contrat `Target` devient `theme_engine::Target`. La page Réglages → Thème des applications devient la liste des cibles du moteur.
 - **Préréglages** : ceux de `src/theme.rs` (Ardoise…) ont leurs packs embarqués équivalents bit-à-bit (vérifié en essai : chaque préréglage est reconnu comme son pack) ; `theme.preset` accepte le nom ou l'identifiant de tout pack découvert.
-- **Partage** (`src/share.rs`) : « exporter le thème seul » → `export` du pack actif + valeurs des clés `theme.*` ; « importer » → `import` + `use`.
+- **Partage** (`src/share.rs`) : « exporter le thème seul » → `export` du pack actif + valeurs des clés `theme.*` ; « importer » → `install` + `use`.
 - **Historique** (`src/history.rs`) : chaque `apply` journalisé ; « retour à une version précédente » rejoue le `last-applied.json` correspondant.
 - **doctor** (`src/doctor.rs`) : `theme-engine doctor` alimente `DEPS` (gsettings, kitty, hyprctl, thunar…).
 - **Aperçu** : scène de preview `theme-palette` (mire des slots en clair et sombre) ; `HYPRDESK_PREVIEW_THEME=light` lit la variante du moteur.
@@ -708,7 +707,7 @@ Workflow complet : demande (« un thème calme, vert sauge, sombre ») → inten
 | Curseurs | §8 : cible `cursors` (hyprcursor + X cursor) |
 | Polices | §8 : cible `fonts` |
 | Thèmes de sons (freedesktop) | §8 : cible `sounds` |
-| Distribution tierce (GNOME look…) | §3 : archives `.hyprtheme`, `install`/`import` |
+| Distribution tierce (GNOME look…) | §3 : archives `.hyprtheme`, `install` |
 | Recoloration (icônes symboliques) | §7 : filtres `alpha`, `contrast`, `mix` |
 | Outil de sélection (nwg-look) | §16 : Réglages → Thème (galerie + aperçu) |
 | Récupération après thème cassé | §10 : rollback + `.bak` + Historique (GTK n'a rien d'équivalent) |

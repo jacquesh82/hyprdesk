@@ -720,6 +720,14 @@ impl App {
         };
         let graphite = b.style == crate::config::BarStyle::Graphite;
         let accent = color(g.theme.accent, 1.0);
+        // « Ajouter un module… » : seulement ceux qui ne sont pas encore dans
+        // la barre éditée (toutes zones), le lanceur exclu en Graphite.
+        let free: Vec<BarChoice> = choices
+            .iter()
+            .filter(|c| !graphite || c.type_id != "launcher")
+            .filter(|c| !zones.iter().flatten().any(|e| e.type_id == c.type_id))
+            .cloned()
+            .collect();
         col = col.push(
             text("Faites glisser un module pour le déplacer.")
                 .font(self.font)
@@ -858,20 +866,16 @@ impl App {
                 );
             }
             col = col.push(mouse_area(group).on_exit(UiMsg::BarDragLeave(z)));
-            col = col.push(
-                pick_list(
-                    choices
-                        .iter()
-                        .filter(|c| !graphite || c.type_id != "launcher")
-                        .cloned()
-                        .collect::<Vec<_>>(),
-                    None::<BarChoice>,
-                    move |c| wrap(Msg::Add(z, c)),
-                )
-                .font(self.font)
-                .placeholder(crate::i18n::tr("Ajouter un module…"))
-                .width(260),
-            );
+            if !free.is_empty() {
+                col = col.push(
+                    pick_list(free.clone(), None::<BarChoice>, move |c| {
+                        wrap(Msg::Add(z, c))
+                    })
+                    .font(self.font)
+                    .placeholder(crate::i18n::tr("Ajouter un module…"))
+                    .width(260),
+                );
+            }
         }
         col.into()
     }

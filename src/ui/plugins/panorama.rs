@@ -55,6 +55,7 @@ pub const INFO: PluginInfo = PluginInfo {
 pub const TABS: &[SubTab] = &[
     ("ecrans", "Écrans"),
     ("pages", "Pages"),
+    ("modules", "Modules"),
     ("lecteur", "Lecteur"),
     ("style", "Style"),
     ("raccourcis", "Raccourcis"),
@@ -218,6 +219,9 @@ impl App {
         }
         if self.on_subtab(INFO.id, "pages") {
             return self.panorama_pages_tab();
+        }
+        if self.on_subtab(INFO.id, "modules") {
+            return self.panorama_modules_tab();
         }
         let fg = color(self.cfg.general.theme.fg, 1.0);
         let dim = self.ink().dim;

@@ -42,7 +42,8 @@ Chacun tient dans son dossier, rangé de la même façon :
 - **Dock** : `surface.rs` (le dock et la carte des fenêtres),
   `lifecycle.rs`, `keyboard.rs`, `motion.rs`, `contrast.rs`. Sa page :
   Contenu, Apparence (avec le style : options `dock.*` du registre
-  `design_options`), Épinglées. Le couper retire le dock de tous les écrans
+  `design_options`), Modules (applications épinglées et boutons ;
+  « Ajouter au dock… » ne propose que ce qui n'y est pas). Le couper retire le dock de tous les écrans
   et de la barre ; un ancien `disabled_plugins = { "launcher" }` est lu comme
   `"dock"`.
 - **Lanceur** : `grid.rs` (grande feuille et carte centrée, `hyprdesk apps`,
@@ -214,13 +215,13 @@ sur une page de base, les options brutes de Hyprland (`hyprset::GROUPS` hors
 
 | Paquet | Onglets |
 |---|---|
-| Bureau | Affichage · Modes imposés ● · Session ● · Dépendances ● |
+| Bureau | Affichage · Modules (widgets du bureau) · Modes imposés ● · Session ● · Dépendances ● |
 | Thème | Thèmes · Couleurs · Texte (police, taille) · Transparence ● |
 | Animations | Animations · Courbes ● · Effets · Bureau ● (transitions du bureau, fondu entre fonds) |
 | Fenêtres | Apparence · Comportement ● · Règles (fenêtres ; couches et workspaces en avancé) · Groupes ● |
 | Clavier et souris | Clavier · Souris · Pavé tactile · Curseur · Gestes · Périphériques ● |
 | Configuration de Hyprland | Ménage · Environnement ● · Plugins Hyprland ● · Permissions ● · Avancé ● |
-| Dock | Contenu · Apparence · Épinglées |
+| Dock | Contenu · Apparence · Modules |
 | Lanceur | Applications · Forme · Raccourci |
 | Barre | Général · Modules |
 | Écrans | Disposition · Écran (un clic sur le plan y mène) |
@@ -352,6 +353,10 @@ return {
 Une tâche longue peut rendre `progress` (nombre de 0 à 1) : la barre dessine
 une jauge fine dans le module, à la couleur de son état, avant le texte
 (le plugin `updates` s'en sert pendant une mise à jour, option `detaille`).
+
+Un compte peut rendre `badge` (entier) : la barre le pose en ovale sur le
+module, comme les non-lues des notifications, « 99+ » au-delà de 99 ; 0 ou
+rien, pas d'ovale (le plugin `updates` y met le nombre de paquets en attente).
 
 Une entrée de menu peut aussi être un **champ de saisie** : `{ input = "Mot de passe",
 label = "Wi-Fi « Maison »", secret = true, action = function(texte) … end }`. Entrée

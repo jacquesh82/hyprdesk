@@ -338,6 +338,10 @@ A long task can return `progress` (a number from 0 to 1): the bar draws a
 thin gauge in the module, in its state colour, before the text (the `updates`
 plugin uses it during an update, option `detaille`).
 
+A count can return `badge` (an integer): the bar shows it as an oval on the
+module, like unread notifications, “99+” past 99; 0 or nothing, no oval (the
+`updates` plugin puts the number of pending packages there).
+
 A menu entry can also be a **text field**: `{ input = "Password",
 label = "Wi-Fi “Home”", secret = true, action = function(text) … end }`. Enter
 calls the action with the typed text, then the menu closes; `secret` masks the input,

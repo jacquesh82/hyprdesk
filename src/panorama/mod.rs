@@ -43,6 +43,7 @@ pub const PAGES: &[(&str, &str)] = &[
     ("hue", "Lumières"),
     ("notes", "Notes"),
     ("voice", "LYRA vocale"),
+    ("meteo", "Météo"),
 ];
 
 /// Libellé d'une page (« Page » si elle est inconnue).

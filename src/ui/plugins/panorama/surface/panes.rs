@@ -1397,25 +1397,31 @@ impl App {
             Some(pill) => stack![inner, pill].into(),
             None => inner,
         };
-        if let Some(s) = self.panorama_surf(id)
+        let base: Element<'_, Msg> = if let Some(s) = self.panorama_surf(id)
             && self.panorama.tasks.as_ref().is_some_and(|t| t.key == s.key)
         {
-            return stack![inner, self.panorama_tasks_view(&s)].into();
-        }
-        match self.panorama_surf(id) {
-            Some(s) if self.panorama.notifs.as_deref() == Some(s.key.as_str()) => {
-                stack![inner, self.panorama_notifs(&s)].into()
+            stack![inner, self.panorama_tasks_view(&s)].into()
+        } else {
+            match self.panorama_surf(id) {
+                Some(s) if self.panorama.notifs.as_deref() == Some(s.key.as_str()) => {
+                    stack![inner, self.panorama_notifs(&s)].into()
+                }
+                Some(s) if self.panorama.picker.as_deref() == Some(s.key.as_str()) => {
+                    stack![inner, self.panorama_picker(&s)].into()
+                }
+                Some(s) => {
+                    let mut layers = vec![inner];
+                    layers.extend(self.panorama_dots_overlay(&s));
+                    layers.extend(self.panorama_notifs_hint());
+                    stack(layers).into()
+                }
+                None => inner,
             }
-            Some(s) if self.panorama.picker.as_deref() == Some(s.key.as_str()) => {
-                stack![inner, self.panorama_picker(&s)].into()
-            }
-            Some(s) => {
-                let mut layers = vec![inner];
-                layers.extend(self.panorama_dots_overlay(&s));
-                layers.extend(self.panorama_notifs_hint());
-                stack(layers).into()
-            }
-            None => inner,
+        };
+        // Réglages d'un module ouverts sur cet écran : par-dessus tout.
+        match self.panorama_module_sheet_layer(id) {
+            Some(sheet) => stack![base, sheet].into(),
+            None => base,
         }
     }
 
@@ -2064,14 +2070,14 @@ impl App {
     }
 
     /// Une zone : son bandeau (s'il en a un) et son widget.
-    pub(super) fn panorama_pane_view(
-        &self,
+    pub(super) fn panorama_pane_view<'a>(
+        &'a self,
         s: &Surf,
         geo: &Geo,
         p: &Pane,
         last: bool,
         video_at: Option<Rect>,
-    ) -> Element<'_, Msg> {
+    ) -> Element<'a, Msg> {
         let (bg, fg, accent) = self.panorama_palette();
         let content = geo.content(p);
         let mut z = layout::zones(content.w, content.h, s.ppm);
@@ -2135,11 +2141,12 @@ impl App {
             "clock" => self.panorama_clock(&z, fg),
             "playlist" => self.panorama_playlist(iced::Size::new(content.w, content.h)),
             "hue" => self.panorama_hue(iced::Size::new(content.w, content.h)),
-            "modules" => self.panorama_modules(iced::Size::new(content.w, content.h)),
+            "modules" => self.panorama_modules(&s.key, iced::Size::new(content.w, content.h)),
             "voice" => self.panorama_voice_module(iced::Size::new(content.w, content.h)),
             "notes" => self.panorama_notes(iced::Size::new(content.w, content.h)),
+            "meteo" => self.panorama_meteo(iced::Size::new(content.w, content.h)),
             "updates" => self.panorama_updates(iced::Size::new(content.w, content.h)),
-            "aside" => self.panorama_aside(iced::Size::new(content.w, content.h)),
+            "aside" => self.panorama_aside(&s.key, iced::Size::new(content.w, content.h)),
             // Webradio en cours : barre « flux vocal ».
             "video" if self.panorama.radio.is_some() => {
                 let (name, _) = self.panorama.radio.clone().unwrap_or_default();
@@ -2235,16 +2242,33 @@ impl App {
                 .style(move |_| fx::glass(bg, fg, self.panorama_palette().2, 18.0))
                 .into()
         };
-        if !Geo::has_header(p) {
-            return container(body).width(p.rect.w).height(p.rect.h).into();
+        let pane: Element<'a, Msg> = if !Geo::has_header(p) {
+            container(body).width(p.rect.w).height(p.rect.h).into()
+        } else {
+            column![
+                self.panorama_pane_header(s, geo, p, last, fg, bg),
+                container(body).width(content.w).height(content.h)
+            ]
+            .width(p.rect.w)
+            .height(p.rect.h)
+            .into()
+        };
+        // Zone d'un module : l'appui long ouvre ses réglages.
+        if crate::panorama::modules::CATALOGUE
+            .iter()
+            .any(|(id, _, _)| *id == p.widget)
+        {
+            super::hold::hold(
+                pane,
+                wrap(PMsg::ModuleSettings(Some((
+                    s.key.clone(),
+                    p.widget.clone(),
+                )))),
+            )
+            .into()
+        } else {
+            pane
         }
-        column![
-            self.panorama_pane_header(s, geo, p, last, fg, bg),
-            container(body).width(content.w).height(content.h)
-        ]
-        .width(p.rect.w)
-        .height(p.rect.h)
-        .into()
     }
 
     /// Bandeau d'une zone : ◀ widget ▶ (écran partagé), commandes de la

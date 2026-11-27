@@ -57,6 +57,58 @@ fn wifi(bars: usize) -> String {
     out
 }
 
+/// Soleil du jeu : luminosité de l'écran, temps dégagé.
+const SUN: &str = r#"<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>"#;
+
+/// Météo (`weather-*`, tuile Météo du Panorama) : un nuage, seul ou sous un
+/// soleil, une lune, et ce qu'il en tombe. Un nuage est l'enveloppe de trois
+/// cercles : arcs tangents, sans trait dedans.
+fn weather(name: &str) -> Option<String> {
+    /// Grand nuage, seul (temps couvert).
+    const CLOUD: &str = r#"<path d="M6.5 17.5A3.9 3.9 0 0 1 3.62 10.97A5.3 5.3 0 0 1 15.89 6.53A3.6 3.6 0 0 1 17.3 17.5Z"/>"#;
+    /// Nuage relevé : au-dessous, la place de ce qui en tombe.
+    const HIGH: &str = r#"<path d="M6.4 15.2A3.6 3.6 0 0 1 3.79 9.12A4.9 4.9 0 0 1 15.07 4.95A3.4 3.4 0 0 1 16.6 15.2Z"/>"#;
+    /// Soleil en haut d'un nuage : sept rayons, aucun de son côté.
+    const SUN_BESIDE: &str = r#"<circle cx="7.4" cy="7.4" r="3"/><path d="M12.1 7.4h1.7M7.4 12.1v1.7M4.08 10.72l-1.2 1.2M2.7 7.4H1M4.08 4.08l-1.2-1.2M7.4 2.7V1M10.72 4.08l1.2-1.2"/>"#;
+    /// Croissant de lune du jeu, plus petit.
+    const MOON: &str =
+        r#"<path d="M9.4 7.85A4.25 4.25 0 0 1 4.15 2.6a4.25 4.25 0 1 0 5.25 5.25Z"/>"#;
+    /// Petit nuage, sous le soleil ou la lune.
+    const LOW: &str = r#"<path d="M11.2 19.8A3.1 3.1 0 0 1 9.01 14.51A4.1 4.1 0 0 1 18.76 11.09A2.9 2.9 0 0 1 19.8 19.8Z"/>"#;
+    let out = match name {
+        "weather-clear" => SUN.to_string(),
+        "weather-clear-night" => {
+            r#"<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>"#.to_string()
+        }
+        "weather-few-clouds" => format!("{SUN_BESIDE}{LOW}"),
+        "weather-few-clouds-night" => format!("{MOON}{LOW}"),
+        "weather-showers" => {
+            format!(r#"{SUN_BESIDE}{LOW}<path d="M13.7 20.9l-.8 2M18.2 20.9l-.8 2"/>"#)
+        }
+        "weather-overcast" => CLOUD.to_string(),
+        "weather-cloudy" => r#"<path d="M3.43 7.9A1.9 1.9 0 0 1 2.52 4.31A2.5 2.5 0 0 1 8.5 3.38A1.6 1.6 0 0 1 8.83 7.8Z"/><path d="M9.4 18.7A3.3 3.3 0 0 1 7.32 12.84A4.4 4.4 0 0 1 17.74 9.52A3.1 3.1 0 0 1 19.4 18.7Z"/>"#.to_string(),
+        "weather-fog" => format!(r#"{HIGH}<path d="M4.5 18.2h14M7 21.2h9"/>"#),
+        "weather-drizzle" => format!(
+            r#"{HIGH}<path d="M7 17.4h.01M11 17.4h.01M15 17.4h.01M9 20.6h.01M13 20.6h.01M17 20.6h.01"/>"#
+        ),
+        "weather-hail" => format!(
+            r#"{HIGH}<circle cx="6.5" cy="19.2" r="1.5"/><circle cx="11.5" cy="19.2" r="1.5"/><circle cx="16.5" cy="19.2" r="1.5"/>"#
+        ),
+        "weather-rain" => format!(r#"{HIGH}<path d="M8 17.2l-1 3M12 17.2l-1 3M16 17.2l-1 3"/>"#),
+        // Grésil : de la pluie et un flocon.
+        "weather-sleet" => {
+            format!(r#"{HIGH}<path d="M8 17.2l-1 3M14.6 16.6v6M12 18.1l5.2 3M17.2 18.1l-5.2 3"/>"#)
+        }
+        // Flocons : trois axes à soixante degrés.
+        "weather-snow" => format!(
+            r#"{HIGH}<path d="M8.2 16.6v6M5.6 18.1l5.2 3M10.8 18.1l-5.2 3M15.6 16.6v6M13 18.1l5.2 3M18.2 18.1l-5.2 3"/>"#
+        ),
+        "weather-storm" => format!(r#"{HIGH}<path d="M13.2 14.6l-3 3.6h3.6l-3 3.6"/>"#),
+        _ => return None,
+    };
+    Some(out)
+}
+
 /// Épaisseur du trait d'un glyphe posé à côté d'un texte de graisse `weight`
 /// (HIG ICO-12) : l'icône suit la graisse du texte voisin. Le texte régulier
 /// garde le trait du jeu, 1,7.
@@ -93,6 +145,10 @@ pub fn get_weighted(name: &str, weight: iced::font::Weight) -> Option<svg::Handl
     let path: &str = match name {
         _ if name.starts_with("battery") => {
             owned = battery(name);
+            &owned
+        }
+        _ if name.starts_with("weather-") => {
+            owned = weather(name)?;
             &owned
         }
         "network-wireless" | "network-wireless-signal-excellent" => {
@@ -328,9 +384,7 @@ pub fn get_weighted(name: &str, weight: iced::font::Weight) -> Option<svg::Handl
             r#"<circle cx="15.5" cy="12" r="5.5"/><path d="M2 9h5M3 12h4M2 15h5"/>"#
         }
         // Luminosité de l'écran : un soleil.
-        "display-brightness" | "brightness-display" => {
-            r#"<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>"#
-        }
+        "display-brightness" | "brightness-display" => SUN,
         // Rétroéclairage du clavier : un clavier, rayons au-dessus.
         "keyboard-brightness" => {
             r#"<rect x="2" y="11" width="20" height="10" rx="2.5"/><path d="M6 15h.01M10 15h.01M14 15h.01M18 15h.01M8 18h8M12 3v3M6.5 5l1.5 2M17.5 5 16 7"/>"#
@@ -338,9 +392,6 @@ pub fn get_weighted(name: &str, weight: iced::font::Weight) -> Option<svg::Handl
         "system-reboot" => r#"<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>"#,
         "system-log-out" => {
             r#"<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M9 8l-4 4 4 4M5 12h11"/>"#
-        }
-        "weather-clear-night" => {
-            r#"<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>"#
         }
         "application-x-executable" => {
             r#"<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M12 15h5"/>"#
@@ -942,6 +993,44 @@ mod tests {
         ] {
             assert!(get(n).is_some(), "{n}");
         }
+    }
+
+    /// La météo du Panorama a son glyphe pour chaque temps, le jour comme la
+    /// nuit ; un temps hors jeu retombe sur le thème.
+    #[test]
+    fn glyphes_de_la_meteo() {
+        let src = |n: &str| match get(n).map(|h| h.data().clone()) {
+            Some(iced::advanced::svg::Data::Bytes(b)) => String::from_utf8(b.to_vec()).unwrap(),
+            other => panic!("{n} : {other:?}"),
+        };
+        for name in [
+            "weather-clear",
+            "weather-clear-night",
+            "weather-few-clouds",
+            "weather-few-clouds-night",
+            "weather-cloudy",
+            "weather-overcast",
+            "weather-fog",
+            "weather-drizzle",
+            "weather-rain",
+            "weather-showers",
+            "weather-sleet",
+            "weather-snow",
+            "weather-storm",
+            "weather-hail",
+        ] {
+            assert!(src(name).contains("<path"), "{name}");
+            assert!(
+                get(&format!("{name}-symbolic")).is_some(),
+                "{name} symbolique"
+            );
+        }
+        assert!(get("weather-tornado").is_none());
+        // Le soleil de l'écran et celui du temps dégagé sont le même dessin.
+        assert_eq!(src("display-brightness"), src("weather-clear"));
+        // Soleil et lune se lisent l'un et l'autre, chacun à côté de son nuage.
+        assert_ne!(src("weather-few-clouds"), src("weather-few-clouds-night"));
+        assert_ne!(src("weather-drizzle"), src("weather-hail"));
     }
 
     /// HIG ICO-08 : une variante « indisponible » porte la même barre que les

@@ -45,7 +45,8 @@ dedicated binaries handle authentication: `hyprdesk-lock` (lock screen),
 `hyprdesk-greeter` (login screen) and `hyprdesk-polkit` (polkit agent). Each
 one only contains its own code (no daemon, no Lua, no file index), and
 `hyprdesk lock`, `hyprdesk greeter` and `hyprdesk polkit-ui` hand over to
-them.
+them. A fourth one, `hyprdesk-theme-engine`, owns the theme: Settings → Theme
+and `hyprdesk config set theme.*` go through the same engine.
 
 The script also sets up the systemd user service. It creates
 `~/.config/hypr/hyprdesk.lua` if needed and backs up `hyprland.lua` before

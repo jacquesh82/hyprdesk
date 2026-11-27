@@ -3,7 +3,8 @@
 //! commande : il ne lie ni Lua, ni iced, ni l'index.
 //!
 //! Commandes : `list`, `info`, `use`, `apply`, `generate`, `palette`,
-//! `verify`, `doctor`. Toutes acceptent `--json` ; les modes d'application
+//! `verify`, `doctor`, `preview`, `recolor`, `install`, `remove`, `export`,
+//! `diff`, `tools`, `build`, `watch`. Toutes acceptent `--json` ; les modes d'application
 //! sont `persist`, `hot` et `dry-run`. La variable `HYPRDESK_THEME=id[:variante]`
 //! surcharge le thème actif (équivalent de `GTK_THEME`).
 
