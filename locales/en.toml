@@ -5113,6 +5113,7 @@
 "Surfaces" = "Surfaces"
 "Densifié si le fond gêne la lecture ; coupez « Adaptatif » pour garder l'opacité choisie." = "Thickened when the wallpaper hurts readability; turn off “Adaptive” to keep the chosen opacity."
 "Opacité fixée dans Barre → Couleurs ; déplacer ce curseur rend la main au thème." = "Opacity set in Bar → Colours; moving this slider hands it back to the theme."
+"Matériau du verre : Thème → Surfaces." = "Glass material: Theme → Surfaces."
 # Onglets Modules du dock et du bureau ; ajout limité à ce qui n'est pas placé.
 "Bouton Assistant IA (LYRA)" = "AI assistant button (LYRA)"
 "Bouton Réglages" = "Settings button"

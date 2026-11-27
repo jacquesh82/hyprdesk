@@ -205,6 +205,9 @@ impl App {
                     SliderLook::fixed(13.0, 260, Alignment::Start),
                 ),
             ),
+            // Même réglage que Thème → Surfaces → Dock (`theme.effects.dock`),
+            // repris ici où on le cherche.
+            self.field("Opacité du fond", "theme.effects.dock", self.dock_opacity()),
             // Boutons du dock (LYRA, Réglages) : onglet Modules.
             // SmartUI design : les icônes se créent et se valident dans
             // Réglages → IA → Autres services IA.
@@ -237,6 +240,26 @@ impl App {
         .spacing(14)
         .push(self.design_fields("dock", "Style"))
         .into()
+    }
+
+    /// Opacité du fond du dock, flou et adaptatif : la ligne de Thème →
+    /// Surfaces, avec ce qui peut contredire le curseur.
+    fn dock_opacity(&self) -> Element<'_, UiMsg> {
+        let place = crate::config::Place::Dock;
+        let note = |s: &'static str| {
+            text(s)
+                .font(self.font)
+                .size(crate::ui::tokens::ts(11.0))
+                .color(self.ink().dim)
+        };
+        let mut cell = column![self.surface_opacity(place)].spacing(8);
+        if self.cfg.general.theme.effect(place).adaptive.is_some() {
+            cell = cell.push(note(
+                "Densifié si le fond gêne la lecture ; coupez « Adaptatif » pour garder l'opacité choisie.",
+            ));
+        }
+        cell.push(note("Matériau du verre : Thème → Surfaces."))
+            .into()
     }
 
     /// Onglet Modules : ce que montre le dock (applications épinglées,

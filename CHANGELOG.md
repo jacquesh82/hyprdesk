@@ -35,6 +35,10 @@ and this project adheres to
   itself. On an error (unknown city) it stays, to correct; left alone, it
   closes after three minutes. Preview scenes: `panorama-meteo-reglages`,
   `panorama-notes-reglages`.
+- **Dock opacity on the Dock page**: Settings → Dock → Appearance gains
+  « Background opacity » (slider, Blur, Adaptive), the same setting as
+  Theme → Surfaces → Dock (`theme.effects.dock`), where the glass material
+  stays.
 
 ## [0.2.1] - 2026-11-25
 

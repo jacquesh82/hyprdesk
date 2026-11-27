@@ -693,57 +693,11 @@ impl App {
 
         // Effets de chaque endroit.
         let effects = || {
-            let percent = |v: f64| format!("{} %", v.round() as i32);
             let mut effects = column![].spacing(12);
             for place in SURFACES {
                 let e = th.effect(place);
-                let spec = SliderSpec::new(
-                    place.as_str(),
-                    (0.0, 100.0),
-                    1.0,
-                    move |v| wrap(Msg::Opacity(place, v.round() as u32 as f32 / 100.0)),
-                    wrap(Msg::Commit),
-                );
-                // Les interrupteurs restent sur la ligne du curseur, au-dessus de
-                // son échelle (HIG SEL-09).
-                // La barre peut avoir sa propre opacité (Barre → Couleurs),
-                // qui l'emporte : le curseur montre celle qui s'applique.
-                let bar_own = (place == Place::Bar)
-                    .then(|| self.cfg.bar.as_ref().and_then(|b| b.colors.opacity))
-                    .flatten();
-                let mut line = row![self.slider(
-                    &spec,
-                    f64::from((bar_own.unwrap_or(e.opacity) * 100.0).round() as u32),
-                    percent,
-                    SliderLook::fill(13.0, 48, Alignment::Center),
-                ),]
-                .spacing(12)
-                .align_y(Alignment::Center);
-                if place.blurrable() {
-                    line = line.push(beside_slider(
-                        &spec,
-                        self.focusable(
-                            self.toggle(e.blur)
-                                .label(crate::i18n::tr("Flou"))
-                                .font(font)
-                                .on_toggle(move |v| wrap(Msg::Blur(place, v))),
-                        ),
-                    ));
-                }
-                // Transparence adaptative : les surfaces posées sur le fond
-                // d'écran (menus, Réglages et LYRA passent devant des
-                // fenêtres, invisibles pour hyprdesk).
-                if place.adaptable() {
-                    line = line.push(beside_slider(
-                        &spec,
-                        self.focusable(
-                            self.toggle(e.adaptive.is_some())
-                                .label(crate::i18n::tr("Adaptatif"))
-                                .font(font)
-                                .on_toggle(move |v| wrap(Msg::Adaptive(place, v))),
-                        ),
-                    ));
-                }
+                let bar_own = self.bar_own_opacity(place);
+                let line = self.surface_opacity(place);
                 // Matériau (MLG-336) : le verre de la surface ; « Thème »
                 // garde celui du thème choisi.
                 let materials = row(std::iter::once(None)
@@ -1283,6 +1237,68 @@ impl App {
         ]
         .spacing(14)
         .into()
+    }
+
+    /// Opacité propre de la barre (Barre → Couleurs), qui l'emporte sur
+    /// celle du thème ; `None` pour toute autre surface.
+    fn bar_own_opacity(&self, place: Place) -> Option<f32> {
+        (place == Place::Bar)
+            .then(|| self.cfg.bar.as_ref().and_then(|b| b.colors.opacity))
+            .flatten()
+    }
+
+    /// Ligne d'opacité d'une surface : le curseur, puis « Flou » et
+    /// « Adaptatif » quand la surface les connaît. Thème → Surfaces la montre
+    /// pour chaque surface ; la page du Dock reprend celle du dock.
+    pub(in crate::ui) fn surface_opacity(&self, place: Place) -> Element<'_, UiMsg> {
+        let font = self.font;
+        let e = self.cfg.general.theme.effect(place);
+        let spec = SliderSpec::new(
+            place.as_str(),
+            (0.0, 100.0),
+            1.0,
+            move |v| wrap(Msg::Opacity(place, v.round() as u32 as f32 / 100.0)),
+            wrap(Msg::Commit),
+        );
+        // La barre peut avoir sa propre opacité (Barre → Couleurs), qui
+        // l'emporte : le curseur montre celle qui s'applique.
+        let shown = self.bar_own_opacity(place).unwrap_or(e.opacity);
+        // Les interrupteurs restent sur la ligne du curseur, au-dessus de son
+        // échelle (HIG SEL-09).
+        let mut line = row![self.slider(
+            &spec,
+            f64::from((shown * 100.0).round() as u32),
+            |v: f64| format!("{} %", v.round() as i32),
+            SliderLook::fill(13.0, 48, Alignment::Center),
+        ),]
+        .spacing(12)
+        .align_y(Alignment::Center);
+        if place.blurrable() {
+            line = line.push(beside_slider(
+                &spec,
+                self.focusable(
+                    self.toggle(e.blur)
+                        .label(crate::i18n::tr("Flou"))
+                        .font(font)
+                        .on_toggle(move |v| wrap(Msg::Blur(place, v))),
+                ),
+            ));
+        }
+        // Transparence adaptative : les surfaces posées sur le fond d'écran
+        // (menus, Réglages et LYRA passent devant des fenêtres, invisibles
+        // pour hyprdesk).
+        if place.adaptable() {
+            line = line.push(beside_slider(
+                &spec,
+                self.focusable(
+                    self.toggle(e.adaptive.is_some())
+                        .label(crate::i18n::tr("Adaptatif"))
+                        .font(font)
+                        .on_toggle(move |v| wrap(Msg::Adaptive(place, v))),
+                ),
+            ));
+        }
+        line.into()
     }
 
     /// Effet en place d'un endroit, réglé ici ou non.
